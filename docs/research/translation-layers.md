@@ -151,6 +151,19 @@ Progress:
   upstream says the native Android build "won't run linux binaries". The
   game is a glibc Linux program, so this setup cannot run it as is.
 
+- Second setup (chosen): Box64 built for **Linux glibc** on arm64, shipped
+  with a minimal ARM64 glibc runtime taken from the cross compiler
+  (`ld-linux-aarch64.so.1`, `libc`, `libm`, `libdl`, `libpthread`, `librt`,
+  `libutil`, `libresolv`, `libgcc_s`; about 3 MB). The app starts glibc's
+  loader, which loads Box64, which runs the probe. Files are renamed to
+  `lib*.so` in the APK and linked back to their real names at run time.
+  Verified with the APK's own files under qemu-aarch64: correct checksum.
+  **Not yet tested on a phone.** The GPU question (section below) is still
+  open for this setup: on Mali it will need VirGL or libhybris.
+- Licenses of the shipped runtime: glibc is LGPL-2.1-or-later and libgcc_s
+  is GPL-3.0 with the GCC Runtime Library Exception. Both are compatible
+  with GPL-3.0, but a public release must offer their source code.
+
 ### Consequence for the CPU choice
 
 To run glibc Linux programs on Android there are three known setups:

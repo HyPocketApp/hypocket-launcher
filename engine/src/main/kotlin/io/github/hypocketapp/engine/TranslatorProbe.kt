@@ -11,19 +11,24 @@ import kotlin.concurrent.thread
  * natively, so we can check that the result is correct and compare speed and
  * memory. It uses no game files.
  *
+ * Box64 is the Linux (glibc) build, so it is started through glibc's dynamic
+ * loader, shipped in the APK together with a minimal glibc runtime.
+ *
  * Blocking: call it from a background thread.
  */
 class TranslatorProbe(context: Context) {
     private val appContext = context.applicationContext
 
-    private val box64 = File(appContext.applicationInfo.nativeLibraryDir, "libbox64.so")
+    private val nativeLibDir = File(appContext.applicationInfo.nativeLibraryDir)
+    private val box64 = File(nativeLibDir, "libbox64.so")
+    private val loader = File(nativeLibDir, "libglibc_ld.so")
 
     fun run(timeoutSeconds: Long = 120): ProbeReport {
         val native = NativeBridge.nativeRunWorkload()
         val nativeChecksum = native[0].toULong()
         val nativeMillis = native[1]
 
-        if (!box64.exists()) {
+        if (!box64.exists() || !loader.exists()) {
             return ProbeReport(
                 status = ProbeStatus.TRANSLATOR_NOT_AVAILABLE,
                 nativeChecksum = nativeChecksum,
@@ -32,13 +37,22 @@ class TranslatorProbe(context: Context) {
         }
 
         val guest = extractGuest()
-        val process = ProcessBuilder(box64.absolutePath, guest.absolutePath)
+        val glibcDir = prepareGlibcDir()
+        val process = ProcessBuilder(
+            loader.absolutePath,
+            "--library-path", glibcDir.absolutePath,
+            box64.absolutePath,
+            guest.absolutePath,
+        )
             .directory(appContext.filesDir)
             .redirectErrorStream(true)
             .apply {
                 environment()["HOME"] = appContext.filesDir.absolutePath
                 environment()["TMPDIR"] = appContext.cacheDir.absolutePath
                 environment()["BOX64_LOG"] = "1"
+                // glibc registers rseq at startup; Android's seccomp filter
+                // may not allow it, so turn it off.
+                environment()["GLIBC_TUNABLES"] = "glibc.pthread.rseq=0"
             }
 
         val startNanos = System.nanoTime()
@@ -81,6 +95,21 @@ class TranslatorProbe(context: Context) {
         )
     }
 
+    /**
+     * Creates a directory where the glibc runtime has its real file names,
+     * as symbolic links to the renamed copies in the native library dir.
+     */
+    private fun prepareGlibcDir(): File {
+        val dir = File(appContext.filesDir, "glibc")
+        dir.mkdirs()
+        GLIBC_RUNTIME.forEach { (name, apkName) ->
+            val link = File(dir, name).toPath()
+            java.nio.file.Files.deleteIfExists(link)
+            java.nio.file.Files.createSymbolicLink(link, File(nativeLibDir, apkName).toPath())
+        }
+        return dir
+    }
+
     /** Copies the probe from the APK assets to private storage. */
     private fun extractGuest(): File {
         val target = File(appContext.filesDir, "guest-tests/$GUEST_NAME")
@@ -97,6 +126,19 @@ class TranslatorProbe(context: Context) {
 
     private companion object {
         const val GUEST_NAME = "probe-x86_64"
+
+        /** Must match GLIBC_RUNTIME in engine/build.gradle.kts. */
+        val GLIBC_RUNTIME = mapOf(
+            "ld-linux-aarch64.so.1" to "libglibc_ld.so",
+            "libc.so.6" to "libglibc_c.so",
+            "libm.so.6" to "libglibc_m.so",
+            "libresolv.so.2" to "libglibc_resolv.so",
+            "libdl.so.2" to "libglibc_dl.so",
+            "libpthread.so.0" to "libglibc_pthread.so",
+            "librt.so.1" to "libglibc_rt.so",
+            "libutil.so.1" to "libglibc_util.so",
+            "libgcc_s.so.1" to "libglibc_gcc_s.so",
+        )
         const val MAX_OUTPUT_CHARS = 64 * 1024
     }
 }

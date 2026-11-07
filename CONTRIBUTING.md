@@ -72,6 +72,11 @@ plan for `:engine` is in [docs/research/translation-layers.md](docs/research/tra
   Android Studio SDK Manager, under "SDK Tools"; the versions are pinned in
   `engine/build.gradle.kts`)
 
+- For the CPU translator (Box64): an aarch64 Linux cross compiler. On
+  Debian/Ubuntu (or WSL): `sudo apt install gcc-aarch64-linux-gnu
+  g++-aarch64-linux-gnu`. Without it the app still builds, but the
+  translator test reports that the translator is unavailable.
+
 If you build from the command line, create a `local.properties` file with
 `sdk.dir=/path/to/your/Android/sdk` (Android Studio does this for you).
 - An Android 9 (API 28) or newer device or emulator. For engine work, a real
