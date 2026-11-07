@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.hypocketapp.core.settings.LauncherSettings
 import io.github.hypocketapp.core.settings.SettingsStore
+import io.github.hypocketapp.engine.DisplayTest
 import io.github.hypocketapp.engine.Engine
 import io.github.hypocketapp.launcher.R
 import io.github.hypocketapp.launcher.ui.ScreenColumn
@@ -67,7 +68,9 @@ fun SettingsScreen(store: SettingsStore, modifier: Modifier = Modifier) {
 
         GraphicsTestSection()
 
-        DisplayTestSection()
+        DisplayTestSection(DisplayTest.SCENE)
+
+        DisplayTestSection(DisplayTest.PERFORMANCE)
 
         Text(stringResource(R.string.unofficial_notice), style = MaterialTheme.typography.bodySmall)
     }

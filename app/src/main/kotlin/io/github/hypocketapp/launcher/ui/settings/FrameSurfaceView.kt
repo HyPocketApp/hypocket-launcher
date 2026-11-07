@@ -53,10 +53,12 @@ class FrameSurfaceView(context: Context, private val frameFile: File) :
     override fun doFrame(frameTimeNanos: Long) {
         if (!surfaceReady) return
         val source = frame ?: SharedFrame.open(frameFile)?.also { frame = it }
-        if (source != null) {
-            val target = bitmap ?: createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
-                .also { bitmap = it }
-            if (source.copyNewFrame(target)) {
+        if (source != null && source.hasNewFrame) {
+            val w = source.width
+            val h = source.height
+            val target = bitmap?.takeIf { it.width == w && it.height == h }
+                ?: createBitmap(w, h, Bitmap.Config.ARGB_8888).also { bitmap = it }
+            if (source.copyFrame(target)) {
                 shownFrames++
                 draw(target)
             }

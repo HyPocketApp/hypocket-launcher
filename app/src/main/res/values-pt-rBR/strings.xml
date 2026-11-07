@@ -73,4 +73,8 @@
     <string name="display_guest_fps">Desenhado pelo programa de teste (pode passar da taxa da tela): %1$.1f fps</string>
     <string name="display_per_frame">Por quadro: desenho %1$.1f ms, cópia %2$.1f ms</string>
     <string name="display_close">Fechar</string>
+    <string name="perf_title">Teste de desempenho de gráficos</string>
+    <string name="perf_description">Desenha um terreno de blocos com textura e iluminação em 50%, 75% e 100% da resolução da sua tela, com três quantidades de blocos, e mede o tempo por quadro. Leva uns 30 segundos e não usa nenhum arquivo do jogo.</string>
+    <string name="perf_open">Abrir teste de desempenho</string>
+    <string name="perf_running">Medindo o desempenho… (uns 30 segundos)</string>
 </resources>

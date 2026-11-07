@@ -250,6 +250,18 @@ waits for the GPU to finish, so the 6.5 ms is GPU time plus the copy. At
 640x360 the read-back path is not the bottleneck yet; at the game's
 resolution it will be (the copy grows with the pixel count).
 
+### Graphics performance test (November 2026)
+
+On phones the game should run in a window with the screen's aspect ratio
+and a lower internal resolution scaled up to the full screen (the app's
+"Render resolution" setting), not at a desktop resolution, so its UI stays
+readable. `engine/guest-tests/gl-perf-probe` therefore measures at 50%, 75%
+and 100% of the phone's own screen, with three loads of a textured, lit,
+depth-tested block terrain (2048, 8192 and 27648 cubes, every face drawn).
+It times draw plus `glFinish` (GPU time through VirGL) separately from the
+read-back used for display (**Settings > Graphics performance test**).
+Verified through VirGL under qemu; not yet tested on a phone.
+
 ### Consequence for the CPU choice
 
 To run glibc Linux programs on Android there are three known setups:
