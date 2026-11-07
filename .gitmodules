@@ -1,3 +1,4 @@
 [submodule "engine/third_party/box64"]
 	path = engine/third_party/box64
 	url = https://github.com/ptitSeb/box64.git
+	ignore = dirty
