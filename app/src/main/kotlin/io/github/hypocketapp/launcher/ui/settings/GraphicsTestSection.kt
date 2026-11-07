@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import io.github.hypocketapp.engine.GraphicsProbe
 import io.github.hypocketapp.engine.GraphicsReport
 import io.github.hypocketapp.engine.GraphicsStatus
+import io.github.hypocketapp.engine.GraphicsTest
 import io.github.hypocketapp.launcher.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -37,7 +38,7 @@ fun GraphicsTestSection() {
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     var running by remember { mutableStateOf(false) }
-    var report by remember { mutableStateOf<GraphicsReport?>(null) }
+    var reports by remember { mutableStateOf<List<GraphicsReport>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -52,7 +53,13 @@ fun GraphicsTestSection() {
                     error = null
                     scope.launch {
                         try {
-                            report = withContext(Dispatchers.IO) { GraphicsProbe(context).run() }
+                            reports = emptyList()
+                            val probe = GraphicsProbe(context)
+                            // One after the other: the server serves one client and exits.
+                            for (test in GraphicsTest.entries) {
+                                val result = withContext(Dispatchers.IO) { probe.run(test) }
+                                reports = reports + result
+                            }
                         } catch (e: Exception) {
                             error = e.toString()
                         } finally {
@@ -62,10 +69,9 @@ fun GraphicsTestSection() {
                 },
             ) { Text(stringResource(R.string.probe_run)) }
 
-            val current = report
-            if (current != null || error != null) {
+            if (reports.isNotEmpty() || error != null) {
                 OutlinedButton(onClick = {
-                    val text = current?.toShareText() ?: error.orEmpty()
+                    val text = (reports.map { it.toShareText() } + listOfNotNull(error)).joinToString("\n\n")
                     scope.launch {
                         clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("HyPocket report", text)))
                     }
@@ -76,9 +82,11 @@ fun GraphicsTestSection() {
         if (running) CircularProgressIndicator()
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
-        report?.let { current ->
-            Text(stringResource(current.status.label()), style = MaterialTheme.typography.titleSmall)
+        reports.forEach { current ->
+            Text(stringResource(current.test.label()), style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(current.status.label()))
             current.renderer?.let { Text(stringResource(R.string.gfx_renderer, it)) }
+            current.highestCoreVersion?.let { Text(stringResource(R.string.gfx_core_version, it)) }
             current.frameMillis?.let { Text(stringResource(R.string.gfx_frames, it)) }
             val output = listOf(current.output, current.serverOutput).filter { it.isNotBlank() }.joinToString("\n")
             if (output.isNotBlank()) {
@@ -90,9 +98,15 @@ fun GraphicsTestSection() {
     }
 }
 
+private fun GraphicsTest.label(): Int = when (this) {
+    GraphicsTest.GLES -> R.string.gfx_test_gles
+    GraphicsTest.DESKTOP_CORE -> R.string.gfx_test_desktop
+}
+
 private fun GraphicsStatus.label(): Int = when (this) {
     GraphicsStatus.PASSED -> R.string.gfx_status_passed
     GraphicsStatus.WRONG_RESULT -> R.string.gfx_status_wrong_result
+    GraphicsStatus.BELOW_REQUIRED_VERSION -> R.string.gfx_status_below_required
     GraphicsStatus.FAILED -> R.string.probe_status_failed
     GraphicsStatus.TIMED_OUT -> R.string.probe_status_timed_out
     GraphicsStatus.BLOCKED_SYSCALL -> R.string.probe_status_blocked_syscall
@@ -102,13 +116,14 @@ private fun GraphicsStatus.label(): Int = when (this) {
 
 /** Plain-text report, in English, to paste into an issue. */
 private fun GraphicsReport.toShareText(): String = buildString {
-    appendLine("HyPocket graphics probe")
+    appendLine("HyPocket graphics probe: $test")
     appendLine("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
     appendLine("Android: ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
     appendLine("SoC: ${if (android.os.Build.VERSION.SDK_INT >= 31) android.os.Build.SOC_MODEL else "unknown"}")
     appendLine("Status: $status")
     appendLine("Renderer: ${renderer ?: "-"}")
     appendLine("Version: ${version ?: "-"}")
+    if (test == GraphicsTest.DESKTOP_CORE) appendLine("Highest core profile: ${highestCoreVersion ?: "-"}")
     appendLine("120 frames: ${frameMillis ?: "-"} ms")
     appendLine("Total with startup: ${totalMillis ?: "-"} ms")
     appendLine("Exit code: ${exitCode ?: "-"}")

@@ -3,9 +3,21 @@ package io.github.hypocketapp.engine
 import java.io.File
 import android.content.Context
 
+/** The graphics test programs in engine/guest-tests. */
+enum class GraphicsTest(internal val asset: String, internal val tag: String) {
+    /** OpenGL ES 2 triangle (engine/guest-tests/gl-probe). */
+    GLES("gl-probe-x86_64", "gl-probe"),
+
+    /**
+     * Desktop OpenGL core profile, which the game needs (4.1 or newer)
+     * (engine/guest-tests/gl-core-probe).
+     */
+    DESKTOP_CORE("gl-core-probe-x86_64", "gl-core-probe"),
+}
+
 /**
- * Proof of concept for the graphics path: runs our own x86-64 OpenGL ES test
- * program (engine/guest-tests/gl-probe) through Box64. Its EGL/GL calls go to
+ * Proof of concept for the graphics path: runs one of our own x86-64 OpenGL
+ * test programs through Box64. Its EGL/GL calls go to
  * Mesa's virgl driver in the guest, which sends them to a VirGL server running
  * on Android, which draws with the phone's own GPU driver. The program draws a
  * triangle off screen and checks the colors it reads back. No game files.
@@ -16,9 +28,9 @@ class GraphicsProbe(context: Context) {
     private val runtime = GuestRuntime(context)
     private val server = File(runtime.nativeLibDir, "libvirgl_server.so")
 
-    fun run(timeoutSeconds: Long = 120): GraphicsReport {
+    fun run(test: GraphicsTest, timeoutSeconds: Long = 120): GraphicsReport {
         if (!runtime.isAvailable || !server.exists()) {
-            return GraphicsReport(GraphicsStatus.NOT_AVAILABLE)
+            return GraphicsReport(test, GraphicsStatus.NOT_AVAILABLE)
         }
 
         val socket = File(runtime.cacheDir, "virgl.sock")
@@ -46,13 +58,14 @@ class GraphicsProbe(context: Context) {
                 serverProcess.destroyForcibly()
                 serverReader.join(2000)
                 return GraphicsReport(
+                    test = test,
                     status = GraphicsStatus.SERVER_FAILED,
                     serverOutput = synchronized(serverOutput) { serverOutput.toString() },
                 )
             }
 
             val result = runtime.runAsset(
-                "gl-probe-x86_64",
+                test.asset,
                 extraEnv = mapOf(
                     "VTEST_SOCKET_NAME" to socket.absolutePath,
                     "GALLIUM_DRIVER" to "virpipe",
@@ -66,15 +79,19 @@ class GraphicsProbe(context: Context) {
                 !result.finished -> GraphicsStatus.TIMED_OUT
                 result.blockedSyscall -> GraphicsStatus.BLOCKED_SYSCALL
                 result.exitCode == 2 -> GraphicsStatus.WRONG_RESULT
-                result.exitCode != 0 || !text.contains("gl-probe: ok") -> GraphicsStatus.FAILED
+                result.exitCode == 3 -> GraphicsStatus.BELOW_REQUIRED_VERSION
+                result.exitCode != 0 || !text.contains("${test.tag}: ok") -> GraphicsStatus.FAILED
                 else -> GraphicsStatus.PASSED
             }
             serverProcess.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
+            val tag = Regex.escape(test.tag)
             return GraphicsReport(
+                test = test,
                 status = status,
-                renderer = Regex("""gl-probe: GL_RENDERER (.*)""").find(text)?.groupValues?.get(1),
-                version = Regex("""gl-probe: GL_VERSION (.*)""").find(text)?.groupValues?.get(1),
-                frameMillis = Regex("""gl-probe: \d+ frames in (\d+) ms""").find(text)
+                renderer = Regex("""$tag: GL_RENDERER (.*)""").find(text)?.groupValues?.get(1),
+                version = Regex("""$tag: GL_VERSION (.*)""").find(text)?.groupValues?.get(1),
+                highestCoreVersion = Regex("""$tag: highest core (\d+\.\d+)""").find(text)?.groupValues?.get(1),
+                frameMillis = Regex("""$tag: \d+ frames in (\d+) ms""").find(text)
                     ?.groupValues?.get(1)?.toLongOrNull(),
                 totalMillis = result.millis,
                 exitCode = result.exitCode,
@@ -101,6 +118,9 @@ class GraphicsProbe(context: Context) {
 enum class GraphicsStatus {
     PASSED,
     WRONG_RESULT,
+
+    /** Drew correctly, but the highest desktop GL core version is below 4.1. */
+    BELOW_REQUIRED_VERSION,
     FAILED,
     TIMED_OUT,
     BLOCKED_SYSCALL,
@@ -113,9 +133,12 @@ enum class GraphicsStatus {
 }
 
 data class GraphicsReport(
+    val test: GraphicsTest,
     val status: GraphicsStatus,
     val renderer: String? = null,
     val version: String? = null,
+    /** Highest desktop OpenGL core profile version (DESKTOP_CORE only). */
+    val highestCoreVersion: String? = null,
     /** Time to draw the probe's 120 frames. */
     val frameMillis: Long? = null,
     val totalMillis: Long? = null,

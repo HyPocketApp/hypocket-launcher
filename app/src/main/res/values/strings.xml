@@ -61,4 +61,8 @@
     <string name="gfx_status_server_failed">Failed: the graphics server did not start.</string>
     <string name="gfx_renderer">Renderer: %1$s</string>
     <string name="gfx_frames">120 frames: %1$d ms</string>
+    <string name="gfx_test_gles">OpenGL ES (phone)</string>
+    <string name="gfx_test_desktop">Desktop OpenGL (what the game needs)</string>
+    <string name="gfx_status_below_required">Drawn correctly, but the desktop OpenGL version is below the 4.1 the game needs.</string>
+    <string name="gfx_core_version">Highest desktop OpenGL core version: %1$s</string>
 </resources>
