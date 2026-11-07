@@ -14,8 +14,10 @@ The guest's GL calls reach the phone's GPU through VirGL: Mesa's virgl driver
 Changes for Android:
 
 - `android-egl.patch`: build virglrenderer's EGL backend without GBM on
-  Android, as upstream already does on Windows and macOS. It then uses
-  `eglGetDisplay(EGL_DEFAULT_DISPLAY)`, which is the phone's driver.
+  Android, as upstream already does on Windows and macOS, and let
+  `vrend_winsys_init` open `EGL_DEFAULT_DISPLAY` itself (upstream's no-GBM
+  path only accepts a display handed in by an embedder). The default display
+  is the phone's own driver.
 - `shim/`: two tiny headers that stand in for AOSP-internal headers
   (`<log/log.h>`, `<cutils/properties.h>`) using the NDK's public APIs.
 
