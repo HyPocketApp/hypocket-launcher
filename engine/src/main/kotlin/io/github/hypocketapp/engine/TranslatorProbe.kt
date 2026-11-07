@@ -76,6 +76,7 @@ class TranslatorProbe(context: Context) {
         val guestChecksum = Regex("""probe: checksum (\d+)""").find(text)?.groupValues?.get(1)?.toULongOrNull()
         val status = when {
             !finished -> ProbeStatus.TIMED_OUT
+            started.exitValue() == EXIT_SIGSYS -> ProbeStatus.BLOCKED_SYSCALL
             started.exitValue() != 0 || !text.contains("probe: ok") -> ProbeStatus.FAILED
             guestChecksum != nativeChecksum -> ProbeStatus.WRONG_RESULT
             else -> ProbeStatus.PASSED
@@ -127,6 +128,9 @@ class TranslatorProbe(context: Context) {
     private companion object {
         const val GUEST_NAME = "probe-x86_64"
 
+        /** 128 + SIGSYS: Android's seccomp filter killed the process. */
+        const val EXIT_SIGSYS = 128 + 31
+
         /** Must match GLIBC_RUNTIME in engine/build.gradle.kts. */
         val GLIBC_RUNTIME = mapOf(
             "ld-linux-aarch64.so.1" to "libglibc_ld.so",
@@ -148,6 +152,9 @@ enum class ProbeStatus {
     WRONG_RESULT,
     FAILED,
     TIMED_OUT,
+
+    /** Android blocked a system call the translator or its runtime made. */
+    BLOCKED_SYSCALL,
 
     /** Box64 is not packaged for this device's ABI (e.g. x86_64 emulators). */
     TRANSLATOR_NOT_AVAILABLE,

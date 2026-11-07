@@ -104,6 +104,7 @@ private fun ProbeStatus.label(): Int = when (this) {
     ProbeStatus.WRONG_RESULT -> R.string.probe_status_wrong_result
     ProbeStatus.FAILED -> R.string.probe_status_failed
     ProbeStatus.TIMED_OUT -> R.string.probe_status_timed_out
+    ProbeStatus.BLOCKED_SYSCALL -> R.string.probe_status_blocked_syscall
     ProbeStatus.TRANSLATOR_NOT_AVAILABLE -> R.string.probe_status_not_available
 }
 

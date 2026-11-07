@@ -47,6 +47,7 @@
     <string name="probe_status_wrong_result">Resultado errado: o programa traduzido terminou, mas o resultado é diferente.</string>
     <string name="probe_status_failed">Falhou: o programa traduzido não terminou corretamente.</string>
     <string name="probe_status_timed_out">Tempo esgotado: o programa traduzido demorou demais.</string>
+    <string name="probe_status_blocked_syscall">Bloqueado: o Android parou o tradutor porque ele usou uma chamada de sistema que apps não podem usar.</string>
     <string name="probe_status_not_available">O tradutor não está disponível neste aparelho.</string>
     <string name="probe_native_time">Nativo: %1$d ms</string>
     <string name="probe_translated_time">Traduzido: %1$d ms</string>

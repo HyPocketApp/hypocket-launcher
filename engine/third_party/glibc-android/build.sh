@@ -31,9 +31,11 @@ tar -xf "$tarball" -C src --strip-components=1
 (cd src && patch -p1 < "$here/android-seccomp.patch")
 
 cd build
+# Some distributions (e.g. Ubuntu) enable _FORTIFY_SOURCE by default, which
+# breaks building glibc itself, so turn it off for the compiler.
 ../src/configure --host=aarch64-linux-gnu --build="$(../src/scripts/config.guess)" \
     --prefix=/usr --disable-werror --disable-profile --without-selinux \
-    CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++
+    CC="aarch64-linux-gnu-gcc -U_FORTIFY_SOURCE" CXX="aarch64-linux-gnu-g++ -U_FORTIFY_SOURCE"
 make -j"$(nproc)"
 
 cp elf/ld.so "$out/ld-linux-aarch64.so.1"
