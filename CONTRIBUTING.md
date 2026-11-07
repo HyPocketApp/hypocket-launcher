@@ -58,6 +58,9 @@ Rules:
 - Account verification belongs to `:core`, and the engine is only started
   after verification succeeds.
 
+Research on the CPU and graphics translation layers, their licenses and the
+plan for `:engine` is in [docs/research/translation-layers.md](docs/research/translation-layers.md).
+
 ## Getting started
 
 ### Requirements

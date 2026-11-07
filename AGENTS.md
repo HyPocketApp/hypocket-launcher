@@ -14,6 +14,8 @@ its rules apply to you. This file only adds what is specific to AI agents.
   is compatible with GPL-3.0; name the source and license in the PR.
   Reference projects (Vexa, HyPrism, Butter Launcher, Mojo Launcher) are for
   study, not for copying.
+- Vexa has no license file, so none of its code, scripts or files may be
+  copied or adapted. See `docs/research/translation-layers.md`.
 
 ## Conventions
 
