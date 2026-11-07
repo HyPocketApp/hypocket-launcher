@@ -60,15 +60,17 @@ Rules:
 
 ## Getting started
 
-> The Android project is still being set up. This section will be updated as
-> the modules land.
-
 ### Requirements
 
 - Android Studio (latest stable)
-- JDK 17
-- Android SDK and Android NDK (installed through the Android Studio SDK
-  Manager; the exact versions are pinned in the Gradle files)
+- JDK 17 or newer
+- Android SDK Platform 36
+- Android NDK 28.2.13676358 and CMake 3.31.6 (install both from the
+  Android Studio SDK Manager, under "SDK Tools"; the versions are pinned in
+  `engine/build.gradle.kts`)
+
+If you build from the command line, create a `local.properties` file with
+`sdk.dir=/path/to/your/Android/sdk` (Android Studio does this for you).
 - An Android device or emulator. For engine work, a real ARM64 device is
   strongly recommended, ideally a low-end one.
 

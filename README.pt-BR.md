@@ -41,7 +41,7 @@ O app em si (login, downloads, configurações) é escrito em Kotlin. O motor
 ## Planejamento
 
 - [x] Regras do projeto e guia de contribuição
-- [ ] Esqueleto do app Android: login, download do jogo, configurações
+- [x] Esqueleto do app Android: login, download do jogo, configurações
 - [ ] Pesquisar e integrar as camadas de tradução de CPU e gráficos
 - [ ] Otimização para aparelhos simples
 - [ ] Primeira versão pública

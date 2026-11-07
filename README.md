@@ -41,7 +41,7 @@ The app itself (sign-in, downloads, settings) is written in Kotlin. The engine
 ## Roadmap
 
 - [x] Project rules and contribution guide
-- [ ] Android app skeleton: sign-in, game download, settings
+- [x] Android app skeleton: sign-in, game download, settings
 - [ ] Research and integrate the CPU and graphics translation layers
 - [ ] Performance work for low-end devices
 - [ ] First public release

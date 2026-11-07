@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tab_account">Conta</string>
+    <string name="tab_game">Jogo</string>
+    <string name="tab_settings">Configurações</string>
+
+    <string name="action_cancel">Cancelar</string>
+    <string name="action_try_again">Tentar de novo</string>
+
+    <string name="account_title">Conta</string>
+    <string name="account_requirement">Você precisa da sua própria conta e de uma cópia original do jogo. O login é feito no site oficial, no seu navegador. O HyPocket nunca pede a sua senha.</string>
+    <string name="account_not_configured">O login ainda não está disponível. O HyPocket está aguardando acesso oficial da Hypixel Studios.</string>
+    <string name="account_sign_in">Entrar</string>
+    <string name="account_enter_code">Abra a página de login e digite este código:</string>
+    <string name="account_open_sign_in_page">Abrir página de login</string>
+    <string name="account_verifying">Verificando a licença do jogo…</string>
+    <string name="account_signed_in_as">Conectado como %1$s</string>
+    <string name="account_sign_out">Sair</string>
+    <string name="account_not_owned">Esta conta não tem o jogo.</string>
+    <string name="account_license_check_unavailable">Ainda não foi possível verificar a licença do jogo.</string>
+    <string name="account_error_denied">O login foi recusado.</string>
+    <string name="account_error_expired">O código expirou. Tente de novo.</string>
+    <string name="account_error_server">O serviço de contas retornou um erro.</string>
+    <string name="account_error_network">Não foi possível conectar. Verifique sua internet.</string>
+
+    <string name="game_title">Jogo</string>
+    <string name="game_sign_in_first">Entre com uma conta que tenha o jogo para baixar e jogar.</string>
+    <string name="game_download">Baixar o jogo</string>
+    <string name="game_download_completed">Download concluído.</string>
+    <string name="game_download_failed">O download falhou.</string>
+    <string name="game_download_unavailable">O download do jogo ainda não está disponível.</string>
+    <string name="game_play">Jogar</string>
+    <string name="game_unsupported_device">Este aparelho não é compatível. O HyPocket precisa de um processador ARM64.</string>
+    <string name="game_engine_not_ready">O motor do jogo ainda não está pronto.</string>
+
+    <string name="settings_title">Configurações</string>
+    <string name="settings_render_scale">Resolução de renderização: %1$d%%</string>
+    <string name="settings_fps_limit">Limite de quadros por segundo</string>
+    <string name="settings_low_memory">Modo de pouca memória</string>
+    <string name="settings_engine_info">Motor %1$s (%2$s)</string>
+    <string name="unofficial_notice">Projeto não oficial, sem ligação com a Hypixel Studios.</string>
+</resources>
