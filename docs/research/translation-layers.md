@@ -227,6 +227,22 @@ virgl driver built for arm64 glibc → Unix socket → virglrenderer 1.3.0
   doubles in shaders, `textureQueryLod`) is unknown until the client runs;
   some could be emulated in virglrenderer or Mesa if needed.
 
+### Display proof of concept (November 2026)
+
+`engine/guest-tests/gl-display-probe` draws an animated scene (576 spinning
+quads, one instanced draw, desktop OpenGL 4.1 core with the version override)
+at 640x360, reads every frame back with `glReadPixels` into a shared file,
+and the app shows it on a `SurfaceView` at each screen refresh (**Settings >
+Display test**).
+
+This read-back path is temporary: it is how VirGL with X11 works in Termux,
+but it costs a GPU-to-CPU copy per frame. The final path should present the
+guest's frames without the copy, most likely through a custom video backend
+in a native (wrapped) SDL build and a present command in the VirGL server.
+
+Verified under qemu with the GLES-only host server (correct image); not yet
+tested on a phone.
+
 ### Consequence for the CPU choice
 
 To run glibc Linux programs on Android there are three known setups:

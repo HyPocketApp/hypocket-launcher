@@ -67,6 +67,8 @@ fun SettingsScreen(store: SettingsStore, modifier: Modifier = Modifier) {
 
         GraphicsTestSection()
 
+        DisplayTestSection()
+
         Text(stringResource(R.string.unofficial_notice), style = MaterialTheme.typography.bodySmall)
     }
 }

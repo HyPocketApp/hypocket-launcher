@@ -1,6 +1,5 @@
 package io.github.hypocketapp.engine
 
-import java.io.File
 import android.content.Context
 
 /** The graphics test programs in engine/guest-tests. */
@@ -41,61 +40,21 @@ enum class GraphicsTest(
  */
 class GraphicsProbe(context: Context) {
     private val runtime = GuestRuntime(context)
-    private val server = File(runtime.nativeLibDir, "libvirgl_server.so")
 
     fun run(test: GraphicsTest, timeoutSeconds: Long = 120): GraphicsReport {
-        if (!runtime.isAvailable || !server.exists()) {
+        if (!runtime.isAvailable || !VirglServer.binary(runtime).exists()) {
             return GraphicsReport(test, GraphicsStatus.NOT_AVAILABLE)
         }
 
-        val socket = File(runtime.cacheDir, "virgl.sock")
-        socket.delete()
-        val serverProcess = ProcessBuilder(
-            server.absolutePath,
-            // Serve one client, then exit.
-            "--no-loop-or-fork",
-            "--use-egl-surfaceless",
-            "--use-gles",
-            "--socket-path", socket.absolutePath,
-        )
-            .redirectErrorStream(true)
-            .apply {
-                environment()["LD_LIBRARY_PATH"] = runtime.nativeLibDir.absolutePath
-                // Log the features the server finds in the phone's driver.
-                environment()["VREND_DEBUG"] = "feat"
-                environment()["VIRGL_LOG_LEVEL"] = "debug"
-            }
-            .start()
-        val serverOutput = StringBuilder()
-        val serverReader = kotlin.concurrent.thread(name = "virgl-server-output") {
-            serverProcess.inputStream.bufferedReader().useLines { lines ->
-                lines.forEach { line ->
-                    synchronized(serverOutput) {
-                        if (serverOutput.length < MAX_SERVER_OUTPUT_CHARS) serverOutput.appendLine(line)
-                    }
-                }
-            }
+        val (server, failureLog) = VirglServer.start(runtime)
+        if (server == null) {
+            return GraphicsReport(test = test, status = GraphicsStatus.SERVER_FAILED, serverOutput = failureLog)
         }
 
-        try {
-            if (!waitForSocket(socket, serverProcess)) {
-                serverProcess.destroyForcibly()
-                serverReader.join(2000)
-                return GraphicsReport(
-                    test = test,
-                    status = GraphicsStatus.SERVER_FAILED,
-                    serverOutput = synchronized(serverOutput) { serverOutput.toString() },
-                )
-            }
-
+        server.use {
             val result = runtime.runAsset(
                 test.asset,
-                extraEnv = mapOf(
-                    "VTEST_SOCKET_NAME" to socket.absolutePath,
-                    "GALLIUM_DRIVER" to "virpipe",
-                    "LIBGL_ALWAYS_SOFTWARE" to "1",
-                    "EGL_PLATFORM" to "surfaceless",
-                ) + test.env,
+                extraEnv = server.guestEnvironment + test.env,
                 timeoutSeconds = timeoutSeconds,
             )
             val text = result.output
@@ -107,7 +66,7 @@ class GraphicsProbe(context: Context) {
                 result.exitCode != 0 || !text.contains("${test.tag}: ok") -> GraphicsStatus.FAILED
                 else -> GraphicsStatus.PASSED
             }
-            serverProcess.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
+            server.awaitExit(3)
             val tag = Regex.escape(test.tag)
             return GraphicsReport(
                 test = test,
@@ -120,26 +79,9 @@ class GraphicsProbe(context: Context) {
                 totalMillis = result.millis,
                 exitCode = result.exitCode,
                 output = text,
-                serverOutput = synchronized(serverOutput) { serverOutput.toString() },
+                serverOutput = server.log,
             )
-        } finally {
-            if (serverProcess.isAlive) serverProcess.destroyForcibly()
-            serverReader.join(2000)
-            socket.delete()
         }
-    }
-
-    private companion object {
-        const val MAX_SERVER_OUTPUT_CHARS = 32 * 1024
-    }
-
-    private fun waitForSocket(socket: File, server: Process): Boolean {
-        repeat(50) {
-            if (socket.exists()) return true
-            if (!server.isAlive) return false
-            Thread.sleep(100)
-        }
-        return socket.exists()
     }
 }
 

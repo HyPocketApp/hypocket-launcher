@@ -25,14 +25,21 @@ internal class GuestRuntime(context: Context) {
     val cacheDir: File get() = appContext.cacheDir
 
     /** Runs a test program from the APK assets (guest-tests/<name>). */
-    fun runAsset(name: String, extraEnv: Map<String, String> = emptyMap(), timeoutSeconds: Long): RunResult {
+    fun runAsset(
+        name: String,
+        extraEnv: Map<String, String> = emptyMap(),
+        args: List<String> = emptyList(),
+        timeoutSeconds: Long,
+    ): RunResult {
         val guest = extractAsset(name)
         val libDir = prepareLibDir()
         val builder = ProcessBuilder(
-            loader.absolutePath,
-            "--library-path", libDir.absolutePath,
-            box64.absolutePath,
-            guest.absolutePath,
+            listOf(
+                loader.absolutePath,
+                "--library-path", libDir.absolutePath,
+                box64.absolutePath,
+                guest.absolutePath,
+            ) + args,
         )
             .directory(appContext.filesDir)
             .redirectErrorStream(true)
