@@ -170,8 +170,21 @@ Progress:
   (checked against bionic's `SYSCALLS.TXT` and seccomp allowlists for
   android13-release), and glibc calls `set_robust_list` at startup. Fixed
   by building glibc 2.39 with `engine/third_party/glibc-android`. Under
-  qemu the probe passes and only allowed system calls remain. Not yet tested
-  on a phone.
+  qemu the probe passes and only allowed system calls remain.
+- **Fourth phone test (same device): PASSED.** Box64 with the patched glibc
+  runs the x86-64 probe with the correct checksum.
+
+  | Measure | Result |
+  |---------|--------|
+  | Native ARM64 workload | 380 ms |
+  | Same workload translated by Box64 | 441 ms (about 1.16x native) |
+  | Total, including starting glibc, Box64 and the probe | 2614 ms |
+  | Peak memory of the Box64 process | 31.5 MB |
+
+  The ratio is optimistic: `memcpy`, `malloc` and other libc calls run as
+  native code through Box64's wrapped libc, so only part of the workload is
+  translated. Startup time is mostly Box64 initialising (it also tries to
+  run `lscpu` through `/bin/sh`, which does not exist on Android).
 
 ### Consequence for the CPU choice
 
