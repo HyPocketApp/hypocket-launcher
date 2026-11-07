@@ -15,6 +15,8 @@ captures/
 *.jks
 *.keystore
 keystore.properties
+# Shared key for debug/test builds only (see app/build.gradle.kts).
+!app/debug.keystore
 
 # OS
 .DS_Store

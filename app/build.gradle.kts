@@ -23,6 +23,19 @@ android {
         }
     }
 
+    signingConfigs {
+        // A fixed debug key shared by everyone, so test APKs from any machine
+        // install as updates of each other. It is public and only for debug
+        // builds: official releases are signed with a private key that is
+        // never committed.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
