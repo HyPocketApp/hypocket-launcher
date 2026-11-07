@@ -63,6 +63,8 @@ fun SettingsScreen(store: SettingsStore, modifier: Modifier = Modifier) {
             stringResource(R.string.settings_engine_info, Engine.version, Engine.abi),
             style = MaterialTheme.typography.bodySmall,
         )
+        TranslatorTestSection()
+
         Text(stringResource(R.string.unofficial_notice), style = MaterialTheme.typography.bodySmall)
     }
 }

@@ -7,10 +7,11 @@ plugins {
 android {
     namespace = "io.github.hypocketapp.launcher"
     compileSdk = 36
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         applicationId = "io.github.hypocketapp.launcher"
-        minSdk = 26
+        minSdk = 28
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
@@ -38,6 +39,14 @@ android {
     buildFeatures {
         compose = true
     }
+
+    packaging {
+        jniLibs {
+            // Extract native libraries to disk: the CPU translator
+            // (libbox64.so) is started as a separate process from there.
+            useLegacyPackaging = true
+        }
+    }
 }
 
 kotlin {
@@ -50,6 +59,7 @@ dependencies {
     implementation(project(":core"))
 
     implementation(libs.androidx.core.ktx)
+    implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

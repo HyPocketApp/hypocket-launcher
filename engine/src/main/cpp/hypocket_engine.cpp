@@ -1,5 +1,9 @@
 #include "hypocket_engine.h"
 
+#include <chrono>
+
+#include "probe_workload.h"
+
 namespace hypocket {
 
 const char* EngineVersion() {
@@ -14,6 +18,13 @@ const char* EngineAbi() {
 #else
     return "unsupported";
 #endif
+}
+
+WorkloadResult RunNativeWorkload() {
+    const auto start = std::chrono::steady_clock::now();
+    const uint64_t checksum = probe_workload();
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    return {checksum, std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count()};
 }
 
 }  // namespace hypocket

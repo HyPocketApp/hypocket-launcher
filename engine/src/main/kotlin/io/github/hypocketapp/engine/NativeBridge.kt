@@ -9,4 +9,7 @@ internal object NativeBridge {
     external fun nativeVersion(): String
 
     external fun nativeAbi(): String
+
+    /** Returns [checksum, elapsed milliseconds]. */
+    external fun nativeRunWorkload(): LongArray
 }

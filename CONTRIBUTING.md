@@ -74,19 +74,35 @@ plan for `:engine` is in [docs/research/translation-layers.md](docs/research/tra
 
 If you build from the command line, create a `local.properties` file with
 `sdk.dir=/path/to/your/Android/sdk` (Android Studio does this for you).
-- An Android device or emulator. For engine work, a real ARM64 device is
-  strongly recommended, ideally a low-end one.
+- An Android 9 (API 28) or newer device or emulator. For engine work, a real
+  ARM64 device is required (the CPU translator only runs there), ideally a
+  low-end one.
 
 ### Build and run
 
 ```bash
-git clone https://github.com/HyPocketApp/hypocket-launcher.git
+git clone --recurse-submodules https://github.com/HyPocketApp/hypocket-launcher.git
 cd hypocket-launcher
+# If you cloned without --recurse-submodules:
+git submodule update --init --recursive
 ./gradlew assembleDebug        # build a debug APK
 ./gradlew installDebug         # install it on a connected device
 ```
 
 ### Test
+
+The first build also compiles the Box64 translator from
+`engine/third_party/box64`, which takes a few minutes.
+
+### Testing the CPU translator
+
+On an ARM64 phone, open **Settings > Translator test > Run test**. It runs
+our own x86-64 test program (`engine/guest-tests/probe`) through Box64 and
+the same work natively, and checks that both give the same result. Use
+**Copy report** and paste it in your issue or pull request.
+
+The test program is committed already built. To rebuild it, run
+`engine/guest-tests/probe/build.sh` on an x86-64 Linux machine with gcc.
 
 ```bash
 ./gradlew test                 # unit tests

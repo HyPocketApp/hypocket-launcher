@@ -39,4 +39,16 @@
     <string name="settings_low_memory">Modo de pouca memória</string>
     <string name="settings_engine_info">Motor %1$s (%2$s)</string>
     <string name="unofficial_notice">Projeto não oficial, sem ligação com a Hypixel Studios.</string>
+    <string name="probe_title">Teste do tradutor</string>
+    <string name="probe_description">Roda um pequeno programa de teste x86-64 pelo tradutor Box64 e compara com o mesmo trabalho feito de forma nativa. Não usa nenhum arquivo do jogo.</string>
+    <string name="probe_run">Rodar teste</string>
+    <string name="probe_copy">Copiar relatório</string>
+    <string name="probe_status_passed">Passou: o programa traduzido deu o resultado correto.</string>
+    <string name="probe_status_wrong_result">Resultado errado: o programa traduzido terminou, mas o resultado é diferente.</string>
+    <string name="probe_status_failed">Falhou: o programa traduzido não terminou corretamente.</string>
+    <string name="probe_status_timed_out">Tempo esgotado: o programa traduzido demorou demais.</string>
+    <string name="probe_status_not_available">O tradutor não está disponível neste aparelho.</string>
+    <string name="probe_native_time">Nativo: %1$d ms</string>
+    <string name="probe_translated_time">Traduzido: %1$d ms</string>
+    <string name="probe_peak_memory">Pico de memória: %1$d MB</string>
 </resources>

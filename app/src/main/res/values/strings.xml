@@ -41,4 +41,16 @@
     <string name="settings_low_memory">Low memory mode</string>
     <string name="settings_engine_info">Engine %1$s (%2$s)</string>
     <string name="unofficial_notice">Unofficial project, not affiliated with Hypixel Studios.</string>
+    <string name="probe_title">Translator test</string>
+    <string name="probe_description">Runs a small x86-64 test program through the Box64 translator and compares it with the same work done natively. It does not use any game files.</string>
+    <string name="probe_run">Run test</string>
+    <string name="probe_copy">Copy report</string>
+    <string name="probe_status_passed">Passed: the translated program gave the correct result.</string>
+    <string name="probe_status_wrong_result">Wrong result: the translated program finished, but its result is different.</string>
+    <string name="probe_status_failed">Failed: the translated program did not finish correctly.</string>
+    <string name="probe_status_timed_out">Timed out: the translated program took too long.</string>
+    <string name="probe_status_not_available">The translator is not available on this device.</string>
+    <string name="probe_native_time">Native: %1$d ms</string>
+    <string name="probe_translated_time">Translated: %1$d ms</string>
+    <string name="probe_peak_memory">Peak memory: %1$d MB</string>
 </resources>

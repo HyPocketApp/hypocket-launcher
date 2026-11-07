@@ -134,6 +134,16 @@ Check again before integrating, and keep the copyright notices.
 
 Each step should end with something we can test on a real phone.
 
+Progress:
+
+- Step 1 started (November 2026): Box64 v0.4.4 is a submodule in
+  `engine/third_party/box64`, built with NDK 28 for Android API 28 (lower
+  API levels lack some pthread functions Box64 uses). It is packaged as
+  `libbox64.so` and runs `engine/guest-tests/probe` from **Settings >
+  Translator test**. Verified so far: the probe gives the correct result
+  under Box64 on an x86-64 Linux host (interpreter only). **Not yet tested
+  on an ARM64 phone.**
+
 1. **CPU translator proof of concept.** Add Box64 (and later FEX) as pinned
    submodules, build them with the NDK, and run our own x86-64 "hello world"
    (built from source in this repository) inside the app. Measure startup

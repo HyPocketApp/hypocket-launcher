@@ -7,9 +7,10 @@ plugins {
 android {
     namespace = "io.github.hypocketapp.core"
     compileSdk = 36
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
-        minSdk = 26
+        minSdk = 28
     }
 
     compileOptions {
