@@ -13,6 +13,48 @@
 #define REQUIRED_MAJOR 4
 #define REQUIRED_MINOR 1
 
+/* Extensions Mesa needs for each desktop GL version (src/mesa/main/version.c).
+ * Some are internal flags rather than advertised strings, so a "missing"
+ * entry is a strong hint, not proof. */
+static const char* const required_3_0[] = {"GL_ARB_depth_buffer_float", "GL_ARB_half_float_vertex",
+    "GL_ARB_map_buffer_range", "GL_ARB_shader_texture_lod", "GL_ARB_texture_float", "GL_ARB_texture_rg",
+    "GL_ARB_texture_compression_rgtc", "GL_EXT_draw_buffers2", "GL_ARB_framebuffer_object",
+    "GL_EXT_framebuffer_sRGB", "GL_EXT_packed_float", "GL_EXT_texture_array", "GL_EXT_texture_integer",
+    "GL_EXT_texture_shared_exponent", "GL_EXT_transform_feedback", "GL_NV_conditional_render", NULL};
+static const char* const required_3_1[] = {"GL_ARB_draw_instanced", "GL_ARB_uniform_buffer_object",
+    "GL_EXT_texture_snorm", "GL_NV_primitive_restart", "GL_NV_texture_rectangle", NULL};
+static const char* const required_3_2[] = {"GL_ARB_depth_clamp", "GL_ARB_draw_elements_base_vertex",
+    "GL_ARB_fragment_coord_conventions", "GL_EXT_provoking_vertex", "GL_ARB_seamless_cube_map",
+    "GL_ARB_sync", "GL_ARB_texture_multisample", "GL_EXT_vertex_array_bgra", NULL};
+static const char* const required_3_3[] = {"GL_ARB_blend_func_extended", "GL_ARB_explicit_attrib_location",
+    "GL_ARB_instanced_arrays", "GL_ARB_shader_bit_encoding", "GL_ARB_texture_rgb10_a2ui",
+    "GL_ARB_timer_query", "GL_ARB_vertex_type_2_10_10_10_rev", "GL_EXT_texture_swizzle", NULL};
+static const char* const required_4_0[] = {"GL_ARB_draw_buffers_blend", "GL_ARB_draw_indirect",
+    "GL_ARB_gpu_shader5", "GL_ARB_gpu_shader_fp64", "GL_ARB_sample_shading", "GL_ARB_tessellation_shader",
+    "GL_ARB_texture_buffer_object_rgb32", "GL_ARB_texture_cube_map_array", "GL_ARB_texture_query_lod",
+    "GL_ARB_transform_feedback2", "GL_ARB_transform_feedback3", NULL};
+static const char* const required_4_1[] = {"GL_ARB_ES2_compatibility", "GL_ARB_shader_precision",
+    "GL_ARB_vertex_attrib_64bit", "GL_ARB_viewport_array", NULL};
+
+static int has_extension(const char* list, const char* name) {
+    size_t length = strlen(name);
+    for (const char* p = list; (p = strstr(p, name)) != NULL; p += length) {
+        if ((p == list || p[-1] == ' ') && (p[length] == ' ' || p[length] == '\0')) return 1;
+    }
+    return 0;
+}
+
+static void print_missing(const char* version, const char* const* required, const char* extensions) {
+    char line[1024] = "";
+    for (int i = 0; required[i]; i++) {
+        if (!has_extension(extensions, required[i])) {
+            strncat(line, " ", sizeof line - strlen(line) - 1);
+            strncat(line, required[i], sizeof line - strlen(line) - 1);
+        }
+    }
+    printf("gl-core-probe: missing for %s:%s\n", version, line[0] ? line : " none");
+}
+
 #define GL_FUNCTIONS(X) \
     X(PFNGLGETSTRINGPROC, glGetString) \
     X(PFNGLGETINTEGERVPROC, glGetIntegerv) \
@@ -101,6 +143,38 @@ int main(void) {
     }
     const EGLint surface_attribs[] = {EGL_WIDTH, SIZE, EGL_HEIGHT, SIZE, EGL_NONE};
     EGLSurface surface = eglCreatePbufferSurface(display, config, surface_attribs);
+
+    /* Diagnosis: a plain (compatibility) desktop GL context shows what the
+     * driver offers and what each core version is missing. */
+    EGLContext legacy = eglCreateContext(display, config, EGL_NO_CONTEXT, NULL);
+    if (legacy != EGL_NO_CONTEXT && eglMakeCurrent(display, surface, surface, legacy)) {
+        PFNGLGETSTRINGPROC get_string = (PFNGLGETSTRINGPROC)eglGetProcAddress("glGetString");
+        PFNGLGETINTEGERVPROC get_integer = (PFNGLGETINTEGERVPROC)eglGetProcAddress("glGetIntegerv");
+        printf("gl-core-probe: compatibility GL_VERSION %s\n", get_string(GL_VERSION));
+        printf("gl-core-probe: compatibility GLSL %s\n", get_string(GL_SHADING_LANGUAGE_VERSION));
+        GLint value = 0;
+        get_integer(GL_MAX_TEXTURE_SIZE, &value);
+        printf("gl-core-probe: max texture size %d (4.1 needs 16384)\n", value);
+        get_integer(GL_MAX_ARRAY_TEXTURE_LAYERS, &value);
+        printf("gl-core-probe: max array texture layers %d (4.1 needs 2048)\n", value);
+        get_integer(GL_MAX_SAMPLES, &value);
+        printf("gl-core-probe: max samples %d (3.0 needs 4)\n", value);
+        get_integer(GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS, &value);
+        printf("gl-core-probe: max vertex texture units %d (3.1 needs 16)\n", value);
+        const char* extensions = (const char*)get_string(GL_EXTENSIONS);
+        if (extensions) {
+            print_missing("3.0", required_3_0, extensions);
+            print_missing("3.1", required_3_1, extensions);
+            print_missing("3.2", required_3_2, extensions);
+            print_missing("3.3", required_3_3, extensions);
+            print_missing("4.0", required_4_0, extensions);
+            print_missing("4.1", required_4_1, extensions);
+        }
+        eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        eglDestroyContext(display, legacy);
+    } else {
+        printf("gl-core-probe: no compatibility context either\n");
+    }
 
     static const int versions[][2] = {{4, 6}, {4, 5}, {4, 4}, {4, 3}, {4, 2}, {4, 1}, {4, 0}, {3, 3}, {3, 2}};
     EGLContext context = EGL_NO_CONTEXT;

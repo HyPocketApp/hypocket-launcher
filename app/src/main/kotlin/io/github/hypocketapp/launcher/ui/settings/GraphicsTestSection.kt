@@ -101,6 +101,7 @@ fun GraphicsTestSection() {
 private fun GraphicsTest.label(): Int = when (this) {
     GraphicsTest.GLES -> R.string.gfx_test_gles
     GraphicsTest.DESKTOP_CORE -> R.string.gfx_test_desktop
+    GraphicsTest.DESKTOP_CORE_FORCED -> R.string.gfx_test_desktop_forced
 }
 
 private fun GraphicsStatus.label(): Int = when (this) {
@@ -123,7 +124,7 @@ private fun GraphicsReport.toShareText(): String = buildString {
     appendLine("Status: $status")
     appendLine("Renderer: ${renderer ?: "-"}")
     appendLine("Version: ${version ?: "-"}")
-    if (test == GraphicsTest.DESKTOP_CORE) appendLine("Highest core profile: ${highestCoreVersion ?: "-"}")
+    if (test != GraphicsTest.GLES) appendLine("Highest core profile: ${highestCoreVersion ?: "-"}")
     appendLine("120 frames: ${frameMillis ?: "-"} ms")
     appendLine("Total with startup: ${totalMillis ?: "-"} ms")
     appendLine("Exit code: ${exitCode ?: "-"}")

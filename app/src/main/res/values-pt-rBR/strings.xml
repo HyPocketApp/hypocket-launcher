@@ -63,4 +63,5 @@
     <string name="gfx_test_desktop">OpenGL de PC (o que o jogo precisa)</string>
     <string name="gfx_status_below_required">Desenhou certo, mas a versão de OpenGL de PC está abaixo da 4.1 que o jogo precisa.</string>
     <string name="gfx_core_version">Maior versão de OpenGL de PC core: %1$s</string>
+    <string name="gfx_test_desktop_forced">OpenGL de PC, forçado pra 4.1</string>
 </resources>

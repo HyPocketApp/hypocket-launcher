@@ -4,7 +4,11 @@ import java.io.File
 import android.content.Context
 
 /** The graphics test programs in engine/guest-tests. */
-enum class GraphicsTest(internal val asset: String, internal val tag: String) {
+enum class GraphicsTest(
+    internal val asset: String,
+    internal val tag: String,
+    internal val env: Map<String, String> = emptyMap(),
+) {
     /** OpenGL ES 2 triangle (engine/guest-tests/gl-probe). */
     GLES("gl-probe-x86_64", "gl-probe"),
 
@@ -13,6 +17,17 @@ enum class GraphicsTest(internal val asset: String, internal val tag: String) {
      * (engine/guest-tests/gl-core-probe).
      */
     DESKTOP_CORE("gl-core-probe-x86_64", "gl-core-probe"),
+
+    /**
+     * The same, with Mesa told to report OpenGL 4.1 even if the phone lacks
+     * some 4.x features (fp64, 16384-pixel textures, ...). Many games ask for
+     * 4.1 but do not use them.
+     */
+    DESKTOP_CORE_FORCED(
+        "gl-core-probe-x86_64",
+        "gl-core-probe",
+        mapOf("MESA_GL_VERSION_OVERRIDE" to "4.1", "MESA_GLSL_VERSION_OVERRIDE" to "410"),
+    ),
 }
 
 /**
@@ -44,12 +59,21 @@ class GraphicsProbe(context: Context) {
             "--socket-path", socket.absolutePath,
         )
             .redirectErrorStream(true)
-            .apply { environment()["LD_LIBRARY_PATH"] = runtime.nativeLibDir.absolutePath }
+            .apply {
+                environment()["LD_LIBRARY_PATH"] = runtime.nativeLibDir.absolutePath
+                // Log the features the server finds in the phone's driver.
+                environment()["VREND_DEBUG"] = "feat"
+                environment()["VIRGL_LOG_LEVEL"] = "debug"
+            }
             .start()
         val serverOutput = StringBuilder()
         val serverReader = kotlin.concurrent.thread(name = "virgl-server-output") {
             serverProcess.inputStream.bufferedReader().useLines { lines ->
-                lines.forEach { line -> synchronized(serverOutput) { serverOutput.appendLine(line) } }
+                lines.forEach { line ->
+                    synchronized(serverOutput) {
+                        if (serverOutput.length < MAX_SERVER_OUTPUT_CHARS) serverOutput.appendLine(line)
+                    }
+                }
             }
         }
 
@@ -71,7 +95,7 @@ class GraphicsProbe(context: Context) {
                     "GALLIUM_DRIVER" to "virpipe",
                     "LIBGL_ALWAYS_SOFTWARE" to "1",
                     "EGL_PLATFORM" to "surfaceless",
-                ),
+                ) + test.env,
                 timeoutSeconds = timeoutSeconds,
             )
             val text = result.output
@@ -103,6 +127,10 @@ class GraphicsProbe(context: Context) {
             serverReader.join(2000)
             socket.delete()
         }
+    }
+
+    private companion object {
+        const val MAX_SERVER_OUTPUT_CHARS = 32 * 1024
     }
 
     private fun waitForSocket(socket: File, server: Process): Boolean {
