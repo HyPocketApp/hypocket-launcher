@@ -97,7 +97,7 @@ static const char* vertex_shader =
     "    float size = 0.6 / float(grid) * (1.2 + 0.4 * sin(time * 3.0 + cell.x));\n"
     "    vec2 pos = centre + spin * corners[gl_VertexID] * size;\n"
     "    gl_Position = vec4(pos.x * 0.5625, pos.y, 0.0, 1.0);\n"
-    "    color = 0.5 + 0.5 * cos(time + cell.xyx * 0.25 + vec3(0, 2, 4));\n"
+    "    color = 0.25 + 0.2 * cos(time * 0.5 + cell.xyx * 0.15 + vec3(0, 2, 4));\n"
     "}\n";
 
 static const char* fragment_shader =

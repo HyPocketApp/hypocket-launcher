@@ -70,9 +70,9 @@
     <string name="display_description">Shows an animated scene drawn by an x86-64 test program with your phone\'s GPU, using desktop OpenGL 4.1. It runs for 15 seconds and does not use any game files.</string>
     <string name="display_open">Open display test</string>
     <string name="display_running">Running the display test…</string>
-    <string name="display_shown_fps">Shown: %1$.0f fps</string>
+    <string name="display_shown_fps">Shown on screen: %1$.0f fps</string>
     <string name="display_status_passed">Done: the scene was drawn and shown.</string>
-    <string name="display_guest_fps">Drawn: %1$.1f fps</string>
+    <string name="display_guest_fps">Drawn by the test program (can be above the screen\'s refresh rate): %1$.1f fps</string>
     <string name="display_per_frame">Per frame: draw %1$.1f ms, copy %2$.1f ms</string>
     <string name="display_close">Close</string>
 </resources>

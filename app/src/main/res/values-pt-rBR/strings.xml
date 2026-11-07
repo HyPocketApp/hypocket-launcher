@@ -68,9 +68,9 @@
     <string name="display_description">Mostra uma cena animada desenhada por um programa de teste x86-64 com a GPU do seu celular, usando OpenGL de PC 4.1. Roda por 15 segundos e não usa nenhum arquivo do jogo.</string>
     <string name="display_open">Abrir teste de tela</string>
     <string name="display_running">Rodando o teste de tela…</string>
-    <string name="display_shown_fps">Mostrando: %1$.0f fps</string>
+    <string name="display_shown_fps">Mostrado na tela: %1$.0f fps</string>
     <string name="display_status_passed">Pronto: a cena foi desenhada e mostrada.</string>
-    <string name="display_guest_fps">Desenhando: %1$.1f fps</string>
+    <string name="display_guest_fps">Desenhado pelo programa de teste (pode passar da taxa da tela): %1$.1f fps</string>
     <string name="display_per_frame">Por quadro: desenho %1$.1f ms, cópia %2$.1f ms</string>
     <string name="display_close">Fechar</string>
 </resources>

@@ -240,8 +240,15 @@ but it costs a GPU-to-CPU copy per frame. The final path should present the
 guest's frames without the copy, most likely through a custom video backend
 in a native (wrapped) SDL build and a present command in the VirGL server.
 
-Verified under qemu with the GLES-only host server (correct image); not yet
-tested on a phone.
+Verified under qemu with the GLES-only host server (correct image).
+
+**Phone test (Galaxy M12, Mali-G52): PASSED.** The scene showed on screen,
+smooth at about 60 fps (the display's refresh rate) for the whole run; the app
+showed 887 frames in 16.3 s including start-up. The guest itself produced
+153 fps: 0.1 ms to submit the draw and 6.5 ms for `glReadPixels`, which also
+waits for the GPU to finish, so the 6.5 ms is GPU time plus the copy. At
+640x360 the read-back path is not the bottleneck yet; at the game's
+resolution it will be (the copy grows with the pixel count).
 
 ### Consequence for the CPU choice
 
