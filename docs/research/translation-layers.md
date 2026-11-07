@@ -206,9 +206,26 @@ virgl driver built for arm64 glibc → Unix socket → virglrenderer 1.3.0
   with correct colors. `GL_RENDERER` is `virgl (Mali-G52)`, `GL_VERSION`
   is `OpenGL ES 3.1 Mesa 26.2.6`. 120 trivial frames took 52 ms and the whole
   run about 0.8 s.
-- Open question: the game needs **desktop OpenGL 4.1 core**, not GLES. The
-  next probe must ask for a desktop GL core context and see which version
-  virgl offers on top of the Mali GLES driver.
+- The game needs **desktop OpenGL 4.1 core**, not GLES. Third phone test,
+  desktop GL probe (same device):
+
+  | Check | Result |
+  |-------|--------|
+  | Server sees | OpenGL ES 3.2 driver, GLSL feature level 430 |
+  | Desktop GL offered by virgl (no override) | 2.1 compatibility only; no core context at all |
+  | Missing for 3.0 | `GL_NV_conditional_render` |
+  | Missing for 3.2 | `GL_ARB_depth_clamp` |
+  | Missing for 3.3 | `GL_ARB_blend_func_extended` |
+  | Missing for 4.0 | `GL_ARB_gpu_shader_fp64`, `GL_ARB_texture_query_lod` |
+  | Missing for 4.1 | `GL_ARB_vertex_attrib_64bit`, `GL_ARB_viewport_array` |
+  | Max texture size | 16383 (4.1 needs 16384) |
+  | **With `MESA_GL_VERSION_OVERRIDE=4.1`** | **4.1 core context created; triangle drawn with correct colors** |
+
+  So the Mali-G52 lacks a handful of features for a "real" 4.1, but a forced
+  4.1 core context works for basic drawing. Whether the game itself uses any
+  of the missing features (depth clamp, dual-source blending, viewport arrays,
+  doubles in shaders, `textureQueryLod`) is unknown until the client runs;
+  some could be emulated in virglrenderer or Mesa if needed.
 
 ### Consequence for the CPU choice
 
