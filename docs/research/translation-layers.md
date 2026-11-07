@@ -161,6 +161,35 @@ To run glibc Linux programs on Android there are three known setups:
 | FEX in a bionic process + an x86-64 glibc rootfs | The guest's own x86-64 glibc is translated; calls to GL are forwarded to the Android driver with thunks | Direct, through the vendor GLES driver | More translated code (no wrapped libc). This is the setup Vexa uses and it reached the game's startup |
 | Patch Box64's Android build to accept glibc programs | Enable `__libc_start_main` next to `__libc_init` | Direct | Box64's bionic wrapped libc was not written for glibc programs; differences in structures and behavior are likely. We would carry patches upstream does not support |
 
+### FEX on Android: first build attempt (November 2026)
+
+- FEX-2611 refuses to configure for Android: `Unsupported system type
+  Android. FEX only supports Linux and Windows.`
+- Forcing a Linux-style build with the NDK 29 compiler gets most of the
+  code to compile; 14 files fail. The errors are gaps between glibc and
+  Android's bionic libc (`shm_open`, `memfd_create`, `getdents64`,
+  `valloc`, `ELF32_ST_VISIBILITY`) and a libc++ `std::function` limitation.
+  These are only the build errors: signals, memory and syscall handling on
+  Android would come next, and Vexa's notes call that area
+  correctness-sensitive.
+- In short, running FEX on Android means maintaining our own Android port
+  of FEX. Vexa has already done this work, but its code has no license.
+
+### Upstream AI policies
+
+- **FEX** (`AGENTS.md`): "AI must not be used to generate code for
+  contributions to this project."
+- **Box64** (`AGENTS.md`, `CONTRIBUTING.md`): does not accept pull requests
+  that are fully or predominantly AI-generated; AI use must be disclosed.
+- **Vexa** (`docs/AI_USAGE_POLICY.md`): AI must not own threading, signal,
+  memory or low-level runtime behavior.
+
+Using these projects as dependencies is fine (MIT). But any patch we send
+upstream must be written by a human contributor, and AI-written patches we
+keep in this repository must be fully understood by whoever submits them
+(see CONTRIBUTING.md).
+
+
 1. **CPU translator proof of concept.** Add Box64 (and later FEX) as pinned
    submodules, build them with the NDK, and run our own x86-64 "hello world"
    (built from source in this repository) inside the app. Measure startup
