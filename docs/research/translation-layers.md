@@ -197,7 +197,18 @@ virgl driver built for arm64 glibc → Unix socket → virglrenderer 1.3.0
 - Verified with the APK's own files under qemu-aarch64, talking to an x86-64
   build of the same server using Mesa's software renderer: correct colors.
 - The Android build of the server needed one build-system patch (EGL
-  without GBM) and two small header shims. **Not yet tested on a phone.**
+  without GBM) and two small header shims.
+- First phone test: the server failed with "EGL is not supported on this
+  platform" (virglrenderer's no-GBM path only accepted an external display).
+  Fixed by opening `EGL_DEFAULT_DISPLAY` on Android.
+- **Second phone test (Galaxy M12, Mali-G52, Android 13): PASSED.** The
+  x86-64 probe, translated by Box64, drew the triangle on the phone's GPU
+  with correct colors. `GL_RENDERER` is `virgl (Mali-G52)`, `GL_VERSION`
+  is `OpenGL ES 3.1 Mesa 26.2.6`. 120 trivial frames took 52 ms and the whole
+  run about 0.8 s.
+- Open question: the game needs **desktop OpenGL 4.1 core**, not GLES. The
+  next probe must ask for a desktop GL core context and see which version
+  virgl offers on top of the Mali GLES driver.
 
 ### Consequence for the CPU choice
 
