@@ -1,0 +1,16 @@
+# Mesa for the guest (arm64 glibc)
+
+Box64 forwards the guest's EGL/GLES calls to native arm64 libraries. These
+are Mesa built with only the virgl Gallium driver, which sends the work to the
+VirGL server on Android (see `../virgl-android`).
+
+`build.sh` downloads the official Mesa 26.2.6 release, checks its SHA-256 and
+builds `libEGL.so.1`, `libGLESv2.so.2` and `libgallium-26.2.6.so`. It also
+copies `libdrm`, `libexpat` and `zlib` from the build machine's arm64
+packages.
+
+The app runs the guest with `GALLIUM_DRIVER=virpipe`,
+`LIBGL_ALWAYS_SOFTWARE=1`, `EGL_PLATFORM=surfaceless` and
+`VTEST_SOCKET_NAME` pointing at the server's socket.
+
+Licenses: Mesa, libdrm and expat are MIT; zlib is under the zlib license.

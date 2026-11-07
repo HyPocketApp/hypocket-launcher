@@ -52,4 +52,11 @@
     <string name="probe_native_time">Nativo: %1$d ms</string>
     <string name="probe_translated_time">Traduzido: %1$d ms</string>
     <string name="probe_peak_memory">Pico de memória: %1$d MB</string>
+    <string name="gfx_title">Teste de gráficos</string>
+    <string name="gfx_description">Roda um pequeno programa de teste OpenGL ES x86-64 pelo tradutor. Ele desenha um triângulo fora da tela com a GPU do seu celular e confere as cores. Não usa nenhum arquivo do jogo.</string>
+    <string name="gfx_status_passed">Passou: o triângulo foi desenhado com as cores certas.</string>
+    <string name="gfx_status_wrong_result">Resultado errado: o desenho terminou, mas as cores estão erradas.</string>
+    <string name="gfx_status_server_failed">Falhou: o servidor de gráficos não iniciou.</string>
+    <string name="gfx_renderer">Renderizador: %1$s</string>
+    <string name="gfx_frames">120 quadros: %1$d ms</string>
 </resources>

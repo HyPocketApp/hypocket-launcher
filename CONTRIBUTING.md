@@ -72,10 +72,20 @@ plan for `:engine` is in [docs/research/translation-layers.md](docs/research/tra
   Android Studio SDK Manager, under "SDK Tools"; the versions are pinned in
   `engine/build.gradle.kts`)
 
-- For the CPU translator (Box64): an aarch64 Linux cross compiler. On
-  Debian/Ubuntu (or WSL): `sudo apt install gcc-aarch64-linux-gnu
-  g++-aarch64-linux-gnu`. Without it the app still builds, but the
-  translator test reports that the translator is unavailable.
+- For the CPU translator and graphics (Box64, glibc, Mesa, VirGL): a Linux
+  machine (or WSL) with an aarch64 cross compiler and some build tools. On
+  Debian/Ubuntu:
+
+  ```bash
+  sudo dpkg --add-architecture arm64   # and add an arm64 package source
+  sudo apt install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu bison gawk \
+      flex meson ninja-build pkg-config python3-venv python3-mako python3-yaml \
+      libdrm-dev:arm64 libexpat1-dev:arm64 zlib1g-dev:arm64
+  ```
+
+  The first build compiles all of them and takes a while. Without the cross
+  compiler the app still builds, but the translator and graphics tests report
+  that they are unavailable.
 
 If you build from the command line, create a `local.properties` file with
 `sdk.dir=/path/to/your/Android/sdk` (Android Studio does this for you).

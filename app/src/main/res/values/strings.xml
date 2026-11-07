@@ -54,4 +54,11 @@
     <string name="probe_native_time">Native: %1$d ms</string>
     <string name="probe_translated_time">Translated: %1$d ms</string>
     <string name="probe_peak_memory">Peak memory: %1$d MB</string>
+    <string name="gfx_title">Graphics test</string>
+    <string name="gfx_description">Runs a small x86-64 OpenGL ES test program through the translator. It draws a triangle off screen with your phone\'s GPU and checks the colors. It does not use any game files.</string>
+    <string name="gfx_status_passed">Passed: the triangle was drawn with the right colors.</string>
+    <string name="gfx_status_wrong_result">Wrong result: the drawing finished, but the colors are wrong.</string>
+    <string name="gfx_status_server_failed">Failed: the graphics server did not start.</string>
+    <string name="gfx_renderer">Renderer: %1$s</string>
+    <string name="gfx_frames">120 frames: %1$d ms</string>
 </resources>

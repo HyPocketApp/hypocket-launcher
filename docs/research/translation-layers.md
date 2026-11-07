@@ -186,6 +186,19 @@ Progress:
   translated. Startup time is mostly Box64 initialising (it also tries to
   run `lscpu` through `/bin/sh`, which does not exist on Android).
 
+### Graphics proof of concept (November 2026)
+
+Path: x86-64 GL program → Box64 (wrapped `libEGL`/`libGLESv2`) → Mesa 26.2.6
+virgl driver built for arm64 glibc → Unix socket → virglrenderer 1.3.0
+`virgl_test_server` built for Android → the phone's OpenGL ES driver.
+
+- `engine/guest-tests/gl-probe` draws a triangle off screen (EGL pbuffer),
+  reads two pixels back and checks their colors.
+- Verified with the APK's own files under qemu-aarch64, talking to an x86-64
+  build of the same server using Mesa's software renderer: correct colors.
+- The Android build of the server needed one build-system patch (EGL
+  without GBM) and two small header shims. **Not yet tested on a phone.**
+
 ### Consequence for the CPU choice
 
 To run glibc Linux programs on Android there are three known setups:

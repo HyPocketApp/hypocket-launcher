@@ -58,21 +58,24 @@ kotlin {
  * runtime with it. At run time the app starts glibc's dynamic loader, which
  * loads Box64, which runs the x86-64 Linux program.
  *
+ * Graphics: Box64 forwards the program's EGL/GL calls to Mesa built for arm64
+ * glibc with only the virgl driver (third_party/mesa-guest). Mesa sends them
+ * to a VirGL server built for Android (third_party/virgl-android), which runs
+ * them on the phone's own OpenGL ES driver.
+ *
  * Android only extracts and lets apps execute files named lib*.so from the
- * APK, so every file is renamed: see GLIBC_RUNTIME below and TranslatorProbe.
+ * APK, so guest files are renamed: see GUEST_RUNTIME below and GuestRuntime.kt.
  *
  * The glibc runtime is built from source with a patch for Android's seccomp
- * filter (see third_party/glibc-android). Only libgcc_s comes from the cross
- * compiler.
+ * filter (see third_party/glibc-android).
  *
- * This needs an aarch64 Linux cross compiler (on Debian/Ubuntu:
- * `apt install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu bison gawk`).
- * Without it the build continues and the app reports that the translator is
- * unavailable.
+ * This needs an aarch64 Linux cross compiler and a few build tools; see
+ * CONTRIBUTING.md. Without the cross compiler the build continues and the app
+ * reports that the translator is unavailable.
  */
 
-/** glibc runtime files and the names they get in the APK. */
-val GLIBC_RUNTIME = mapOf(
+/** Guest (arm64 glibc) runtime files and the names they get in the APK. */
+val GUEST_RUNTIME = mapOf(
     "ld-linux-aarch64.so.1" to "libglibc_ld.so",
     "libc.so.6" to "libglibc_c.so",
     "libm.so.6" to "libglibc_m.so",
@@ -82,10 +85,20 @@ val GLIBC_RUNTIME = mapOf(
     "librt.so.1" to "libglibc_rt.so",
     "libutil.so.1" to "libglibc_util.so",
     "libgcc_s.so.1" to "libglibc_gcc_s.so",
+    "libstdc++.so.6" to "libglibc_stdcxx.so",
+    "libEGL.so.1" to "libmesa_egl.so",
+    "libGLESv2.so.2" to "libmesa_glesv2.so",
+    "libgallium-26.2.6.so" to "libmesa_gallium.so",
+    "libdrm.so.2" to "libmesa_drm.so",
+    "libexpat.so.1" to "libmesa_expat.so",
+    "libz.so.1" to "libmesa_z.so",
 )
 
-/** Builds glibc with HyPocket's Android patch, using third_party/glibc-android/build.sh. */
-abstract class BuildGlibcTask @Inject constructor(
+/** Files the cross compiler provides; everything else must come from a build script. */
+val FROM_CROSS_COMPILER = setOf("libgcc_s.so.1", "libstdc++.so.6")
+
+/** Runs one of the third_party/<name>/build.sh scripts. */
+abstract class RunBuildScriptTask @Inject constructor(
     private val execOperations: ExecOperations,
 ) : DefaultTask() {
     @get:InputDirectory
@@ -93,7 +106,11 @@ abstract class BuildGlibcTask @Inject constructor(
     abstract val scriptDir: DirectoryProperty
 
     @get:Input
-    abstract val crossPrefix: Property<String>
+    abstract val extraArgs: ListProperty<String>
+
+    /** The script is skipped (empty output) when this command is missing. */
+    @get:Input
+    abstract val requiredCommand: Property<String>
 
     @get:Internal
     abstract val workDir: DirectoryProperty
@@ -106,18 +123,21 @@ abstract class BuildGlibcTask @Inject constructor(
         val out = outputDir.get().asFile
         out.deleteRecursively()
         out.mkdirs()
-        if (!commandExists("${crossPrefix.get()}gcc")) {
-            logger.warn("HyPocket: no aarch64 cross compiler, so glibc is not built.")
+        if (!commandExists(requiredCommand.get())) {
+            logger.warn("HyPocket: '${requiredCommand.get()}' not found, skipping ${scriptDir.get().asFile.name}.")
             return
         }
         execOperations.exec {
             commandLine(
-                scriptDir.get().file("build.sh").asFile.absolutePath,
-                workDir.get().asFile.absolutePath,
-                out.absolutePath,
+                listOf(
+                    scriptDir.get().file("build.sh").asFile.absolutePath,
+                    workDir.get().asFile.absolutePath,
+                    out.absolutePath,
+                ) + extraArgs.get(),
             )
         }
     }
+
     private fun commandExists(command: String): Boolean = try {
         execOperations.exec {
             commandLine(command, "--version")
@@ -145,10 +165,18 @@ abstract class BuildBox64Task @Inject constructor(
     @get:Input
     abstract val runtimeFiles: MapProperty<String, String>
 
-    /** Output of [BuildGlibcTask]. */
-    @get:InputDirectory
+    @get:Input
+    abstract val crossCompilerFiles: SetProperty<String>
+
+    /** Outputs of the guest build scripts (glibc, Mesa), renamed into the APK. */
+    @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val glibcDir: DirectoryProperty
+    abstract val guestLibDirs: ConfigurableFileCollection
+
+    /** Outputs of the Android build scripts, copied into the APK as they are. */
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val androidLibDirs: ConfigurableFileCollection
 
     @get:OutputDirectory
     abstract val workDir: DirectoryProperty
@@ -202,6 +230,9 @@ abstract class BuildBox64Task @Inject constructor(
         runtimeFiles.get().forEach { (name, apkName) ->
             locateRuntimeFile(cc, name).copyTo(abiDir.resolve(apkName), overwrite = true)
         }
+        androidLibDirs.files.forEach { dir ->
+            dir.listFiles()?.filter { it.isFile }?.forEach { it.copyTo(abiDir.resolve(it.name), overwrite = true) }
+        }
     }
 
     private fun commandExists(command: String): Boolean = try {
@@ -214,15 +245,11 @@ abstract class BuildBox64Task @Inject constructor(
         false
     }
 
-    /**
-     * Prefers the patched glibc. Falls back to the cross compiler's sysroot,
-     * which is only expected for libgcc_s (not part of glibc).
-     */
+    /** Takes a file from the guest build outputs, or from the cross compiler. */
     private fun locateRuntimeFile(cc: String, name: String): File {
-        val patched = glibcDir.get().file(name).asFile
-        if (patched.isFile) return patched
-        check(name == "libgcc_s.so.1") {
-            "Patched glibc is missing $name. Stock glibc cannot run on Android."
+        guestLibDirs.files.map { it.resolve(name) }.firstOrNull { it.isFile }?.let { return it }
+        check(name in crossCompilerFiles.get()) {
+            "$name is missing from the guest build outputs. Stock glibc cannot run on Android."
         }
         val output = ByteArrayOutputStream()
         execOperations.exec {
@@ -236,22 +263,43 @@ abstract class BuildBox64Task @Inject constructor(
 }
 
 val crossPrefixSetting = providers.gradleProperty("hypocket.aarch64CrossPrefix").orElse("aarch64-linux-gnu-")
+val crossGcc = crossPrefixSetting.map { "${it}gcc" }
 
-val buildGlibc = tasks.register<BuildGlibcTask>("buildGlibc") {
-    description = "Builds glibc for arm64 with the patch for Android's seccomp filter."
-    scriptDir.set(layout.projectDirectory.dir("third_party/glibc-android"))
-    crossPrefix.set(crossPrefixSetting)
-    workDir.set(layout.buildDirectory.dir("glibc-android/work"))
-    outputDir.set(layout.buildDirectory.dir("glibc-android/out"))
-}
+fun registerBuildScript(name: String, folder: String, describe: String, args: Provider<List<String>>) =
+    tasks.register<RunBuildScriptTask>(name) {
+        description = describe
+        scriptDir.set(layout.projectDirectory.dir("third_party/$folder"))
+        extraArgs.set(args)
+        requiredCommand.set(crossGcc)
+        workDir.set(layout.buildDirectory.dir("$folder/work"))
+        outputDir.set(layout.buildDirectory.dir("$folder/out"))
+    }
+
+val buildGlibc = registerBuildScript(
+    "buildGlibc", "glibc-android",
+    "Builds glibc for arm64 with the patch for Android's seccomp filter.",
+    provider { emptyList() },
+)
+val buildGuestMesa = registerBuildScript(
+    "buildGuestMesa", "mesa-guest",
+    "Builds Mesa (virgl driver only) for arm64 glibc.",
+    provider { emptyList() },
+)
+val buildVirglServer = registerBuildScript(
+    "buildVirglServer", "virgl-android",
+    "Builds the VirGL render server for Android arm64.",
+    androidComponents.sdkComponents.ndkDirectory.map { listOf(it.asFile.absolutePath, "28") },
+)
 
 val buildBox64 = tasks.register<BuildBox64Task>("buildBox64") {
-    description = "Builds the Box64 CPU translator and its glibc runtime for arm64-v8a."
+    description = "Builds the Box64 CPU translator and packages it with its guest runtime for arm64-v8a."
     sourceDir.set(layout.projectDirectory.dir("third_party/box64"))
     cmakeDir.set(androidComponents.sdkComponents.sdkDirectory.map { "${it.asFile.absolutePath}/cmake/$CMAKE_VERSION" })
     crossPrefix.set(crossPrefixSetting)
-    runtimeFiles.set(GLIBC_RUNTIME)
-    glibcDir.set(buildGlibc.flatMap { it.outputDir })
+    runtimeFiles.set(GUEST_RUNTIME)
+    crossCompilerFiles.set(FROM_CROSS_COMPILER)
+    guestLibDirs.from(buildGlibc.flatMap { it.outputDir }, buildGuestMesa.flatMap { it.outputDir })
+    androidLibDirs.from(buildVirglServer.flatMap { it.outputDir })
     workDir.set(layout.buildDirectory.dir("box64/cmake-glibc"))
     jniLibsDir.set(layout.buildDirectory.dir("box64/jniLibs"))
 }

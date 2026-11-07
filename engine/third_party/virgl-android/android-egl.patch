@@ -1,0 +1,13 @@
+diff --git a/meson.build b/meson.build
+index 69c1bb8..8555d83 100644
+--- a/meson.build
++++ b/meson.build
+@@ -295,7 +295,7 @@ have_glx = false
+ 
+ if with_egl
+    if cc.has_header('epoxy/egl.h', dependencies: epoxy_dep) and epoxy_dep.get_variable(pkgconfig: 'epoxy_has_egl') == '1'
+-      if with_host_windows or with_host_darwin
++      if with_host_windows or with_host_darwin or host_machine.system() == 'android'
+          have_egl = true
+       else
+          if libdrm_dep.found()

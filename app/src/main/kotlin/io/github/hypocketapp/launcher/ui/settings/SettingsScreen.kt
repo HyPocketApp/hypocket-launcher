@@ -65,6 +65,8 @@ fun SettingsScreen(store: SettingsStore, modifier: Modifier = Modifier) {
         )
         TranslatorTestSection()
 
+        GraphicsTestSection()
+
         Text(stringResource(R.string.unofficial_notice), style = MaterialTheme.typography.bodySmall)
     }
 }
