@@ -141,8 +141,25 @@ Progress:
   API levels lack some pthread functions Box64 uses). It is packaged as
   `libbox64.so` and runs `engine/guest-tests/probe` from **Settings >
   Translator test**. Verified so far: the probe gives the correct result
-  under Box64 on an x86-64 Linux host (interpreter only). **Not yet tested
-  on an ARM64 phone.**
+  under Box64 on an x86-64 Linux host (interpreter only).
+- First phone test (Samsung Galaxy M12, Exynos 850, Mali-G52, 4 GB RAM,
+  Android 13): Box64 starts, enables the ARM64 dynarec and loads the probe,
+  then fails with `Global Symbol __libc_start_main not found`.
+  **Cause:** with `-DANDROID`, Box64 targets x86-64 *Android* (bionic)
+  programs. Its wrapped libc only provides bionic's `__libc_init` entry
+  point (`src/emu/entrypoint.c`), not glibc's `__libc_start_main`, and
+  upstream says the native Android build "won't run linux binaries". The
+  game is a glibc Linux program, so this setup cannot run it as is.
+
+### Consequence for the CPU choice
+
+To run glibc Linux programs on Android there are three known setups:
+
+| Setup | How it works | GPU driver access | Concerns |
+|-------|--------------|-------------------|----------|
+| Box64 built for glibc + an ARM64 glibc shipped in the app | Box64 runs as a Linux program on its own glibc; wrapped libraries call native glibc libraries | The phone's GL/Vulkan driver is a bionic library and cannot be loaded from a glibc process. Works on Adreno with Mesa Turnip (talks to the kernel directly). On Mali it needs a bridge such as VirGL to a separate process, which is slow | Bad fit for Mali phones like the main test device |
+| FEX in a bionic process + an x86-64 glibc rootfs | The guest's own x86-64 glibc is translated; calls to GL are forwarded to the Android driver with thunks | Direct, through the vendor GLES driver | More translated code (no wrapped libc). This is the setup Vexa uses and it reached the game's startup |
+| Patch Box64's Android build to accept glibc programs | Enable `__libc_start_main` next to `__libc_init` | Direct | Box64's bionic wrapped libc was not written for glibc programs; differences in structures and behavior are likely. We would carry patches upstream does not support |
 
 1. **CPU translator proof of concept.** Add Box64 (and later FEX) as pinned
    submodules, build them with the NDK, and run our own x86-64 "hello world"
