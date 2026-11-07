@@ -88,6 +88,10 @@ class TranslatorProbe(context: Context) {
         appContext.assets.open("guest-tests/$GUEST_NAME").use { input ->
             target.outputStream().use { input.copyTo(it) }
         }
+        // Box64 refuses files without the executable bit. Android still does
+        // not let the kernel run it directly: Box64 only reads it, and falls
+        // back to copying the code into memory when mapping it is denied.
+        check(target.setExecutable(true, true)) { "Could not mark ${target.name} as executable" }
         return target
     }
 
