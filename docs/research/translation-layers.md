@@ -164,6 +164,15 @@ Progress:
   is GPL-3.0 with the GCC Runtime Library Exception. Both are compatible
   with GPL-3.0, but a public release must offer their source code.
 
+- Third phone test (same device): exit code 159, which is 128 + SIGSYS,
+  before any output. Android 13 does not allow apps to call
+  `set_robust_list`, `rseq`, `clone3`, `faccessat2` or `fchmodat2`
+  (checked against bionic's `SYSCALLS.TXT` and seccomp allowlists for
+  android13-release), and glibc calls `set_robust_list` at startup. Fixed
+  by building glibc 2.39 with `engine/third_party/glibc-android`. Under
+  qemu the probe passes and only allowed system calls remain. Not yet tested
+  on a phone.
+
 ### Consequence for the CPU choice
 
 To run glibc Linux programs on Android there are three known setups:

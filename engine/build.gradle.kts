@@ -106,7 +106,7 @@ abstract class BuildGlibcTask @Inject constructor(
         val out = outputDir.get().asFile
         out.deleteRecursively()
         out.mkdirs()
-        if (!commandExists(execOperations, "${crossPrefix.get()}gcc")) {
+        if (!commandExists("${crossPrefix.get()}gcc")) {
             logger.warn("HyPocket: no aarch64 cross compiler, so glibc is not built.")
             return
         }
@@ -118,16 +118,15 @@ abstract class BuildGlibcTask @Inject constructor(
             )
         }
     }
-}
-
-fun commandExists(execOperations: ExecOperations, command: String): Boolean = try {
-    execOperations.exec {
-        commandLine(command, "--version")
-        standardOutput = OutputStream.nullOutputStream()
-        errorOutput = OutputStream.nullOutputStream()
-    }.exitValue == 0
-} catch (e: Exception) {
-    false
+    private fun commandExists(command: String): Boolean = try {
+        execOperations.exec {
+            commandLine(command, "--version")
+            standardOutput = OutputStream.nullOutputStream()
+            errorOutput = OutputStream.nullOutputStream()
+        }.exitValue == 0
+    } catch (e: Exception) {
+        false
+    }
 }
 
 abstract class BuildBox64Task @Inject constructor(
@@ -167,7 +166,7 @@ abstract class BuildBox64Task @Inject constructor(
         val abiDir = jniLibsDir.get().asFile.resolve("arm64-v8a")
         abiDir.deleteRecursively()
 
-        if (!commandExists(execOperations, cc)) {
+        if (!commandExists(cc)) {
             logger.warn(
                 "HyPocket: '$cc' not found, so Box64 is not built and the translator test " +
                     "will report it as unavailable. See engine/build.gradle.kts.",
@@ -203,6 +202,16 @@ abstract class BuildBox64Task @Inject constructor(
         runtimeFiles.get().forEach { (name, apkName) ->
             locateRuntimeFile(cc, name).copyTo(abiDir.resolve(apkName), overwrite = true)
         }
+    }
+
+    private fun commandExists(command: String): Boolean = try {
+        execOperations.exec {
+            commandLine(command, "--version")
+            standardOutput = OutputStream.nullOutputStream()
+            errorOutput = OutputStream.nullOutputStream()
+        }.exitValue == 0
+    } catch (e: Exception) {
+        false
     }
 
     /**

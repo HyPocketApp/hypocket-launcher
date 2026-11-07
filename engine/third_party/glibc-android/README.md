@@ -18,7 +18,9 @@ system calls:
 `build.sh` downloads the official glibc 2.39 release, checks its SHA-256,
 applies the patch and builds it with an aarch64 cross compiler.
 
-Status: the patch is written but **not built or tested yet**.
+Status: builds with Ubuntu 24.04's aarch64 cross compiler. Under
+qemu-aarch64, Box64 runs the probe with it and none of the five system calls
+above appear in the trace. **Not yet tested on a phone.**
 
 License: glibc is LGPL-2.1-or-later. This patch is under the same license.
 A public release of HyPocket must offer the glibc source and this patch.
