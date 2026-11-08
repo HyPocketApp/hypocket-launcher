@@ -86,4 +86,14 @@
     <string name="storage_read_back_failed">Falhou: não deu pra ler de volta os dados salvos.</string>
     <string name="storage_plain_text">Falhou: os dados não foram criptografados.</string>
     <string name="storage_error">Falhou: o Keystore do Android deu erro.</string>
+    <string name="device_title">Este celular</string>
+    <string name="device_checking">Verificando este celular…</string>
+    <string name="device_gles">OpenGL ES %1$s %2$s</string>
+    <string name="device_gles_none">não encontrado</string>
+    <string name="device_ram">Memória: %1$d MB</string>
+    <string name="device_ok">Este celular atende aos requisitos.</string>
+    <string name="device_no_gles3">Este celular não tem driver de OpenGL ES 3, que o jogo precisa.</string>
+    <string name="device_gles_too_old">A versão do OpenGL ES deste celular é antiga demais pro jogo. Ele precisa da 3.2.</string>
+    <string name="device_gles_untested">Este celular tem OpenGL ES 3.1. O jogo precisa da 3.2 pra rodar bem; pode até funcionar, mas não foi testado.</string>
+    <string name="device_low_ram">Este celular tem pouca memória. O jogo pode fechar ou ficar lento; feche os outros apps antes de jogar.</string>
 </resources>

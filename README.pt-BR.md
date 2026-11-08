@@ -19,7 +19,8 @@ Ainda não há versões publicadas.
 
 - **Uma conta original e uma cópia legítima do jogo.** Você entra com a sua
   própria conta oficial.
-- Um celular Android com processador ARM64.
+- Um celular com Android 9 ou mais novo, processador ARM64 e OpenGL ES 3.2.
+  Recomendado: 4 GB de RAM ou mais. A aba **Jogo** verifica o seu celular.
 
 O HyPocket **não** inclui nem distribui nenhum arquivo do jogo. O launcher
 baixa os arquivos usando a sua própria conta. Não existe modo offline nem

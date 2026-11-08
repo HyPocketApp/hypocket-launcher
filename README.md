@@ -18,7 +18,8 @@ releases so far.
 
 - **An original account and a legitimate copy of the game.** You sign in with
   your own official account.
-- An Android phone with an ARM64 processor.
+- An Android 9 or newer phone with an ARM64 processor and OpenGL ES 3.2.
+  4 GB of RAM or more is recommended. The **Game** tab checks your phone.
 
 HyPocket does **not** include or distribute any game files. The launcher
 downloads them using your own account. There is no offline or pirated mode,

@@ -32,7 +32,7 @@
     <string name="game_download_failed">The download failed.</string>
     <string name="game_download_unavailable">Downloading the game is not available yet.</string>
     <string name="game_play">Play</string>
-    <string name="game_unsupported_device">This device is not supported. HyPocket needs an ARM64 processor.</string>
+    <string name="game_unsupported_device">This phone is not supported. HyPocket needs an ARM64 processor.</string>
     <string name="game_engine_not_ready">The game engine is not ready yet.</string>
 
     <string name="settings_title">Settings</string>
@@ -88,4 +88,14 @@
     <string name="storage_read_back_failed">Failed: the saved data could not be read back.</string>
     <string name="storage_plain_text">Failed: the data was not encrypted.</string>
     <string name="storage_error">Failed: the Android Keystore gave an error.</string>
+    <string name="device_title">This phone</string>
+    <string name="device_checking">Checking this phone…</string>
+    <string name="device_gles">OpenGL ES %1$s %2$s</string>
+    <string name="device_gles_none">not found</string>
+    <string name="device_ram">Memory: %1$d MB</string>
+    <string name="device_ok">This phone meets the requirements.</string>
+    <string name="device_no_gles3">This phone has no OpenGL ES 3 driver, which the game needs.</string>
+    <string name="device_gles_too_old">This phone\'s OpenGL ES version is too old for the game. It needs 3.2.</string>
+    <string name="device_gles_untested">This phone has OpenGL ES 3.1. The game needs 3.2 to run well; it might still work, but it has not been tested.</string>
+    <string name="device_low_ram">This phone has little memory. The game may close or run slowly; close other apps before playing.</string>
 </resources>
