@@ -45,7 +45,17 @@ object AppProcesses {
     fun list(): List<ProcessMemory> = File("/proc").listFiles().orEmpty()
         .mapNotNull { dir -> dir.name.toIntOrNull()?.let { pid -> read(pid, dir) } }
 
+    private val selfExe: String? by lazy { runCatching { File("/proc/self/exe").canonicalPath }.getOrNull() }
+
     private fun read(pid: Int, dir: File): ProcessMemory? = runCatching {
+        // Starting a program forks the app: for a moment the child is still a
+        // copy of the app (named after the forking thread) and would count the
+        // app's memory twice.
+        if (pid != android.os.Process.myPid() && selfExe != null &&
+            runCatching { File(dir, "exe").canonicalPath }.getOrNull() == selfExe
+        ) {
+            return@runCatching null
+        }
         var name = "?"
         var rssKb = -1L
         File(dir, "status").forEachLine { line ->
