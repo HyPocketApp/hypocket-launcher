@@ -394,16 +394,19 @@ project (chunked meshes with only visible faces, per-vertex ambient
 occlusion, water, walking, breaking and placing blocks). It runs through the
 whole path: Box64, desktop OpenGL 4.1, VirGL and direct display (stage 2),
 with touch input through a shared file. Results on the Galaxy M12 (Exynos
-850, Mali-G52), power saving on, 1200x540 (75% of the screen):
+850, Mali-G52), power saving on, 1200x540 (75% of the screen) unless noted:
 
 | FPS limit | Measured fps | Time per frame | Triangles | Session |
 |---|---|---|---|---|
 | 30 | 29.8 | 9-13 ms | 60-80 thousand | 89 s, 2633 frames |
 | 60 | 59.3 | 9-14 ms | 64-79 thousand | 100 s, 5813 frames |
+| 60, at 1600x720 (100%) | 59.3 | 11-14 ms | 52-82 thousand | 54 s, 3119 frames |
 
 - The time per frame covers the game's CPU work, submitting the frame and
   waiting for the previous frame's fence, so at 60 fps there are still a few
-  milliseconds to spare.
+  milliseconds to spare. At the full 1600x720 it grows by only about 2 ms
+  and the game still holds 59 fps; the view also filled the whole screen
+  once the activity used the area beside the camera cutout.
 - The world (64 chunks, about 62 thousand faces) is generated and meshed in
   about 260 ms through Box64.
 - Memory peaks: launcher 152-158 MB, VirGL server 59 MB, game 33-35 MB, about
