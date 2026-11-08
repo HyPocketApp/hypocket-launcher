@@ -12,6 +12,8 @@ data class LauncherSettings(
     val fpsLimit: Int = 30,
     /** Lowers memory use at the cost of more loading. */
     val lowMemoryMode: Boolean = true,
+    /** Avoids using the player's mobile data for the large game download. */
+    val downloadOnWifiOnly: Boolean = true,
 ) {
     companion object {
         val RENDER_SCALE_RANGE = 50..100
@@ -33,6 +35,7 @@ class SettingsStore(context: Context) {
             .putInt(KEY_RENDER_SCALE, updated.renderScalePercent)
             .putInt(KEY_FPS_LIMIT, updated.fpsLimit)
             .putBoolean(KEY_LOW_MEMORY, updated.lowMemoryMode)
+            .putBoolean(KEY_WIFI_ONLY, updated.downloadOnWifiOnly)
             .apply()
         state.value = updated
     }
@@ -44,6 +47,7 @@ class SettingsStore(context: Context) {
                 renderScalePercent = prefs.getInt(KEY_RENDER_SCALE, defaults.renderScalePercent),
                 fpsLimit = prefs.getInt(KEY_FPS_LIMIT, defaults.fpsLimit),
                 lowMemoryMode = prefs.getBoolean(KEY_LOW_MEMORY, defaults.lowMemoryMode),
+                downloadOnWifiOnly = prefs.getBoolean(KEY_WIFI_ONLY, defaults.downloadOnWifiOnly),
             ),
         )
     }
@@ -58,5 +62,6 @@ class SettingsStore(context: Context) {
         const val KEY_RENDER_SCALE = "render_scale_percent"
         const val KEY_FPS_LIMIT = "fps_limit"
         const val KEY_LOW_MEMORY = "low_memory_mode"
+        const val KEY_WIFI_ONLY = "download_on_wifi_only"
     }
 }

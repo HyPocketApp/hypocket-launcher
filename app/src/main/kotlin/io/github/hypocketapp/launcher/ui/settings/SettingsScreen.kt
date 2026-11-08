@@ -60,6 +60,18 @@ fun SettingsScreen(store: SettingsStore, modifier: Modifier = Modifier) {
             )
         }
 
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(stringResource(R.string.settings_wifi_only), modifier = Modifier.weight(1f))
+            Switch(
+                checked = settings.downloadOnWifiOnly,
+                onCheckedChange = { checked -> store.update { it.copy(downloadOnWifiOnly = checked) } },
+            )
+        }
+
         Text(
             stringResource(R.string.settings_engine_info, Engine.version, Engine.abi),
             style = MaterialTheme.typography.bodySmall,

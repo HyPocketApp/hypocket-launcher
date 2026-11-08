@@ -1,5 +1,10 @@
 package io.github.hypocketapp.launcher.ui.game
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -25,6 +30,7 @@ import io.github.hypocketapp.engine.DeviceCheck
 import io.github.hypocketapp.engine.DeviceProblem
 import io.github.hypocketapp.engine.DeviceReport
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -34,6 +40,7 @@ fun GameScreen(container: AppContainer, modifier: Modifier = Modifier) {
     val account = (sessionState as? SessionState.Verified)?.account
     val scope = rememberCoroutineScope()
     var download by remember { mutableStateOf<DownloadState?>(null) }
+    var downloadJob by remember { mutableStateOf<Job?>(null) }
     var launch by remember { mutableStateOf<LaunchResult?>(null) }
     val context = LocalContext.current
     val device by produceState<DeviceReport?>(null) {
@@ -48,28 +55,21 @@ fun GameScreen(container: AppContainer, modifier: Modifier = Modifier) {
             return@ScreenColumn
         }
 
-        Button(onClick = {
-            scope.launch {
-                container.gameDownloader.download(account).collect { download = it }
-            }
-        }) {
-            Text(stringResource(R.string.game_download))
-        }
-
-        when (val state = download) {
-            is DownloadState.InProgress -> {
-                val total = state.totalBytes
-                if (total != null && total > 0) {
-                    LinearProgressIndicator(progress = { state.downloadedBytes.toFloat() / total })
-                } else {
-                    LinearProgressIndicator()
+        DownloadSection(
+            state = download,
+            running = downloadJob?.isActive == true,
+            onStart = {
+                downloadJob?.cancel()
+                downloadJob = scope.launch {
+                    container.gameDownloader.download(account).collect { download = it }
                 }
-            }
-            DownloadState.Completed -> Text(stringResource(R.string.game_download_completed))
-            is DownloadState.Failed -> Text(stringResource(R.string.game_download_failed))
-            is DownloadState.Unavailable -> Text(stringResource(R.string.game_download_unavailable))
-            null -> Unit
-        }
+            },
+            onCancel = {
+                downloadJob?.cancel()
+                downloadJob = null
+                download = null
+            },
+        )
 
         val report = device
         Button(enabled = report != null, onClick = {
@@ -120,3 +120,70 @@ private fun DeviceProblem.message(): Int = when (this) {
     DeviceProblem.GLES_UNTESTED -> R.string.device_gles_untested
     DeviceProblem.LOW_RAM -> R.string.device_low_ram
 }
+
+@Composable
+private fun DownloadSection(
+    state: DownloadState?,
+    running: Boolean,
+    onStart: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    Text(stringResource(R.string.download_title), style = MaterialTheme.typography.titleMedium)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(enabled = !running, onClick = onStart) {
+            Text(stringResource(if (state is DownloadState.Failed) R.string.download_retry else R.string.game_download))
+        }
+        if (running) {
+            OutlinedButton(onClick = onCancel) { Text(stringResource(R.string.download_cancel)) }
+        }
+    }
+
+    when (state) {
+        null -> Text(stringResource(R.string.download_hint), style = MaterialTheme.typography.bodySmall)
+        DownloadState.Checking -> {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Text(stringResource(R.string.download_checking))
+        }
+        is DownloadState.InProgress -> {
+            val fraction = if (state.totalBytes > 0) state.downloadedBytes.toFloat() / state.totalBytes else 0f
+            LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+            Text(
+                stringResource(
+                    R.string.download_progress,
+                    state.downloadedBytes / MB,
+                    state.totalBytes / MB,
+                    (fraction * 100).toInt(),
+                ),
+            )
+            Text(
+                stringResource(R.string.download_files, state.fileIndex, state.fileCount),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        DownloadState.Verifying -> {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Text(stringResource(R.string.download_verifying))
+        }
+        DownloadState.Completed ->
+            Text(stringResource(R.string.game_download_completed), color = MaterialTheme.colorScheme.primary)
+        DownloadState.WaitingForWifi -> Text(stringResource(R.string.download_waiting_wifi))
+        is DownloadState.NotEnoughSpace -> Text(
+            stringResource(R.string.download_no_space, state.neededBytes / MB, state.freeBytes / MB),
+            color = MaterialTheme.colorScheme.error,
+        )
+        is DownloadState.Failed -> Text(
+            stringResource(
+                when (state.reason) {
+                    DownloadState.FailureReason.NETWORK -> R.string.download_failed_network
+                    DownloadState.FailureReason.CORRUPTED -> R.string.download_failed_corrupted
+                    DownloadState.FailureReason.SERVER -> R.string.download_failed_server
+                    DownloadState.FailureReason.STORAGE -> R.string.download_failed_storage
+                },
+            ),
+            color = MaterialTheme.colorScheme.error,
+        )
+        is DownloadState.Unavailable -> Text(stringResource(R.string.game_download_unavailable))
+    }
+}
+
+private const val MB = 1024L * 1024L

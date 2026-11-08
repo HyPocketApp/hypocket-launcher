@@ -27,7 +27,6 @@
     <string name="game_sign_in_first">Entre com uma conta que tenha o jogo para baixar e jogar.</string>
     <string name="game_download">Baixar o jogo</string>
     <string name="game_download_completed">Download concluído.</string>
-    <string name="game_download_failed">O download falhou.</string>
     <string name="game_download_unavailable">O download do jogo ainda não está disponível.</string>
     <string name="game_play">Jogar</string>
     <string name="game_unsupported_device">Este aparelho não é compatível. O HyPocket precisa de um processador ARM64.</string>
@@ -96,4 +95,19 @@
     <string name="device_gles_too_old">A versão do OpenGL ES deste celular é antiga demais pro jogo. Ele precisa da 3.2.</string>
     <string name="device_gles_untested">Este celular tem OpenGL ES 3.1. O jogo precisa da 3.2 pra rodar bem; pode até funcionar, mas não foi testado.</string>
     <string name="device_low_ram">Este celular tem pouca memória. O jogo pode fechar ou ficar lento; feche os outros apps antes de jogar.</string>
+    <string name="settings_wifi_only">Baixar o jogo só no Wi-Fi</string>
+    <string name="download_title">Download</string>
+    <string name="download_hint">O jogo é baixado dos servidores oficiais com a sua conta. Se o download parar, ele continua de onde parou.</string>
+    <string name="download_retry">Tentar de novo</string>
+    <string name="download_cancel">Cancelar</string>
+    <string name="download_checking">Verificando os arquivos do jogo…</string>
+    <string name="download_progress">%1$d MB de %2$d MB (%3$d%%)</string>
+    <string name="download_files">Arquivos prontos: %1$d de %2$d</string>
+    <string name="download_verifying">Conferindo o arquivo baixado…</string>
+    <string name="download_waiting_wifi">Conecte no Wi-Fi pra baixar, ou desligue “Baixar o jogo só no Wi-Fi” nas Configurações.</string>
+    <string name="download_no_space">Falta espaço: o download precisa de %1$d MB e o celular tem %2$d MB livres.</string>
+    <string name="download_failed_network">O download parou: confira a sua internet e tente de novo. Ele continua de onde parou.</string>
+    <string name="download_failed_corrupted">Um arquivo baixado veio com defeito e foi apagado. Tente de novo.</string>
+    <string name="download_failed_server">Os servidores do jogo não responderam direito. Tente mais tarde.</string>
+    <string name="download_failed_storage">Não deu pra salvar o arquivo no celular. Confira o espaço livre e tente de novo.</string>
 </resources>

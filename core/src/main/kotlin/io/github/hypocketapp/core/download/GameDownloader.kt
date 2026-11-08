@@ -2,7 +2,6 @@ package io.github.hypocketapp.core.download
 
 import io.github.hypocketapp.core.account.VerifiedAccount
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
 
 /**
  * Downloads the game files with the player's own account.
@@ -15,14 +14,25 @@ interface GameDownloader {
 }
 
 sealed interface DownloadState {
-    data class InProgress(val downloadedBytes: Long, val totalBytes: Long?) : DownloadState
-    data object Completed : DownloadState
-    data class Failed(val reason: String) : DownloadState
-    data class Unavailable(val reason: String) : DownloadState
-}
+    /** Asking for the file list and checking files already on the phone. */
+    data object Checking : DownloadState
 
-/** Used until there is a supported way to download the game client. */
-class UnavailableGameDownloader : GameDownloader {
-    override fun download(account: VerifiedAccount): Flow<DownloadState> =
-        flowOf(DownloadState.Unavailable("Game download is not implemented yet"))
+    data class InProgress(
+        val downloadedBytes: Long,
+        val totalBytes: Long,
+        val fileIndex: Int,
+        val fileCount: Int,
+    ) : DownloadState
+
+    /** Checking the downloaded files against the expected hashes. */
+    data object Verifying : DownloadState
+    data object Completed : DownloadState
+
+    /** The player chose to download on Wi-Fi only and the phone is on mobile data. */
+    data object WaitingForWifi : DownloadState
+    data class NotEnoughSpace(val neededBytes: Long, val freeBytes: Long) : DownloadState
+    data class Failed(val reason: FailureReason) : DownloadState
+    data class Unavailable(val reason: String) : DownloadState
+
+    enum class FailureReason { NETWORK, CORRUPTED, SERVER, STORAGE }
 }
