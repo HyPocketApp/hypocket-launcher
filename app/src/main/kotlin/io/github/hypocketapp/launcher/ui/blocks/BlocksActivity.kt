@@ -104,7 +104,10 @@ class BlocksActivity : ComponentActivity() {
                     controller = controller,
                     renderScalePercent = settings.renderScalePercent,
                     fpsLimit = settings.fpsLimit,
-                    options = BlocksOptions(dynamicResolution = settings.dynamicResolution),
+                    options = BlocksOptions(
+                        dynamicResolution = settings.dynamicResolution,
+                        heavy = intent.getBooleanExtra(EXTRA_HEAVY, false),
+                    ),
                     onClose = { finish() },
                 )
             }
@@ -135,8 +138,10 @@ class BlocksActivity : ComponentActivity() {
     }
 
     companion object {
-        fun start(context: Context) {
-            context.startActivity(Intent(context, BlocksActivity::class.java))
+        private const val EXTRA_HEAVY = "heavy"
+
+        fun start(context: Context, heavy: Boolean) {
+            context.startActivity(Intent(context, BlocksActivity::class.java).putExtra(EXTRA_HEAVY, heavy))
         }
     }
 }
@@ -305,6 +310,13 @@ private fun Hud(stats: BlocksStats, session: BlocksSession, controllerUsed: Bool
                     color = Color.White,
                     style = MaterialTheme.typography.bodySmall,
                 )
+                if (stats.creatures > 0) {
+                    Text(
+                        stringResource(R.string.blocks_creatures, stats.creatures),
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
             Text(stringResource(if (controllerUsed) R.string.blocks_hint_controller else R.string.blocks_hint), color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
         }
@@ -387,6 +399,7 @@ private fun BlocksReport.toShareText(inputDevices: List<String>): String = build
     appendLine("Renderer: ${renderer ?: "-"}")
     appendLine("Resolution: ${stats.width}x${stats.height}, 3D at ${stats.scalePercent}% at the end")
     appendLine("World built in: %.0f ms".format(stats.buildMillis))
+    appendLine("Heavy mode: ${options.heavy}, dynamic resolution: ${options.dynamicResolution}")
     appendLine("Frames: ${stats.frames} in %.1f s".format(seconds))
     appendLine("Exit code: ${exitCode ?: "-"}")
     memory?.toLines()?.forEach { appendLine("Memory: $it") }

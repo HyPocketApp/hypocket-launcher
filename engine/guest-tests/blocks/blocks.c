@@ -2,7 +2,8 @@
  * path (x86-64 -> Box64 -> desktop OpenGL 4.1 -> VirGL -> phone GPU) with a
  * load shaped like a real game instead of a synthetic benchmark.
  *
- * The world is 8 x 8 chunks of 16 x 48 x 16 blocks. Each chunk is meshed once
+ * The world is 8 x 8 chunks of 16 x 48 x 16 blocks (16 x 16 in heavy mode,
+ * which also adds wandering creatures). Each chunk is meshed once
  * (and again when a block in it changes) into a vertex buffer that holds only
  * the faces next to air or water, with per-vertex ambient occlusion. Frames
  * are drawn into a framebuffer object and shown with eglSwapBuffers, which
@@ -66,6 +67,7 @@ typedef struct {
     int32_t width;
     int32_t height;
     int32_t scale_percent; /* dynamic resolution: share of width and height drawn */
+    int32_t creatures;     /* drawn in the last frame */
 } SharedIo;
 
 /* ---- OpenGL entry points ---------------------------------------------- */
@@ -175,7 +177,11 @@ static float fbm(float x, float z, int seed) {
 /* ---- World ------------------------------------------------------------ */
 
 #define CHUNK 16
-#define CHUNKS 8
+/* 8 x 8 chunks, or 16 x 16 in heavy mode (HYPOCKET_BLOCKS_HEAVY). */
+#define MAX_CHUNKS 16
+#define MAX_W (CHUNK * MAX_CHUNKS)
+static int world_chunks = 8;
+#define CHUNKS world_chunks
 #define WX (CHUNK * CHUNKS)
 #define WZ (CHUNK * CHUNKS)
 #define WY 48
@@ -186,7 +192,7 @@ enum { AIR, GRASS, DIRT, STONE, SAND, WOOD, LEAVES, WATER, PLANKS, BLOCK_TYPES }
 /* Texture layers. */
 enum { T_GRASS_TOP, T_GRASS_SIDE, T_DIRT, T_STONE, T_SAND, T_WOOD_SIDE, T_WOOD_TOP, T_LEAVES, T_WATER, T_PLANKS, LAYERS };
 
-static uint8_t world[WX][WY][WZ];
+static uint8_t world[MAX_W][WY][MAX_W];
 
 static int block_at(int x, int y, int z) {
     if (y < 0) return STONE;
@@ -228,7 +234,7 @@ static void place_tree(int x, int ground, int z) {
 }
 
 static void generate_world(void) {
-    static int heights[WX][WZ];
+    static int heights[MAX_W][MAX_W];
     for (int x = 0; x < WX; x++)
         for (int z = 0; z < WZ; z++) {
             float hills = fbm(x / 40.0f, z / 40.0f, 1);
@@ -269,7 +275,7 @@ typedef struct {
     int dirty;
 } Chunk;
 
-static Chunk chunks[CHUNKS][CHUNKS];
+static Chunk chunks[MAX_CHUNKS][MAX_CHUNKS];
 
 static const int face_normal[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
 /* Four corners per face, counter-clockwise seen from outside. */
@@ -585,6 +591,192 @@ static void set_block(int x, int y, int z, int b) {
     world[x][y][z] = (uint8_t)b;
     mark_dirty(x, z);
 }
+
+/* ---- Creatures and particles ----------------------------------------- */
+
+/* Heavy mode fills the world with small wandering creatures. Each is two
+ * boxes drawn with their own draw calls and uniforms, like the separate
+ * objects of a real game, and each thinks and moves on the CPU. */
+typedef struct {
+    float x, y, z, vy, yaw, target_yaw, speed, timer, phase;
+    int on_ground, color;
+} Creature;
+
+#define MAX_CREATURES 300
+static Creature creatures[MAX_CREATURES];
+static int creature_count;
+
+static const float creature_colors[6][3] = {
+    {0.86f, 0.62f, 0.45f}, {0.55f, 0.72f, 0.88f}, {0.92f, 0.85f, 0.55f},
+    {0.70f, 0.55f, 0.85f}, {0.60f, 0.82f, 0.60f}, {0.90f, 0.60f, 0.70f},
+};
+
+/* Top of the highest solid block at or below height y in column x, z. */
+static float ground_below(float x, float y, float z) {
+    int bx = (int)floorf(x), bz = (int)floorf(z);
+    for (int by = (int)floorf(y + 0.5f); by >= 0; by--)
+        if (is_solid(block_at(bx, by, bz))) return by + 1.0f;
+    return 0;
+}
+
+static void spawn_creatures(int count) {
+    creature_count = 0;
+    for (int tries = 0; creature_count < count && tries < count * 50; tries++) {
+        int x = 2 + (int)(rand01(tries, 11, 3) * (WX - 4)), z = 2 + (int)(rand01(tries, 13, 5) * (WZ - 4));
+        int y = WY - 1;
+        while (y > 0 && world[x][y][z] == AIR) y--;
+        if (world[x][y][z] != GRASS) continue;
+        Creature* c = &creatures[creature_count++];
+        memset(c, 0, sizeof(*c));
+        c->x = x + 0.5f;
+        c->z = z + 0.5f;
+        c->y = y + 1.0f;
+        c->yaw = c->target_yaw = rand01(tries, 17, 7) * 6.2832f;
+        c->color = creature_count % 6;
+        c->timer = rand01(tries, 19, 9) * 3;
+    }
+}
+
+static void update_creatures(float dt, uint32_t tick) {
+    for (int i = 0; i < creature_count; i++) {
+        Creature* c = &creatures[i];
+        c->timer -= dt;
+        if (c->timer <= 0) { /* wander somewhere else, or rest */
+            float r = rand01(i, (int)tick, 23);
+            c->target_yaw = c->yaw + (r - 0.5f) * 4.0f;
+            c->speed = r < 0.25f ? 0 : 0.6f + 1.2f * rand01(i, (int)tick, 29);
+            c->timer = 1.0f + 3.0f * rand01(i, (int)tick, 31);
+        }
+        float turn = c->target_yaw - c->yaw;
+        c->yaw += turn * (dt * 3 < 1 ? dt * 3 : 1);
+        float nx = c->x + sinf(c->yaw) * c->speed * dt, nz = c->z - cosf(c->yaw) * c->speed * dt;
+        int feet = (int)floorf(c->y + 0.1f);
+        int ahead = block_at((int)floorf(nx), feet, (int)floorf(nz));
+        if (nx < 1 || nz < 1 || nx > WX - 1 || nz > WZ - 1 || ahead == WATER ||
+            block_at((int)floorf(nx), feet - 1, (int)floorf(nz)) == WATER) {
+            c->target_yaw = c->yaw + 3.1416f; /* turn back from edges and water */
+            c->timer = 1.5f;
+        } else if (is_solid(ahead)) {
+            if (c->on_ground && !is_solid(block_at((int)floorf(nx), feet + 1, (int)floorf(nz)))) {
+                c->vy = 6.5f; /* hop up one block */
+                c->on_ground = 0;
+            } else {
+                c->target_yaw = c->yaw + 1.6f;
+            }
+        } else {
+            c->x = nx;
+            c->z = nz;
+        }
+        c->vy -= 20.0f * dt;
+        c->y += c->vy * dt;
+        float ground = ground_below(c->x, c->y, c->z);
+        if (c->y <= ground) {
+            c->y = ground;
+            c->vy = 0;
+            c->on_ground = 1;
+        } else {
+            c->on_ground = 0;
+        }
+        if (c->speed > 0) c->phase += dt * c->speed * 8;
+    }
+}
+
+typedef struct {
+    float x, y, z, vx, vy, vz, life;
+    float color[3];
+} Particle;
+
+#define MAX_PARTICLES 192
+static Particle particles[MAX_PARTICLES];
+
+static void block_color(int block, float* out) {
+    static const float colors[BLOCK_TYPES][3] = {
+        {0, 0, 0}, {0.32f, 0.58f, 0.24f}, {0.52f, 0.37f, 0.24f}, {0.52f, 0.52f, 0.52f}, {0.86f, 0.80f, 0.58f},
+        {0.42f, 0.30f, 0.18f}, {0.20f, 0.45f, 0.18f}, {0.16f, 0.32f, 0.68f}, {0.70f, 0.54f, 0.32f},
+    };
+    memcpy(out, colors[block < BLOCK_TYPES ? block : PLANKS], sizeof(colors[0]));
+}
+
+/* Bits of a broken block, flying out and falling. */
+static void spawn_particles(int bx, int by, int bz, int block, uint32_t tick) {
+    int made = 0;
+    for (int i = 0; i < MAX_PARTICLES && made < 20; i++) {
+        Particle* p = &particles[i];
+        if (p->life > 0) continue;
+        float r1 = rand01(i, (int)tick, 41), r2 = rand01(i, (int)tick, 43), r3 = rand01(i, (int)tick, 47);
+        p->x = bx + 0.2f + 0.6f * r1;
+        p->y = by + 0.2f + 0.6f * r2;
+        p->z = bz + 0.2f + 0.6f * r3;
+        p->vx = (r1 - 0.5f) * 4;
+        p->vy = 2 + 3 * r2;
+        p->vz = (r3 - 0.5f) * 4;
+        p->life = 0.6f + 0.6f * r2;
+        block_color(block, p->color);
+        float shade = 0.75f + 0.4f * r3;
+        for (int k = 0; k < 3; k++) p->color[k] *= shade;
+        made++;
+    }
+}
+
+static void update_particles(float dt) {
+    for (int i = 0; i < MAX_PARTICLES; i++) {
+        Particle* p = &particles[i];
+        if (p->life <= 0) continue;
+        p->life -= dt;
+        p->vy -= 18 * dt;
+        float nx = p->x + p->vx * dt, ny = p->y + p->vy * dt, nz = p->z + p->vz * dt;
+        if (is_solid(block_at((int)floorf(nx), (int)floorf(ny), (int)floorf(nz)))) {
+            p->vx *= 0.4f;
+            p->vz *= 0.4f;
+            p->vy = 0;
+        } else {
+            p->x = nx;
+            p->y = ny;
+            p->z = nz;
+        }
+    }
+}
+
+/* One box per draw call: center, half size, rotation and colour. */
+static const char* box_vs =
+    "#version 330 core\n"
+    "uniform mat4 view_proj;\n"
+    "uniform vec3 center;\n"
+    "uniform vec3 half_size;\n"
+    "uniform float yaw;\n"
+    "uniform vec3 eye;\n"
+    "out float light;\n"
+    "out float dist;\n"
+    "const vec3 normals[6] = vec3[](vec3(1,0,0), vec3(-1,0,0), vec3(0,1,0), vec3(0,-1,0), vec3(0,0,1), vec3(0,0,-1));\n"
+    "const vec2 quad[6] = vec2[](vec2(0,0), vec2(1,0), vec2(1,1), vec2(0,0), vec2(1,1), vec2(0,1));\n"
+    "void main() {\n"
+    "    int face = gl_VertexID / 6;\n"
+    "    vec2 q = quad[gl_VertexID % 6];\n"
+    "    vec3 n = normals[face];\n"
+    "    vec3 t = abs(n.y) > 0.5 ? vec3(1,0,0) : vec3(0,1,0);\n"
+    "    vec3 b = cross(n, t);\n"
+    "    vec3 p = (n + (q.x * 2.0 - 1.0) * t + (q.y * 2.0 - 1.0) * b) * half_size;\n"
+    "    float c = cos(yaw), s = sin(yaw);\n"
+    "    p = vec3(c * p.x - s * p.z, p.y, s * p.x + c * p.z);\n"
+    "    vec3 rn = vec3(c * n.x - s * n.z, n.y, s * n.x + c * n.z);\n"
+    "    vec3 world = center + p;\n"
+    "    gl_Position = view_proj * vec4(world, 1.0);\n"
+    "    light = 0.45 + 0.55 * max(dot(rn, normalize(vec3(0.4, 0.8, 0.3))), 0.0);\n"
+    "    dist = length(world - eye);\n"
+    "}\n";
+
+static const char* box_fs =
+    "#version 330 core\n"
+    "uniform vec3 color;\n"
+    "uniform vec3 fog_color;\n"
+    "uniform float fog_end;\n"
+    "in float light;\n"
+    "in float dist;\n"
+    "out vec4 frag;\n"
+    "void main() {\n"
+    "    float fog = clamp((dist - fog_end * 0.6) / (fog_end * 0.4), 0.0, 1.0);\n"
+    "    frag = vec4(mix(color * light, fog_color, fog), 1.0);\n"
+    "}\n";
 
 /* ---- Matrices --------------------------------------------------------- */
 
@@ -948,6 +1140,18 @@ int main(int argc, char** argv) {
     p_glUniform2f(p_glGetUniformLocation(hud_program, "pixel"), 2.0f / w * (h / 540.0f), 2.0f / h * (h / 540.0f));
     make_textures();
 
+    int heavy = getenv("HYPOCKET_BLOCKS_HEAVY") != NULL;
+    if (heavy) world_chunks = MAX_CHUNKS;
+    GLuint box_program = link_program(box_vs, box_fs);
+    GLint ub_view_proj = p_glGetUniformLocation(box_program, "view_proj");
+    GLint ub_center = p_glGetUniformLocation(box_program, "center");
+    GLint ub_half = p_glGetUniformLocation(box_program, "half_size");
+    GLint ub_yaw = p_glGetUniformLocation(box_program, "yaw");
+    GLint ub_eye = p_glGetUniformLocation(box_program, "eye");
+    GLint ub_color = p_glGetUniformLocation(box_program, "color");
+    GLint ub_fog_color = p_glGetUniformLocation(box_program, "fog_color");
+    GLint ub_fog_end = p_glGetUniformLocation(box_program, "fog_end");
+
     double build_start = now_ms();
     generate_world();
     GLuint ebo;
@@ -998,7 +1202,10 @@ int main(int argc, char** argv) {
     int seen_breaks = io->breaks, seen_places = io->places;
 
     const float sky[3] = {0.55f, 0.73f, 0.92f};
-    const float far = 72.0f;
+    const float far = heavy ? 128.0f : 72.0f;
+    if (heavy) spawn_creatures(MAX_CREATURES);
+    printf("blocks: %s mode, %dx%d chunks, %d creatures, view distance %.0f\n", heavy ? "heavy" : "normal",
+           world_chunks, world_chunks, creature_count, far);
     double last = now_ms(), stats_start = last, work_total = 0;
     int stats_frames = 0, frames = 0;
     /* Dynamic resolution looks at half a second at a time. */
@@ -1074,6 +1281,7 @@ int main(int argc, char** argv) {
             int hit[3], before[3];
             if (raycast(&player, hit, before)) {
                 if (breaks != seen_breaks) {
+                    spawn_particles(hit[0], hit[1], hit[2], block_at(hit[0], hit[1], hit[2]), (uint32_t)frames);
                     play_at(SND_BREAK, &player, hit[0] + 0.5f, hit[1] + 0.5f, hit[2] + 0.5f,
                             0.9f + 0.2f * rand01(hit[0], hit[1], hit[2]));
                     set_block(hit[0], hit[1], hit[2], hit[1] < WATER_LEVEL + 1 && block_at(hit[0], hit[1] + 1, hit[2]) == WATER ? WATER : AIR);
@@ -1086,6 +1294,8 @@ int main(int argc, char** argv) {
             seen_breaks = breaks;
             seen_places = places;
         }
+        update_creatures(dt, (uint32_t)frames);
+        update_particles(dt);
         for (int i = 0; i < CHUNKS; i++)
             for (int j = 0; j < CHUNKS; j++) {
                 if (!chunks[i][j].dirty) continue;
@@ -1132,6 +1342,45 @@ int main(int argc, char** argv) {
             p_glDrawElements(GL_TRIANGLES, ch->quads * 6, GL_UNSIGNED_INT, 0);
             triangles += ch->quads * 2;
         }
+        /* Creatures and particles: one draw call per box. */
+        int creatures_drawn = 0;
+        p_glUseProgram(box_program);
+        p_glUniformMatrix4fv(ub_view_proj, 1, GL_FALSE, vp);
+        p_glUniform3f(ub_eye, player.x, player.y + EYE_HEIGHT, player.z);
+        p_glUniform3f(ub_fog_color, sky[0], sky[1], sky[2]);
+        p_glUniform1f(ub_fog_end, far);
+        p_glBindVertexArray(hud_vao); /* no attributes: corners come from gl_VertexID */
+        for (int i = 0; i < creature_count; i++) {
+            const Creature* c = &creatures[i];
+            float dx = c->x - player.x, dz = c->z - player.z, d = sqrtf(dx * dx + dz * dz);
+            if (d > far || (d > 4 && dx * fx + dz * fz < -2)) continue;
+            const float* col = creature_colors[c->color];
+            float bob = c->on_ground ? fabsf(sinf(c->phase)) * 0.06f : 0;
+            p_glUniform1f(ub_yaw, c->yaw);
+            p_glUniform3f(ub_center, c->x, c->y + 0.38f + bob, c->z);
+            p_glUniform3f(ub_half, 0.32f, 0.26f, 0.42f);
+            p_glUniform3f(ub_color, col[0], col[1], col[2]);
+            p_glDrawArrays(GL_TRIANGLES, 0, 36);
+            /* The head, a little in front and above. */
+            p_glUniform3f(ub_center, c->x + sinf(c->yaw) * 0.45f, c->y + 0.62f + bob, c->z - cosf(c->yaw) * 0.45f);
+            p_glUniform3f(ub_half, 0.2f, 0.2f, 0.2f);
+            p_glUniform3f(ub_color, col[0] * 0.8f, col[1] * 0.8f, col[2] * 0.8f);
+            p_glDrawArrays(GL_TRIANGLES, 0, 36);
+            creatures_drawn++;
+            triangles += 24;
+        }
+        p_glUniform1f(ub_yaw, 0);
+        p_glUniform3f(ub_half, 0.06f, 0.06f, 0.06f);
+        for (int i = 0; i < MAX_PARTICLES; i++) {
+            const Particle* pt = &particles[i];
+            if (pt->life <= 0) continue;
+            p_glUniform3f(ub_center, pt->x, pt->y, pt->z);
+            p_glUniform3f(ub_color, pt->color[0], pt->color[1], pt->color[2]);
+            p_glDrawArrays(GL_TRIANGLES, 0, 36);
+            triangles += 12;
+        }
+        p_glUseProgram(world_program);
+
         /* Water last, blended, without writing depth. */
         p_glEnable(GL_BLEND);
         p_glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -1215,6 +1464,7 @@ int main(int argc, char** argv) {
             window_frames = 0;
         }
         io->scale_percent = (int)(scale * 100.0f + 0.5f);
+        io->creatures = creatures_drawn;
         frames++;
         stats_frames++;
         io->frames = frames;
@@ -1228,8 +1478,8 @@ int main(int argc, char** argv) {
         if (frame_end - stats_start >= 1000.0) {
             io->fps = (float)(stats_frames * 1000.0 / (frame_end - stats_start));
             io->frame_ms = (float)(work_total / stats_frames);
-            printf("blocks: %.1f fps, %.1f ms/frame, %d triangles, %d chunks, scale %d%%\n", io->fps, io->frame_ms,
-                   triangles, visible_count, io->scale_percent);
+            printf("blocks: %.1f fps, %.1f ms/frame, %d triangles, %d chunks, scale %d%%, %d creatures\n", io->fps,
+                   io->frame_ms, triangles, visible_count, io->scale_percent, creatures_drawn);
             fflush(stdout);
             stats_start = frame_end;
             stats_frames = 0;

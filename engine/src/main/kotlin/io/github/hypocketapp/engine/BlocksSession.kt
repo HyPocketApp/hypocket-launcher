@@ -92,6 +92,7 @@ class BlocksSession(context: Context) : AutoCloseable {
                 width = io.getInt(OFF_WIDTH),
                 height = io.getInt(OFF_HEIGHT),
                 scalePercent = io.getInt(OFF_SCALE),
+                creatures = io.getInt(OFF_CREATURES),
             )
         }
 
@@ -113,6 +114,7 @@ class BlocksSession(context: Context) : AutoCloseable {
         val audioEnv = if (audio != null) mapOf("HYPOCKET_AUDIO_PATH" to audioFile.absolutePath) else emptyMap()
         val optionEnv = buildMap {
             if (options.dynamicResolution) put("HYPOCKET_BLOCKS_DYNAMIC", "1")
+            if (options.heavy) put("HYPOCKET_BLOCKS_HEAVY", "1")
         }
 
         MemorySampler().use { sampler -> server.use { audio.use {
@@ -150,6 +152,7 @@ class BlocksSession(context: Context) : AutoCloseable {
                 directInfo = display?.info.orEmpty(),
                 memory = memory,
                 audioInfo = audio?.info ?: "no audio stream",
+                options = options,
                 output = text,
                 serverOutput = server.log,
             )
@@ -201,6 +204,7 @@ class BlocksSession(context: Context) : AutoCloseable {
         const val OFF_WIDTH = 92
         const val OFF_HEIGHT = 96
         const val OFF_SCALE = 100
+        const val OFF_CREATURES = 104
     }
 }
 
@@ -220,12 +224,16 @@ data class BlocksStats(
     val height: Int = 0,
     /** Share of the width and height the 3D scene is drawn at (dynamic resolution). */
     val scalePercent: Int = 100,
+    /** Creatures drawn in the last frame (heavy mode). */
+    val creatures: Int = 0,
 )
 
 /** What the game does beyond the defaults. */
 data class BlocksOptions(
     /** Lower the 3D resolution while the GPU cannot keep up with the FPS limit. */
     val dynamicResolution: Boolean = false,
+    /** A world four times larger, a longer view and 300 wandering creatures. */
+    val heavy: Boolean = false,
 )
 
 data class BlocksReport(
@@ -240,6 +248,7 @@ data class BlocksReport(
     val memory: MemoryUsage? = null,
     /** What the app's audio output saw. */
     val audioInfo: String = "",
+    val options: BlocksOptions = BlocksOptions(),
     val output: String = "",
     val serverOutput: String = "",
 )

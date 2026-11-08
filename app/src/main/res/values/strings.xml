@@ -132,4 +132,6 @@
     <string name="blocks_summary">%1$d frames, %2$.1f fps on average</string>
     <string name="blocks_hint_controller">Left stick: walk · Right stick: look · A: jump · X/RT: break · B/LT: place · Start: exit</string>
     <string name="settings_dynamic_resolution">Dynamic resolution: lower the 3D resolution while the GPU cannot keep up (test game only for now)</string>
+    <string name="blocks_heavy">Heavy mode: a world four times larger, a longer view and 300 wandering creatures</string>
+    <string name="blocks_creatures">%1$d creatures on screen</string>
 </resources>

@@ -130,4 +130,6 @@
     <string name="blocks_summary">%1$d quadros, %2$.1f fps em média</string>
     <string name="blocks_hint_controller">Analógico esquerdo: andar · Direito: olhar · A: pular · X/RT: quebrar · B/LT: colocar · Start: sair</string>
     <string name="settings_dynamic_resolution">Resolução dinâmica: baixa a resolução do 3D quando a GPU não dá conta (por enquanto só no jogo de teste)</string>
+    <string name="blocks_heavy">Modo pesado: mundo quatro vezes maior, visão mais longa e 300 criaturas andando</string>
+    <string name="blocks_creatures">%1$d criaturas na tela</string>
 </resources>
