@@ -350,7 +350,11 @@ Galaxy M12, 1600x720, 60 fps limit, dynamic resolution on:
 - Audio through AAudio: 48 kHz low latency, 240-frame bursts, 480 frames of
   buffer. The game's own log counted 8 and 30 underruns in 77 and 114 s;
   the app's count was inflated by the silence after the game exited, which
-  no longer counts, and the game now keeps 60 ms ahead instead of 40.
+  no longer counts, and the game now keeps 60 ms ahead instead of 40. With
+  that change a 57 s session had 0 underruns and no audible crackles.
+- Controllers: a Bluetooth controller (reported as "Wireless Controller")
+  works directly once the phone's own controller-to-touch mapping is off;
+  speed and buttons felt right.
 
 ### Direct display, stage 3: no copy at all (November 2026)
 
