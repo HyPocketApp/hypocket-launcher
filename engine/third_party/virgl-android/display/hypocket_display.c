@@ -52,7 +52,9 @@ static struct {
    bool has_wait_sync, has_native_fence;
    EGLDisplay dpy;
    EGLContext ctx;
-   GLuint read_fbo;
+   GLuint program, sampler, vao;
+   GLint size_location;
+   unsigned logged_errors;
    uint32_t width, height;
    struct buffer buf[BUFFERS];
    unsigned frames, dropped;
@@ -102,6 +104,82 @@ static void disable(const char *why)
    d.state = -1;
 }
 
+/*
+ * Copies with a shader instead of glBlitFramebuffer: a blit fails when the
+ * guest's texture format differs from the buffer's (BGRA vs RGBA), and
+ * sampling also applies the texture swizzle virglrenderer may use for BGRA.
+ * texelFetch reads exact pixels; the y flip turns GL's bottom-first rows
+ * into the screen's top-first rows.
+ */
+static const char *vertex_src =
+   "#version 300 es\n"
+   "void main() {\n"
+   "   vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));\n"
+   "   gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);\n"
+   "}\n";
+static const char *fragment_src =
+   "#version 300 es\n"
+   "precision mediump float;\n"
+   "uniform sampler2D frame;\n"
+   "uniform ivec2 size;\n"
+   "out vec4 color;\n"
+   "void main() {\n"
+   "   ivec2 p = ivec2(gl_FragCoord.xy);\n"
+   "   color = vec4(texelFetch(frame, ivec2(p.x, size.y - 1 - p.y), 0).rgb, 1.0);\n"
+   "}\n";
+
+static GLuint compile(GLenum type, const char *src)
+{
+   GLuint shader = glCreateShader(type);
+   glShaderSource(shader, 1, &src, NULL);
+   glCompileShader(shader);
+   GLint ok = 0;
+   glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
+   if (!ok) {
+      char text[512];
+      glGetShaderInfoLog(shader, sizeof(text), NULL, text);
+      fprintf(stderr, "hypocket-display: shader: %s\n", text);
+      glDeleteShader(shader);
+      return 0;
+   }
+   return shader;
+}
+
+/* Called with our context current. */
+static bool make_program(void)
+{
+   GLuint vs = compile(GL_VERTEX_SHADER, vertex_src);
+   GLuint fs = compile(GL_FRAGMENT_SHADER, fragment_src);
+   if (!vs || !fs) return false;
+   d.program = glCreateProgram();
+   glAttachShader(d.program, vs);
+   glAttachShader(d.program, fs);
+   glLinkProgram(d.program);
+   glDeleteShader(vs);
+   glDeleteShader(fs);
+   GLint ok = 0;
+   glGetProgramiv(d.program, GL_LINK_STATUS, &ok);
+   if (!ok) return false;
+   glUseProgram(d.program);
+   glUniform1i(glGetUniformLocation(d.program, "frame"), 0);
+   d.size_location = glGetUniformLocation(d.program, "size");
+   /* A sampler object makes the texture complete whatever its own filters say. */
+   glGenSamplers(1, &d.sampler);
+   glSamplerParameteri(d.sampler, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+   glSamplerParameteri(d.sampler, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+   glGenVertexArrays(1, &d.vao);
+   return true;
+}
+
+static void check_gl(const char *where)
+{
+   GLenum err = glGetError();
+   if (err != GL_NO_ERROR && d.logged_errors < 10) {
+      d.logged_errors++;
+      fprintf(stderr, "hypocket-display: GL error 0x%x at %s\n", err, where);
+   }
+}
+
 static bool init(void)
 {
    if (d.state) return d.state > 0;
@@ -149,9 +227,14 @@ static bool init(void)
    EGLSurface prev_draw = eglGetCurrentSurface(EGL_DRAW), prev_read = eglGetCurrentSurface(EGL_READ);
    eglMakeCurrent(d.dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, d.ctx);
    bool has_image = epoxy_has_gl_extension("GL_OES_EGL_image");
+   bool has_program = has_image && make_program();
    eglMakeCurrent(d.dpy, prev_draw, prev_read, prev);
    if (!has_image) {
       disable("the driver lacks GL_OES_EGL_image");
+      return false;
+   }
+   if (!has_program) {
+      disable("cannot build the copy shader");
       return false;
    }
    d.state = 1;
@@ -207,7 +290,11 @@ static bool make_buffers(uint32_t width, uint32_t height)
       glGenFramebuffers(1, &b->fbo);
       glBindFramebuffer(GL_FRAMEBUFFER, b->fbo);
       glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, b->tex, 0);
-      if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) return false;
+      GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+      if (status != GL_FRAMEBUFFER_COMPLETE) {
+         fprintf(stderr, "hypocket-display: buffer framebuffer incomplete 0x%x\n", status);
+         return false;
+      }
       if (!send_header(MSG_BUFFER, i, -1) || AHardwareBuffer_sendHandleToUnixSocket(b->ahb, d.sock) != 0)
          return false;
    }
@@ -276,14 +363,26 @@ bool hypocket_display_present(uint32_t res_id, uint32_t width, uint32_t height)
    }
    struct buffer *b = &d.buf[free_index];
 
-   if (!d.read_fbo) glGenFramebuffers(1, &d.read_fbo);
-   glBindFramebuffer(GL_READ_FRAMEBUFFER, d.read_fbo);
-   glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, info.tex_id, 0);
-   glBindFramebuffer(GL_DRAW_FRAMEBUFFER, b->fbo);
-   /* GL's first row is the bottom one; the screen's is the top one. */
-   glBlitFramebuffer(0, 0, (GLint)info.width, (GLint)info.height,
-                     0, (GLint)info.height, (GLint)info.width, 0, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-   glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+   glBindFramebuffer(GL_FRAMEBUFFER, b->fbo);
+   glViewport(0, 0, (GLsizei)info.width, (GLsizei)info.height);
+   glDisable(GL_BLEND);
+   glDisable(GL_DEPTH_TEST);
+   glDisable(GL_SCISSOR_TEST);
+   /* Dark grey first: if the screen shows grey, the copy below is what fails. */
+   glClearColor(0.15f, 0.15f, 0.15f, 1.0f);
+   glClear(GL_COLOR_BUFFER_BIT);
+   glUseProgram(d.program);
+   glUniform2i(d.size_location, (GLint)info.width, (GLint)info.height);
+   glActiveTexture(GL_TEXTURE0);
+   glBindTexture(GL_TEXTURE_2D, info.tex_id);
+   glBindSampler(0, d.sampler);
+   glBindVertexArray(d.vao);
+   glDrawArrays(GL_TRIANGLES, 0, 3);
+   check_gl("copy");
+   if (d.frames == 0) {
+      fprintf(stderr, "hypocket-display: first frame %ux%u format %u tex %u\n",
+              info.width, info.height, info.virgl_format, info.tex_id);
+   }
 
    int fence_fd = -1;
    EGLSyncKHR done = d.has_native_fence ? eglCreateSyncKHR(d.dpy, EGL_SYNC_NATIVE_FENCE_ANDROID, NULL)
