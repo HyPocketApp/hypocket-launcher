@@ -23,6 +23,10 @@ class MouseInput(private val session: BlocksSession) {
     /** Names of the mice used, for the report. */
     val deviceNames = linkedSetOf<String>()
 
+    /** Captured events received, for the report. */
+    var events = 0
+        private set
+
     private var view: View? = null
     private var buttons = 0
     private var enabled = true
@@ -79,6 +83,7 @@ class MouseInput(private val session: BlocksSession) {
 
     private fun onCaptured(event: MotionEvent): Boolean {
         if (!enabled) return false
+        events++
         captured.value = true
         event.device?.name?.let { if (deviceNames.size < 4) deviceNames += it }
         // Relative movement since the last event, including batched samples.

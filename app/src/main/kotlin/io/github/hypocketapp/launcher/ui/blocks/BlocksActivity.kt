@@ -220,7 +220,18 @@ private fun BlocksScreen(
         } else {
             // The pointer works normally again on the report.
             LaunchedEffect(Unit) { mouse.stop() }
-            ReportPanel(finished, (controller.deviceNames + mouse.deviceNames).toList(), onClose)
+            ReportPanel(
+                finished,
+                listOf(
+                    "Input devices used: " +
+                        (controller.deviceNames + mouse.deviceNames).ifEmpty { setOf("touch only") }.joinToString(),
+                    "Input devices connected: " +
+                        ControllerInput.connectedDevices().ifEmpty { listOf("none") }.joinToString(),
+                    "Input events: ${controller.motionEvents} controller motion, ${controller.keyEvents} " +
+                        "controller/keyboard keys, ${mouse.events} captured mouse",
+                ),
+                onClose,
+            )
         }
     }
 }
@@ -389,7 +400,7 @@ private fun HoldButton(label: String, onPress: () -> Unit, onRelease: () -> Unit
 }
 
 @Composable
-private fun ReportPanel(report: BlocksReport, inputDevices: List<String>, onClose: () -> Unit) {
+private fun ReportPanel(report: BlocksReport, inputLines: List<String>, onClose: () -> Unit) {
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     Column(
@@ -404,7 +415,7 @@ private fun ReportPanel(report: BlocksReport, inputDevices: List<String>, onClos
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = {
                 scope.launch {
-                    clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("HyPocket report", report.toShareText(inputDevices))))
+                    clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("HyPocket report", report.toShareText(inputLines))))
                 }
             }) { Text(stringResource(R.string.probe_copy)) }
             OutlinedButton(onClick = onClose) { Text(stringResource(R.string.display_close), color = Color.White) }
@@ -422,7 +433,7 @@ private fun DisplayStatus.label(): Int = when (this) {
 }
 
 /** Plain-text report, in English, to paste into an issue. */
-private fun BlocksReport.toShareText(inputDevices: List<String>): String = buildString {
+private fun BlocksReport.toShareText(inputLines: List<String>): String = buildString {
     appendLine("HyPocket Blocks session")
     appendLine("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
     appendLine("Android: ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
@@ -437,7 +448,7 @@ private fun BlocksReport.toShareText(inputDevices: List<String>): String = build
     appendLine("Exit code: ${exitCode ?: "-"}")
     memory?.toLines()?.forEach { appendLine("Memory: $it") }
     appendLine("Audio: $audioInfo")
-    appendLine("Input devices: ${inputDevices.ifEmpty { listOf("touch only") }.joinToString()}")
+    inputLines.forEach { appendLine(it) }
     appendLine("--- game output ---")
     appendLine(output)
     if (directInfo.isNotBlank()) {

@@ -24,6 +24,12 @@ class ControllerInput(private val session: BlocksSession, private val onExit: ()
     /** Names of the devices used, for the report. */
     val deviceNames = linkedSetOf<String>()
 
+    /** Events received from controllers and keyboards, for the report. */
+    var motionEvents = 0
+        private set
+    var keyEvents = 0
+        private set
+
     private var stickMove = 0f to 0f
     private var keyMove = 0f to 0f
     private var lastMove = 0f to 0f
@@ -44,6 +50,7 @@ class ControllerInput(private val session: BlocksSession, private val onExit: ()
             return false
         }
         noteDevice(event.device)
+        motionEvents++
         val device = event.device
         var x = axis(event, device, MotionEvent.AXIS_X)
         var y = axis(event, device, MotionEvent.AXIS_Y)
@@ -76,6 +83,7 @@ class ControllerInput(private val session: BlocksSession, private val onExit: ()
         val code = event.keyCode
         if (!isGameKey(code, event)) return false
         noteDevice(event.device)
+        keyEvents++
         val down = event.action == KeyEvent.ACTION_DOWN
         if (down && event.repeatCount > 0) return true
         if (down) keysDown += code else keysDown -= code
@@ -151,24 +159,42 @@ class ControllerInput(private val session: BlocksSession, private val onExit: ()
         return if (abs(value) <= flat) 0f else sign(value) * (abs(value) - flat) / (1f - flat)
     }
 
-    private companion object {
-        const val DEAD_ZONE = 0.12f
-        const val TRIGGER_ON = 0.5f
-        const val LOOK_YAW_RATE = 3.2f // radians per second at full stick
-        const val LOOK_PITCH_RATE = 2.2f
-        const val KEY_LOOK_RATE = 2.0f
+    companion object {
+        /**
+         * The external controllers, keyboards and mice Android sees right now,
+         * for the report: whether a controller is connected at all, and as what.
+         */
+        fun connectedDevices(): List<String> = InputDevice.getDeviceIds().toList().mapNotNull { id ->
+            val device = InputDevice.getDevice(id) ?: return@mapNotNull null
+            if (device.isVirtual) return@mapNotNull null
+            if (android.os.Build.VERSION.SDK_INT >= 29 && !device.isExternal) return@mapNotNull null
+            val kinds = buildList {
+                if (device.supportsSource(InputDevice.SOURCE_GAMEPAD)) add("gamepad")
+                if (device.supportsSource(InputDevice.SOURCE_JOYSTICK)) add("joystick")
+                if (device.keyboardType == InputDevice.KEYBOARD_TYPE_ALPHABETIC) add("keyboard")
+                if (device.supportsSource(InputDevice.SOURCE_MOUSE)) add("mouse")
+                if (device.supportsSource(InputDevice.SOURCE_TOUCHSCREEN)) add("touchscreen")
+            }
+            if (kinds.isEmpty()) null else "${device.name} (${kinds.joinToString("/")})"
+        }
 
-        val DPAD_KEYS = setOf(
+        private const val DEAD_ZONE = 0.12f
+        private const val TRIGGER_ON = 0.5f
+        private const val LOOK_YAW_RATE = 3.2f // radians per second at full stick
+        private const val LOOK_PITCH_RATE = 2.2f
+        private const val KEY_LOOK_RATE = 2.0f
+
+        private val DPAD_KEYS = setOf(
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT,
             KeyEvent.KEYCODE_DPAD_RIGHT,
         )
-        val KEYBOARD_KEYS = setOf(
+        private val KEYBOARD_KEYS = setOf(
             KeyEvent.KEYCODE_W, KeyEvent.KEYCODE_A, KeyEvent.KEYCODE_S, KeyEvent.KEYCODE_D, KeyEvent.KEYCODE_SPACE,
             KeyEvent.KEYCODE_Q, KeyEvent.KEYCODE_E, KeyEvent.KEYCODE_ESCAPE,
         )
-        val FORWARD_KEYS = setOf(KeyEvent.KEYCODE_W)
-        val BACK_KEYS = setOf(KeyEvent.KEYCODE_S)
-        val LEFT_KEYS = setOf(KeyEvent.KEYCODE_A)
-        val RIGHT_KEYS = setOf(KeyEvent.KEYCODE_D)
+        private val FORWARD_KEYS = setOf(KeyEvent.KEYCODE_W)
+        private val BACK_KEYS = setOf(KeyEvent.KEYCODE_S)
+        private val LEFT_KEYS = setOf(KeyEvent.KEYCODE_A)
+        private val RIGHT_KEYS = setOf(KeyEvent.KEYCODE_D)
     }
 }
