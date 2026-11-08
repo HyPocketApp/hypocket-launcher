@@ -1217,6 +1217,8 @@ int main(int argc, char** argv) {
     /* Dynamic resolution looks at half a second at a time. */
     double wait_total = 0, window_start = last, window_work = 0, window_wait = 0;
     int window_frames = 0, calm_windows = 0, cooldown_windows = 0, missed_windows = 0;
+    int stuck_windows = 0, probing = 0, probe_windows = 0;
+    double probe_fps = 0, no_lower_until = 0;
     const double target_fps = fps_limit > 0 ? fps_limit : 60;
     const double run_start = last;
     GLsync previous = 0;
@@ -1479,7 +1481,20 @@ int main(int argc, char** argv) {
              * start is always slow. */
             if (frame_end - run_start < 2000.0) {
                 /* warming up */
-            } else if (fps_now < 0.92 * target_fps && wait > 0.25 * work && scale > 0.5f) {
+            } else if (probing) {
+                /* We raised the scale to see whether pixels are what limits
+                 * the frame rate: keep it if the frame rate held. */
+                if (++probe_windows >= 3) {
+                    if (fps_now < probe_fps * 0.97) {
+                        scale -= 0.1f;
+                        cooldown_windows = 20;
+                    } else {
+                        no_lower_until = frame_end + 30000.0; /* pixels are not the limit */
+                    }
+                    probing = 0;
+                }
+            } else if (fps_now < 0.92 * target_fps && wait > 0.25 * work && scale > 0.5f &&
+                       frame_end > no_lower_until) {
                 /* A single slow half second is a hiccup, not a trend. */
                 if (++missed_windows >= 2 || fps_now < 0.75 * target_fps) {
                     scale -= fps_now < 0.75 * target_fps ? 0.1f : 0.05f;
@@ -1488,8 +1503,10 @@ int main(int argc, char** argv) {
                     missed_windows = 0;
                 }
                 calm_windows = 0;
+                stuck_windows = 0;
             } else if (fps_now >= 0.97 * target_fps) {
                 missed_windows = 0;
+                stuck_windows = 0;
                 if (cooldown_windows > 0) {
                     cooldown_windows--;
                 } else if (++calm_windows >= 4 && scale < 1.0f) {
@@ -1498,8 +1515,21 @@ int main(int argc, char** argv) {
                     calm_windows = 0;
                 }
             } else {
+                /* Below the target but not lowering (at the floor, cooling down,
+                 * or a borderline rate): if this lasts, lower resolution is not
+                 * helping, so try higher and see. */
                 calm_windows = 0;
                 missed_windows = 0;
+                if (cooldown_windows > 0) {
+                    cooldown_windows--;
+                } else if (scale < 1.0f && ++stuck_windows >= 20) {
+                    probe_fps = fps_now;
+                    scale += 0.1f;
+                    if (scale > 1.0f) scale = 1.0f;
+                    probing = 1;
+                    probe_windows = 0;
+                    stuck_windows = 0;
+                }
             }
             window_start = frame_end;
             window_work = window_wait = 0;
