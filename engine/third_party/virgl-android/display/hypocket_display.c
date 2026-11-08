@@ -380,8 +380,12 @@ bool hypocket_display_present(uint32_t res_id, uint32_t width, uint32_t height)
    glDrawArrays(GL_TRIANGLES, 0, 3);
    check_gl("copy");
    if (d.frames == 0) {
-      fprintf(stderr, "hypocket-display: first frame %ux%u format %u tex %u\n",
-              info.width, info.height, info.virgl_format, info.tex_id);
+      /* Diagnostics: what actually landed in the shared buffer. */
+      unsigned char px[4] = { 0 };
+      glReadPixels((GLint)info.width / 2, (GLint)info.height / 2, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px);
+      fprintf(stderr, "hypocket-display: first frame %ux%u format %u tex %u, centre pixel %u %u %u %u\n",
+              info.width, info.height, info.virgl_format, info.tex_id, px[0], px[1], px[2], px[3]);
+      check_gl("read");
    }
 
    int fence_fd = -1;

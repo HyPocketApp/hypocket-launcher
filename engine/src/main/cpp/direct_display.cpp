@@ -142,8 +142,9 @@ bool SetUpEgl(State& s) {
     glUniform1i(glGetUniformLocation(s.program, "frame"), 0);
     s.scale_location = glGetUniformLocation(s.program, "scale");
     glGenVertexArrays(1, &s.vao);
-    // Show black until the first frame arrives.
-    glClearColor(0, 0, 0, 1);
+    // Diagnostic colour: dark blue around the frame shows that this path
+    // reaches the screen at all.
+    glClearColor(0.0f, 0.0f, 0.3f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
     eglSwapBuffers(s.display, s.surface);
     return true;
@@ -228,9 +229,28 @@ void DrawFrame(State& s, int id, int fence) {
     b.read_done = eglCreateSyncKHR(s.display, EGL_SYNC_FENCE_KHR, nullptr);
     if (s.shown == 0) {
         GLenum error = glGetError();
-        char text[96];
-        snprintf(text, sizeof(text), "first frame drawn: view %dx%d, frame %ux%u, GL error 0x%x", vw, vh, s.width,
-                 s.height, error);
+        // Read the centre of the buffer as this process sees it.
+        unsigned char px[4] = {0, 0, 0, 0};
+        GLuint fbo = 0;
+        glGenFramebuffers(1, &fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, b.texture, 0);
+        GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (status == GL_FRAMEBUFFER_COMPLETE) {
+            glReadPixels(static_cast<GLint>(s.width / 2), static_cast<GLint>(s.height / 2), 1, 1, GL_RGBA,
+                         GL_UNSIGNED_BYTE, px);
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDeleteFramebuffers(1, &fbo);
+        // And the window's centre after drawing.
+        unsigned char win[4] = {0, 0, 0, 0};
+        glReadPixels(vw / 2, vh / 2, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, win);
+        char text[200];
+        snprintf(text, sizeof(text),
+                 "first frame drawn: view %dx%d, frame %ux%u, GL error 0x%x, fbo 0x%x, "
+                 "buffer centre %u %u %u %u, window centre %u %u %u %u, after 0x%x",
+                 vw, vh, s.width, s.height, error, status, px[0], px[1], px[2], px[3], win[0], win[1], win[2],
+                 win[3], glGetError());
         Note(s, text);
     }
     eglSwapBuffers(s.display, s.surface);
