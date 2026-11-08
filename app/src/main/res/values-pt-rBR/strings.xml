@@ -114,5 +114,5 @@
     <string name="memory_description">Copia quanta memória o celular tem livre agora e quanto o HyPocket usa. O Android não deixa um app ver os outros, então só aparecem os totais.</string>
     <string name="memory_copy">Copiar relatório de memória</string>
     <string name="perf_direct_title">Teste de desempenho de gráficos (exibição direta)</string>
-    <string name="perf_direct_description">O mesmo teste, mas os quadros vão direto da GPU pra tela, sem a cópia de volta pro programa de teste. Experimental; precisa do Android 10 ou mais novo. Se a tela ficar preta, manda o relatório.</string>
+    <string name="perf_direct_description">O mesmo teste, mas os quadros vão direto da GPU pra tela, sem a cópia de volta pro programa de teste. Experimental. Se a tela ficar preta, manda o relatório.</string>
 </resources>

@@ -21,8 +21,8 @@ Changes for Android:
 - `android-display.patch` and `display/` (our own code, GPL-3.0-or-later):
   direct display. When the app sets `HYPOCKET_DISPLAY_SOCKET`, the server
   copies each frame the guest reads back into an AHardwareBuffer on the GPU
-  and passes it to the app over a Unix socket, so the app can hand it to the
-  system compositor without any CPU copy. With `HYPOCKET_SKIP_READBACK` the
+  and passes it to the app over a Unix socket, so the app can draw it on
+  screen without any CPU copy. With `HYPOCKET_SKIP_READBACK` the
   copy back to the guest is skipped as well. For now a "frame" is detected
   as a full-size read of a 2D colour resource; a real present command from
   Mesa will replace that.

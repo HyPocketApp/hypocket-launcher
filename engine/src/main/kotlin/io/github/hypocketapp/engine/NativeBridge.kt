@@ -20,4 +20,6 @@ internal object NativeBridge {
     external fun nativeDisplayShownFrames(handle: Long): Int
 
     external fun nativeDisplayDestroy(handle: Long)
+
+    external fun nativeDisplayInfo(handle: Long): String
 }

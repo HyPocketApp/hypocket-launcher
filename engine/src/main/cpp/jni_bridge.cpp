@@ -60,3 +60,9 @@ Java_io_github_hypocketapp_engine_NativeBridge_nativeDisplayDestroy(JNIEnv* /* e
                                                                     jlong handle) {
     hypocket::DirectDisplayDestroy(reinterpret_cast<std::shared_ptr<hypocket::State>*>(handle));
 }
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_io_github_hypocketapp_engine_NativeBridge_nativeDisplayInfo(JNIEnv* env, jobject /* this */, jlong handle) {
+    return env->NewStringUTF(
+        hypocket::DirectDisplayInfo(reinterpret_cast<std::shared_ptr<hypocket::State>*>(handle)).c_str());
+}

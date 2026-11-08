@@ -260,21 +260,27 @@ resolution it will be (the copy grows with the pixel count).
 To remove the per-frame copy, the VirGL server now can show frames itself
 (`engine/third_party/virgl-android/display`, `engine/src/main/cpp/direct_display.cpp`):
 
-1. The app creates an `ASurfaceControl` on the test's `SurfaceView` (Android
-   10+) and listens on an abstract Unix socket; only processes of the app's
+1. The app listens on an abstract Unix socket; only processes of the app's
    own Linux user may connect.
 2. The server allocates three `AHardwareBuffer`s of the frame size, sends
-   them to the app, and for every frame blits the guest's texture into a free
-   one on the GPU (flipping it), with a native fence.
-3. The app hands the buffer to the system compositor
-   (`ASurfaceTransaction_setBuffer`) and tells the server when the previous
-   one is free. If none is free, the server drops the frame.
+   them to the app, and for every frame copies the guest's texture into a
+   free one on the GPU with a small shader, with a native fence.
+3. The app imports the buffers as EGL images and draws each frame onto the
+   `SurfaceView`'s own window with OpenGL ES (one GPU pass, no CPU copy),
+   then tells the server when the previous buffer is free. If none is free,
+   the server drops the frame.
+
+The first try handed the buffers to the compositor through a child
+`ASurfaceControl` of the `SurfaceView`, which would avoid even the GPU pass,
+but on the Galaxy M12 nothing showed (the frames reached the compositor and
+the screen stayed black, even with a grey test fill), so the app draws them
+itself for now.
 
 For now the server treats a full-size read-back of a 2D colour resource as
 "the frame", and skips the copy back to the guest. Stage 2 replaces that
 with a present command sent by Mesa on `eglSwapBuffers`, so programs no
-longer need `glReadPixels` at all. Not yet tested on a phone
-(**Settings > Graphics performance test (direct display)**).
+longer need `glReadPixels` at all. Testing on the phone (**Settings > Graphics performance test (direct
+display)**).
 
 ### Graphics performance test (November 2026)
 

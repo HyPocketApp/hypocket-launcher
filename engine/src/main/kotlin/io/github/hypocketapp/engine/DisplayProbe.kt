@@ -97,6 +97,7 @@ class DisplayProbe(context: Context) {
                 readBackMillis = perFrame?.groupValues?.get(2)?.toDoubleOrNull(),
                 exitCode = result.exitCode,
                 direct = display != null,
+                directInfo = display?.info.orEmpty(),
                 memory = memory,
                 output = text,
                 serverOutput = server.log,
@@ -120,6 +121,8 @@ data class DisplayReport(
     val exitCode: Int? = null,
     /** True when frames were shown through [DirectDisplay]. */
     val direct: Boolean = false,
+    /** What the app's side of the direct display saw. */
+    val directInfo: String = "",
     /** Memory while the test ran. */
     val memory: MemoryUsage? = null,
     val output: String = "",

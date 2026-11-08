@@ -179,6 +179,10 @@ private fun DisplayReport.toShareText(shownFrames: Int, seconds: Double): String
     memory?.toLines()?.forEach { appendLine("Memory: $it") }
     appendLine("--- probe output ---")
     appendLine(output)
+    if (directInfo.isNotBlank()) {
+        appendLine("--- direct display ---")
+        appendLine(directInfo)
+    }
     appendLine("--- server output ---")
     append(serverOutput)
 }
