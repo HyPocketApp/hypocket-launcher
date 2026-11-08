@@ -310,8 +310,27 @@ The present now comes from the program itself, with no read-back at all:
 
 This is the path a game's window layer would use: for example SDL3's
 offscreen video driver renders to an EGL pbuffer and swaps it. Verified
-under qemu (the server receives a present per swap); not yet tested on a
-phone.
+under qemu (the server receives a present per swap).
+
+**Phone test (Galaxy M12): WORKS.** After accepting 10-bit colour (EGL
+picks `B10G10R10X2` for a pbuffer asked for "8 bits or more"), the terrain
+showed upright with the right colours, 998 frames in 28.5 s, and the
+program's per-frame "copy" (now only the swap) dropped to 0.2 ms.
+
+| Render scale | Light | Medium | Heavy |
+|--------------|-------|--------|-------|
+| 50%  | 16.2 ms | 27.1 ms | 66.5 ms |
+| 75%  | 15.8 ms | 27.7 ms | 63.3 ms |
+| 100% | 16.4 ms | 27.6 ms | 64.3 ms |
+
+The draw times are a few milliseconds higher than with the read-back path
+(about 11, 21 and 57 ms), and the light load sits at about 16 ms whatever
+the resolution. The GPU now also does the server's copy and the app's draw
+every frame, and the test's `glFinish` waits behind them; the light case
+looks tied to the 60 Hz display. A game does not call `glFinish` every
+frame, so its work can overlap with presenting, but this deserves a closer
+look (for example rendering straight into the shared buffers, which would
+remove the server's copy).
 
 ### Graphics performance test (November 2026)
 
