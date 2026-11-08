@@ -4,6 +4,15 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// The commit an APK was built from, shown in test reports so a report can be
+// matched to the code. "unknown" outside a git checkout.
+val gitCommit: String = runCatching {
+    providers.exec {
+        commandLine("git", "rev-parse", "--short=8", "HEAD")
+        isIgnoreExitValue = true
+    }.standardOutput.asText.get().trim()
+}.getOrNull()?.takeIf { it.isNotEmpty() } ?: "unknown"
+
 android {
     namespace = "io.github.hypocketapp.launcher"
     compileSdk = 36
@@ -15,6 +24,7 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("String", "GIT_COMMIT", "\"$gitCommit\"")
 
         ndk {
             // Same ABIs as the engine, so the app is never installed on a
@@ -51,6 +61,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {

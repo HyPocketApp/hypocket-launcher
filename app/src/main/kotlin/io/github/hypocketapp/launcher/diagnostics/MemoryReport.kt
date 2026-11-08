@@ -22,6 +22,7 @@ object MemoryReport {
 
         appendLine("HyPocket memory report")
         appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}")
+        appendLine(appVersionLine())
         appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
         appendLine("Power save mode: ${power.isPowerSaveMode}")
         appendLine("Low RAM device flag: ${am.isLowRamDevice}")

@@ -37,6 +37,7 @@ import io.github.hypocketapp.engine.DisplayReport
 import io.github.hypocketapp.engine.DirectDisplay
 import io.github.hypocketapp.engine.DisplayStatus
 import io.github.hypocketapp.engine.DisplayTest
+import io.github.hypocketapp.launcher.diagnostics.appVersionLine
 import io.github.hypocketapp.launcher.R
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -166,6 +167,7 @@ private fun DisplayStatus.label(): Int = when (this) {
 private fun DisplayReport.toShareText(shownFrames: Int, seconds: Double): String = buildString {
     appendLine("HyPocket display probe: $test")
     appendLine("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
+    appendLine(appVersionLine())
     appendLine("Android: ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
     appendLine("SoC: ${if (android.os.Build.VERSION.SDK_INT >= 31) android.os.Build.SOC_MODEL else "unknown"}")
     appendLine("Status: $status")

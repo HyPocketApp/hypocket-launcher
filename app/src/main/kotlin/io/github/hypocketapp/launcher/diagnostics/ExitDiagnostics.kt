@@ -34,6 +34,7 @@ object ExitDiagnostics {
     fun report(context: Context): String = buildString {
         appendLine("HyPocket last app exits")
         appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}")
+        appendLine(appVersionLine())
         appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
 
         val am = context.getSystemService(ActivityManager::class.java)

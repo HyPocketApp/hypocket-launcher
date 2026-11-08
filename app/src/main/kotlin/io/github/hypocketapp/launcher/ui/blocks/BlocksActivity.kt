@@ -59,6 +59,7 @@ import io.github.hypocketapp.engine.BlocksStats
 import io.github.hypocketapp.engine.DirectDisplay
 import io.github.hypocketapp.engine.DisplayStatus
 import io.github.hypocketapp.launcher.HyPocketApplication
+import io.github.hypocketapp.launcher.diagnostics.appVersionLine
 import io.github.hypocketapp.launcher.R
 import io.github.hypocketapp.launcher.ui.settings.FrameSurfaceView
 import io.github.hypocketapp.launcher.ui.theme.HyPocketTheme
@@ -439,6 +440,7 @@ private fun DisplayStatus.label(): Int = when (this) {
 private fun BlocksReport.toShareText(inputLines: List<String>): String = buildString {
     appendLine("HyPocket Blocks session")
     appendLine("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
+    appendLine(appVersionLine())
     appendLine("Android: ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
     appendLine("SoC: ${if (android.os.Build.VERSION.SDK_INT >= 31) android.os.Build.SOC_MODEL else "unknown"}")
     appendLine("Status: $status")

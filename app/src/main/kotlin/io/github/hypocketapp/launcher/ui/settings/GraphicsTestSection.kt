@@ -26,6 +26,7 @@ import io.github.hypocketapp.engine.GraphicsProbe
 import io.github.hypocketapp.engine.GraphicsReport
 import io.github.hypocketapp.engine.GraphicsStatus
 import io.github.hypocketapp.engine.GraphicsTest
+import io.github.hypocketapp.launcher.diagnostics.appVersionLine
 import io.github.hypocketapp.launcher.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -119,6 +120,7 @@ private fun GraphicsStatus.label(): Int = when (this) {
 private fun GraphicsReport.toShareText(): String = buildString {
     appendLine("HyPocket graphics probe: $test")
     appendLine("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
+    appendLine(appVersionLine())
     appendLine("Android: ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
     appendLine("SoC: ${if (android.os.Build.VERSION.SDK_INT >= 31) android.os.Build.SOC_MODEL else "unknown"}")
     appendLine("Status: $status")

@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import io.github.hypocketapp.engine.ProbeReport
 import io.github.hypocketapp.engine.ProbeStatus
 import io.github.hypocketapp.engine.TranslatorProbe
+import io.github.hypocketapp.launcher.diagnostics.appVersionLine
 import io.github.hypocketapp.launcher.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -112,6 +113,7 @@ private fun ProbeStatus.label(): Int = when (this) {
 private fun ProbeReport.toShareText(): String = buildString {
     appendLine("HyPocket translator probe")
     appendLine("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
+    appendLine(appVersionLine())
     appendLine("Android: ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
     appendLine("SoC: ${if (android.os.Build.VERSION.SDK_INT >= 31) android.os.Build.SOC_MODEL else "unknown"}")
     appendLine("Status: $status")
