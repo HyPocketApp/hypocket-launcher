@@ -332,6 +332,23 @@ frame, so its work can overlap with presenting, but this deserves a closer
 look (for example rendering straight into the shared buffers, which would
 remove the server's copy).
 
+### A second phone: Snapdragon 7s Gen 2 with Adreno 710 (November 2026)
+
+A tester's Xiaomi phone (SM7435, Adreno 710, 7.3 GB of memory, Android 16):
+
+- Translator test: 122 ms natively, 150 ms through Box64 (23% slower), 309
+  ms in total with start-up. Box64 uses the hardware counter here.
+- HyPocket Blocks in heavy mode at the screen's full 2712x1220 with a 60 fps
+  limit: about 59 fps for most of 147 s, 8-16 ms per frame, 150-220
+  thousand triangles and up to about 140 creatures on screen; the world
+  built in 378 ms. Dynamic resolution dipped to 55% during two short slow
+  stretches and climbed back to 100%. All frames but the first went
+  through the direct display without a copy, and the game counted no audio
+  underruns.
+- Adreno's driver works with the same server unchanged; it logs that
+  robustness extensions are missing and a stale GL error during start-up,
+  without consequences so far.
+
 ### HyPocket Blocks with sound, controllers and heavy mode (November 2026)
 
 Galaxy M12, 1600x720, 60 fps limit, dynamic resolution on:
