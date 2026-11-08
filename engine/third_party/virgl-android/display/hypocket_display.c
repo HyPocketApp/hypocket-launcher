@@ -331,8 +331,17 @@ bool hypocket_display_present(uint32_t res_id, uint32_t width, uint32_t height, 
       if (rejected++ < 5) fprintf(stderr, "hypocket-display: resource %u: no info\n", res_id);
       return false;
    }
-   bool format_ok = info.virgl_format == 1 || info.virgl_format == 2 || /* B8G8R8A8/X8 */
-                    info.virgl_format == 67 || info.virgl_format == 134; /* R8G8B8A8/X8 */
+   bool format_ok = false;
+   switch (info.virgl_format) {
+   case 1: case 2:      /* B8G8R8A8/X8_UNORM */
+   case 67: case 134:   /* R8G8B8A8/X8_UNORM */
+   case 68:             /* X8B8G8R8_UNORM */
+   case 131: case 233:  /* B10G10R10A2/X2_UNORM: EGL picks it for an "8 bits or more" pbuffer */
+   case 8: case 308:    /* R10G10B10A2/X2_UNORM */
+      /* The copy shader samples, so any normalized colour format works. */
+      format_ok = true;
+      break;
+   }
    if (!info.tex_id || info.depth > 1 || info.width != width || info.height != height || !format_ok) {
       if (rejected++ < 5)
          fprintf(stderr, "hypocket-display: resource %u rejected: tex %u, %ux%ux%u (wanted %ux%u), format %u, flags 0x%x\n",
