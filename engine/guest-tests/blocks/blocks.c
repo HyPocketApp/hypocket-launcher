@@ -50,7 +50,9 @@ typedef struct {
     int32_t breaks;    /* incremented on each tap: break the aimed block */
     int32_t places;    /* incremented on each place press */
     int32_t quit;      /* 1: exit */
-    int32_t reserved_in[6];
+    float look_rate_yaw;   /* radians per second, from a controller stick */
+    float look_rate_pitch; /* radians per second */
+    int32_t reserved_in[4];
     /* Written by the game. */
     int32_t ready;     /* 1 once the world is built and frames are shown */
     int32_t frames;
@@ -995,7 +997,7 @@ int main(int argc, char** argv) {
     io->build_ms = (float)build_ms;
 
     start_audio();
-    float step_timer = 0;
+    float step_timer = 0, rate_yaw = 0, rate_pitch = 0;
     int step_variant = 0, was_in_water = 0;
 
     while (!io->quit && (max_frames == 0 || frames < max_frames)) {
@@ -1010,10 +1012,13 @@ int main(int argc, char** argv) {
             my = 1;
             base_yaw -= 0.4f * dt;
         }
-        player.yaw = io->look_yaw - base_yaw;
-        player.pitch = io->look_pitch - base_pitch - 0.25f;
-        if (player.pitch > 1.5f) player.pitch = 1.5f;
-        if (player.pitch < -1.5f) player.pitch = -1.5f;
+        /* Touch adds look angles; a controller stick turns at a rate. */
+        rate_yaw += io->look_rate_yaw * dt;
+        rate_pitch += io->look_rate_pitch * dt;
+        player.yaw = io->look_yaw - base_yaw + rate_yaw;
+        player.pitch = io->look_pitch - base_pitch - 0.25f + rate_pitch;
+        if (player.pitch > 1.5f) { rate_pitch -= player.pitch - 1.5f; player.pitch = 1.5f; }
+        if (player.pitch < -1.5f) { rate_pitch -= player.pitch + 1.5f; player.pitch = -1.5f; }
         float len = sqrtf(mx * mx + my * my);
         if (len > 1) { mx /= len; my /= len; }
         float speed = 4.3f;

@@ -64,6 +64,12 @@ class BlocksSession(context: Context) : AutoCloseable {
         io.putFloat(OFF_LOOK_PITCH, pitch)
     }
 
+    /** Turns the camera continuously, in radians per second (a controller stick). */
+    fun setLookRate(yaw: Float, pitch: Float) = synchronized(io) {
+        io.putFloat(OFF_LOOK_RATE_YAW, yaw)
+        io.putFloat(OFF_LOOK_RATE_PITCH, pitch)
+    }
+
     fun setJump(held: Boolean) = synchronized(io) { io.putInt(OFF_JUMP, if (held) 1 else 0) }
 
     /** Breaks the block under the crosshair. */
@@ -179,6 +185,8 @@ class BlocksSession(context: Context) : AutoCloseable {
         const val OFF_BREAKS = 28
         const val OFF_PLACES = 32
         const val OFF_QUIT = 36
+        const val OFF_LOOK_RATE_YAW = 40
+        const val OFF_LOOK_RATE_PITCH = 44
         const val OFF_READY = 64
         const val OFF_FRAMES = 68
         const val OFF_FPS = 72

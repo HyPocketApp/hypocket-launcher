@@ -1,9 +1,12 @@
 package io.github.hypocketapp.launcher.ui.blocks
 
+import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -76,6 +79,7 @@ import kotlin.math.roundToInt
  */
 class BlocksActivity : ComponentActivity() {
     private lateinit var session: BlocksSession
+    private lateinit var controller: ControllerInput
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -90,11 +94,13 @@ class BlocksActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
         session = BlocksSession(this)
+        controller = ControllerInput(session, onExit = { session.stop() })
         val settings = (application as HyPocketApplication).container.settingsStore.settings.value
         setContent {
             HyPocketTheme {
                 BlocksScreen(
                     session = session,
+                    controller = controller,
                     renderScalePercent = settings.renderScalePercent,
                     fpsLimit = settings.fpsLimit,
                     onClose = { finish() },
@@ -102,6 +108,16 @@ class BlocksActivity : ComponentActivity() {
             }
         }
     }
+
+    // Controllers and keyboards reach the activity before Compose, which would
+    // otherwise use the d-pad to move focus. androidx marks its override of
+    // this public Activity method as restricted, which lint flags wrongly.
+    @SuppressLint("RestrictedApi")
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+        controller.onKey(event) || super.dispatchKeyEvent(event)
+
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean =
+        controller.onMotion(event) || super.dispatchGenericMotionEvent(event)
 
     override fun onStop() {
         super.onStop()
@@ -135,7 +151,13 @@ private fun landscapeScreen(context: Context): Pair<Int, Int> {
 }
 
 @Composable
-private fun BlocksScreen(session: BlocksSession, renderScalePercent: Int, fpsLimit: Int, onClose: () -> Unit) {
+private fun BlocksScreen(
+    session: BlocksSession,
+    controller: ControllerInput,
+    renderScalePercent: Int,
+    fpsLimit: Int,
+    onClose: () -> Unit,
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val directDisplay = remember { CompletableDeferred<DirectDisplay?>() }
     var report by remember { mutableStateOf<BlocksReport?>(null) }
@@ -166,9 +188,9 @@ private fun BlocksScreen(session: BlocksSession, renderScalePercent: Int, fpsLim
         val finished = report
         if (finished == null) {
             TouchControls(session)
-            Hud(stats, session, onExit = { session.stop() })
+            Hud(stats, session, controller.used.value, onExit = { session.stop() })
         } else {
-            ReportPanel(finished, onClose)
+            ReportPanel(finished, controller.deviceNames.toList(), onClose)
         }
     }
 }
@@ -264,7 +286,7 @@ private fun TouchControls(session: BlocksSession) {
 }
 
 @Composable
-private fun Hud(stats: BlocksStats, session: BlocksSession, onExit: () -> Unit) {
+private fun Hud(stats: BlocksStats, session: BlocksSession, controllerUsed: Boolean, onExit: () -> Unit) {
     Box(Modifier.fillMaxSize().padding(16.dp)) {
         Column(Modifier.align(Alignment.TopStart), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             if (!stats.ready) {
@@ -281,7 +303,7 @@ private fun Hud(stats: BlocksStats, session: BlocksSession, onExit: () -> Unit) 
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            Text(stringResource(R.string.blocks_hint), color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(if (controllerUsed) R.string.blocks_hint_controller else R.string.blocks_hint), color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
         }
         OutlinedButton(onClick = onExit, modifier = Modifier.align(Alignment.TopEnd)) {
             Text(stringResource(R.string.blocks_exit), color = Color.White)
@@ -319,7 +341,7 @@ private fun HoldButton(label: String, onPress: () -> Unit, onRelease: () -> Unit
 }
 
 @Composable
-private fun ReportPanel(report: BlocksReport, onClose: () -> Unit) {
+private fun ReportPanel(report: BlocksReport, inputDevices: List<String>, onClose: () -> Unit) {
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     Column(
@@ -334,7 +356,7 @@ private fun ReportPanel(report: BlocksReport, onClose: () -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = {
                 scope.launch {
-                    clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("HyPocket report", report.toShareText())))
+                    clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("HyPocket report", report.toShareText(inputDevices))))
                 }
             }) { Text(stringResource(R.string.probe_copy)) }
             OutlinedButton(onClick = onClose) { Text(stringResource(R.string.display_close), color = Color.White) }
@@ -352,7 +374,7 @@ private fun DisplayStatus.label(): Int = when (this) {
 }
 
 /** Plain-text report, in English, to paste into an issue. */
-private fun BlocksReport.toShareText(): String = buildString {
+private fun BlocksReport.toShareText(inputDevices: List<String>): String = buildString {
     appendLine("HyPocket Blocks session")
     appendLine("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
     appendLine("Android: ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
@@ -366,6 +388,7 @@ private fun BlocksReport.toShareText(): String = buildString {
     appendLine("Exit code: ${exitCode ?: "-"}")
     memory?.toLines()?.forEach { appendLine("Memory: $it") }
     appendLine("Audio: $audioInfo")
+    appendLine("Input devices: ${inputDevices.ifEmpty { listOf("touch only") }.joinToString()}")
     appendLine("--- game output ---")
     appendLine(output)
     if (directInfo.isNotBlank()) {
