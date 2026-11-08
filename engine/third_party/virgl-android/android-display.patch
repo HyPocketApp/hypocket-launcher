@@ -53,16 +53,23 @@ index ba4feb1..3c6d439 100644
  #include "threadpool.h"
  
  #include "util.h"
-@@ -1592,6 +1593,15 @@ static int vtest_transfer_get_internal(struct vtest_context *ctx,
+@@ -1592,6 +1593,22 @@ static int vtest_transfer_get_internal(struct vtest_context *ctx,
        }
     }
  
 +   /* HyPocket: a full-size read of a 2D colour resource is a frame the guest
 +    * wants to show. Show it directly, and skip the copy back when asked. */
 +   if (do_transfer && hypocket_display_enabled() && args->level == 0 && args->box.x == 0 &&
-+       args->box.y == 0 && args->box.d <= 1 &&
-+       hypocket_display_present(res->res_id, args->box.w, args->box.h)) {
-+      if (hypocket_display_skip_readback())
++       args->box.y == 0 && args->box.d <= 1 && args->box.w > 0 && args->box.h > 0) {
++      /* Reading one pixel through the renderer switches to this client's GL
++       * context and waits for its rendering, which the display copy needs. */
++      uint32_t pixel;
++      struct iovec pixel_iov = { &pixel, sizeof(pixel) };
++      struct virgl_box one = { args->box.w / 2, args->box.h / 2, 0, 1, 1, 1 };
++      virgl_renderer_transfer_read_iov(res->res_id, ctx->ctx_id, 0, sizeof(pixel), 0, &one, 0,
++                                       &pixel_iov, 1);
++      if (hypocket_display_present(res->res_id, args->box.w, args->box.h) &&
++          hypocket_display_skip_readback())
 +         do_transfer = false;
 +   }
 +

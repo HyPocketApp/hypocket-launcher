@@ -213,12 +213,13 @@ void DrawFrame(State& s, int id, int fence) {
     eglQuerySurface(s.display, s.surface, EGL_WIDTH, &vw);
     eglQuerySurface(s.display, s.surface, EGL_HEIGHT, &vh);
     // Fit the frame in the view, keeping its aspect ratio.
-    float fx = static_cast<float>(vw) / s.width, fy = static_cast<float>(vh) / s.height;
-    float fit = std::min(fx, fy);
+    float fit = std::min(static_cast<float>(vw) / s.width, static_cast<float>(vh) / s.height);
+    int w = static_cast<int>(s.width * fit), h = static_cast<int>(s.height * fit);
     glViewport(0, 0, vw, vh);
     glClear(GL_COLOR_BUFFER_BIT);
+    glViewport((vw - w) / 2, (vh - h) / 2, w, h);
     glUseProgram(s.program);
-    glUniform2f(s.scale_location, fit / fx, fit / fy);
+    glUniform2f(s.scale_location, 1.0f, 1.0f);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, s.buffers[id].texture);
     glBindVertexArray(s.vao);
