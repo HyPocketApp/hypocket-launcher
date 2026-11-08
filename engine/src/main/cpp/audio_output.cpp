@@ -9,6 +9,7 @@
 //   24 uint64 write position, in frames (written by the guest)
 //   32 uint64 read position, in frames (written here)
 //   40 uint32 underruns (written here)
+//   44 uint32 finished: the guest stopped writing (written by the guest)
 //   64 int16 samples, capacity * channels
 //
 // Positions only grow; the sample index is position % capacity. The guest
@@ -45,6 +46,7 @@ struct Ring {
     uint32_t magic, version, rate, channels, capacity, reserved;
     uint64_t write_pos, read_pos;
     uint32_t underruns;
+    uint32_t finished;
 };
 
 }  // namespace
@@ -95,7 +97,9 @@ aaudio_data_callback_result_t OnData(AAudioStream* /* stream */, void* user, voi
     }
     if (available < frames) {
         memset(out + available * 2, 0, static_cast<size_t>(frames - available) * kChannels * sizeof(int16_t));
-        if (write > 0 && s->idle_frames < kRate / 4) __atomic_fetch_add(&r->underruns, 1, __ATOMIC_RELAXED);
+        bool finished = __atomic_load_n(&r->finished, __ATOMIC_ACQUIRE) != 0;
+        if (write > 0 && !finished && s->idle_frames < kRate / 4)
+            __atomic_fetch_add(&r->underruns, 1, __ATOMIC_RELAXED);
     }
     __atomic_store_n(&r->read_pos, read + static_cast<uint64_t>(available), __ATOMIC_RELEASE);
     s->played += static_cast<uint64_t>(available);

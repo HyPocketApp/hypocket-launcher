@@ -815,6 +815,7 @@ typedef struct {
     uint32_t magic, version, rate, channels, capacity, reserved;
     uint64_t write_pos, read_pos;
     uint32_t underruns;
+    uint32_t finished; /* set by the game when it stops writing */
 } AudioRing;
 
 enum { SND_STEP, SND_STEP2, SND_BREAK, SND_PLACE, SND_JUMP, SND_SPLASH, SND_CHIRP, SOUNDS };
@@ -1014,6 +1015,7 @@ static void stop_audio(void) {
     if (!audio.ring) return;
     audio.running = 0;
     pthread_join(audio.thread, NULL);
+    __atomic_store_n(&audio.ring->finished, 1, __ATOMIC_RELEASE);
     printf("blocks: audio mixed %.1f s, up to %d sounds at once, %u underruns\n",
            (double)audio.mixed / audio.rate, audio.peak_voices, audio.ring->underruns);
 }
@@ -1211,7 +1213,7 @@ int main(int argc, char** argv) {
     int stats_frames = 0, frames = 0;
     /* Dynamic resolution looks at half a second at a time. */
     double wait_total = 0, window_start = last, window_work = 0, window_wait = 0;
-    int window_frames = 0, calm_windows = 0, cooldown_windows = 0;
+    int window_frames = 0, calm_windows = 0, cooldown_windows = 0, missed_windows = 0;
     const double target_fps = fps_limit > 0 ? fps_limit : 60;
     const double run_start = last;
     GLsync previous = 0;
@@ -1454,11 +1456,16 @@ int main(int argc, char** argv) {
             if (frame_end - run_start < 2000.0) {
                 /* warming up */
             } else if (fps_now < 0.92 * target_fps && wait > 0.25 * work && scale > 0.5f) {
-                scale -= fps_now < 0.75 * target_fps ? 0.1f : 0.05f;
-                if (scale < 0.5f) scale = 0.5f;
+                /* A single slow half second is a hiccup, not a trend. */
+                if (++missed_windows >= 2 || fps_now < 0.75 * target_fps) {
+                    scale -= fps_now < 0.75 * target_fps ? 0.1f : 0.05f;
+                    if (scale < 0.5f) scale = 0.5f;
+                    cooldown_windows = 8; /* wait 4 s before trying higher again */
+                    missed_windows = 0;
+                }
                 calm_windows = 0;
-                cooldown_windows = 8; /* wait 4 s before trying higher again */
             } else if (fps_now >= 0.97 * target_fps) {
+                missed_windows = 0;
                 if (cooldown_windows > 0) {
                     cooldown_windows--;
                 } else if (++calm_windows >= 4 && scale < 1.0f) {
@@ -1468,6 +1475,7 @@ int main(int argc, char** argv) {
                 }
             } else {
                 calm_windows = 0;
+                missed_windows = 0;
             }
             window_start = frame_end;
             window_work = window_wait = 0;
