@@ -91,6 +91,7 @@ class BlocksSession(context: Context) : AutoCloseable {
                 buildMillis = io.getFloat(OFF_BUILD_MS),
                 width = io.getInt(OFF_WIDTH),
                 height = io.getInt(OFF_HEIGHT),
+                scalePercent = io.getInt(OFF_SCALE),
             )
         }
 
@@ -99,7 +100,7 @@ class BlocksSession(context: Context) : AutoCloseable {
      * call it from a background thread. Without [display] the game reads its
      * frames back into [frameFile].
      */
-    fun run(width: Int, height: Int, fpsLimit: Int, display: DirectDisplay?): BlocksReport {
+    fun run(width: Int, height: Int, fpsLimit: Int, display: DirectDisplay?, options: BlocksOptions = BlocksOptions()): BlocksReport {
         if (!runtime.isAvailable || !VirglServer.binary(runtime).exists()) {
             return BlocksReport(DisplayStatus.NOT_AVAILABLE, stats)
         }
@@ -110,6 +111,9 @@ class BlocksSession(context: Context) : AutoCloseable {
         // Without audio the game runs silent.
         val audio = AudioOutput.create(audioFile)
         val audioEnv = if (audio != null) mapOf("HYPOCKET_AUDIO_PATH" to audioFile.absolutePath) else emptyMap()
+        val optionEnv = buildMap {
+            if (options.dynamicResolution) put("HYPOCKET_BLOCKS_DYNAMIC", "1")
+        }
 
         MemorySampler().use { sampler -> server.use { audio.use {
             val result = runtime.runAsset(
@@ -119,7 +123,7 @@ class BlocksSession(context: Context) : AutoCloseable {
                     "HYPOCKET_FRAME_PATH" to frameFile.absolutePath,
                     "MESA_GL_VERSION_OVERRIDE" to "4.1",
                     "MESA_GLSL_VERSION_OVERRIDE" to "410",
-                ) + presentEnv + audioEnv,
+                ) + presentEnv + audioEnv + optionEnv,
                 args = listOf(width.toString(), height.toString(), fpsLimit.toString()),
                 timeoutSeconds = MAX_SESSION_SECONDS,
                 onStart = { started ->
@@ -196,6 +200,7 @@ class BlocksSession(context: Context) : AutoCloseable {
         const val OFF_BUILD_MS = 88
         const val OFF_WIDTH = 92
         const val OFF_HEIGHT = 96
+        const val OFF_SCALE = 100
     }
 }
 
@@ -213,6 +218,14 @@ data class BlocksStats(
     val buildMillis: Float = 0f,
     val width: Int = 0,
     val height: Int = 0,
+    /** Share of the width and height the 3D scene is drawn at (dynamic resolution). */
+    val scalePercent: Int = 100,
+)
+
+/** What the game does beyond the defaults. */
+data class BlocksOptions(
+    /** Lower the 3D resolution while the GPU cannot keep up with the FPS limit. */
+    val dynamicResolution: Boolean = false,
 )
 
 data class BlocksReport(

@@ -53,6 +53,18 @@ fun SettingsScreen(store: SettingsStore, modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
+            Text(stringResource(R.string.settings_dynamic_resolution), modifier = Modifier.weight(1f))
+            Switch(
+                checked = settings.dynamicResolution,
+                onCheckedChange = { checked -> store.update { it.copy(dynamicResolution = checked) } },
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
             Text(stringResource(R.string.settings_low_memory), modifier = Modifier.weight(1f))
             Switch(
                 checked = settings.lowMemoryMode,

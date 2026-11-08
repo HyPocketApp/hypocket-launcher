@@ -16,6 +16,8 @@
  * file (HYPOCKET_AUDIO_PATH), which the app plays (audio_output.cpp).
  *
  * Usage: blocks <width> <height> [fps limit] [frames]
+ * HYPOCKET_BLOCKS_DYNAMIC=1 lowers the 3D resolution when the GPU cannot keep
+ * up with the FPS limit, and raises it again when it can.
  * With [frames] the program exits after that many frames and walks on its
  * own, for testing on a desktop. */
 #include <EGL/egl.h>
@@ -63,6 +65,7 @@ typedef struct {
     float build_ms;    /* time to generate and mesh the world */
     int32_t width;
     int32_t height;
+    int32_t scale_percent; /* dynamic resolution: share of width and height drawn */
 } SharedIo;
 
 /* ---- OpenGL entry points ---------------------------------------------- */
@@ -924,6 +927,13 @@ int main(int argc, char** argv) {
         printf("blocks: framebuffer %dx%d incomplete\n", w, h);
         return 1;
     }
+    /* Dynamic resolution: the 3D scene goes into part of this framebuffer,
+     * scaled up to the frame afterwards (the crosshair stays sharp). */
+    int dynamic = getenv("HYPOCKET_BLOCKS_DYNAMIC") != NULL;
+    GLuint scene_fbo = 0;
+    if (dynamic && !create_target(w, h, &scene_fbo)) dynamic = 0;
+    float scale = 1.0f;
+    printf("blocks: dynamic resolution %s\n", dynamic ? "on" : "off");
 
     GLuint world_program = link_program(world_vs, world_fs);
     GLuint hud_program = link_program(hud_vs, hud_fs);
@@ -991,6 +1001,10 @@ int main(int argc, char** argv) {
     const float far = 72.0f;
     double last = now_ms(), stats_start = last, work_total = 0;
     int stats_frames = 0, frames = 0;
+    /* Dynamic resolution looks at half a second at a time. */
+    double wait_total = 0, window_start = last, window_work = 0, window_wait = 0;
+    int window_frames = 0, calm_windows = 0;
+    const double budget = 1000.0 / (fps_limit > 0 ? fps_limit : 60);
     GLsync previous = 0;
     io->width = w;
     io->height = h;
@@ -1080,8 +1094,10 @@ int main(int argc, char** argv) {
             }
 
         /* ---- Draw ---- */
-        p_glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-        p_glViewport(0, 0, w, h);
+        int scaled = dynamic && scale < 0.999f;
+        int sw = scaled ? ((int)(w * scale) & ~1) : w, sh = scaled ? ((int)(h * scale) & ~1) : h;
+        p_glBindFramebuffer(GL_FRAMEBUFFER, scaled ? scene_fbo : fbo);
+        p_glViewport(0, 0, sw, sh);
         p_glClearColor(sky[0], sky[1], sky[2], 1.0f);
         p_glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         p_glEnable(GL_DEPTH_TEST);
@@ -1132,6 +1148,15 @@ int main(int argc, char** argv) {
         }
         p_glDepthMask(GL_TRUE);
         p_glDisable(GL_DEPTH_TEST);
+        p_glDisable(GL_BLEND);
+        if (scaled) {
+            p_glBindFramebuffer(GL_READ_FRAMEBUFFER, scene_fbo);
+            p_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbo);
+            p_glBlitFramebuffer(0, 0, sw, sh, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+            p_glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+            p_glViewport(0, 0, w, h);
+        }
+        p_glEnable(GL_BLEND);
         p_glUseProgram(hud_program);
         p_glBindVertexArray(hud_vao);
         p_glDrawArrays(GL_TRIANGLES, 0, 12);
@@ -1145,20 +1170,51 @@ int main(int argc, char** argv) {
             }
             eglSwapBuffers(display, surface);
         } else if (header) {
+            double read_start = now_ms(); /* reading back waits for the GPU too */
             p_glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+            wait_total += now_ms() - read_start;
             __atomic_store_n(&header[3], (uint32_t)frames + 1, __ATOMIC_RELEASE);
         }
         /* Keep at most one frame queued: wait for the previous one, not this
          * one, so the CPU prepares the next frame while the GPU draws. */
         GLsync fence = p_glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+        double wait_start = now_ms();
         if (previous) {
             p_glClientWaitSync(previous, GL_SYNC_FLUSH_COMMANDS_BIT, 100000000ull);
             p_glDeleteSync(previous);
         }
         previous = fence;
+        wait_total += now_ms() - wait_start;
 
         double frame_end = now_ms();
         work_total += frame_end - frame_start;
+        window_work += frame_end - frame_start;
+        window_wait += wait_total;
+        wait_total = 0;
+        window_frames++;
+        if (dynamic && frame_end - window_start >= 500.0) {
+            double work = window_work / window_frames, wait = window_wait / window_frames;
+            /* Lower the resolution only when frames are late and the time goes
+             * into waiting for the GPU: if the CPU is the slow part, fewer
+             * pixels would not help. */
+            if (work > 0.85 * budget && wait > 0.25 * work && scale > 0.5f) {
+                scale -= work > 1.2 * budget ? 0.1f : 0.05f;
+                if (scale < 0.5f) scale = 0.5f;
+                calm_windows = 0;
+            } else if (work < 0.6 * budget) {
+                if (++calm_windows >= 4 && scale < 1.0f) {
+                    scale += 0.05f;
+                    if (scale > 1.0f) scale = 1.0f;
+                    calm_windows = 0;
+                }
+            } else {
+                calm_windows = 0;
+            }
+            window_start = frame_end;
+            window_work = window_wait = 0;
+            window_frames = 0;
+        }
+        io->scale_percent = (int)(scale * 100.0f + 0.5f);
         frames++;
         stats_frames++;
         io->frames = frames;
@@ -1172,8 +1228,8 @@ int main(int argc, char** argv) {
         if (frame_end - stats_start >= 1000.0) {
             io->fps = (float)(stats_frames * 1000.0 / (frame_end - stats_start));
             io->frame_ms = (float)(work_total / stats_frames);
-            printf("blocks: %.1f fps, %.1f ms/frame, %d triangles, %d chunks\n", io->fps, io->frame_ms, triangles,
-                   visible_count);
+            printf("blocks: %.1f fps, %.1f ms/frame, %d triangles, %d chunks, scale %d%%\n", io->fps, io->frame_ms,
+                   triangles, visible_count, io->scale_percent);
             fflush(stdout);
             stats_start = frame_end;
             stats_frames = 0;

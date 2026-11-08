@@ -52,6 +52,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import io.github.hypocketapp.engine.BlocksOptions
 import io.github.hypocketapp.engine.BlocksReport
 import io.github.hypocketapp.engine.BlocksSession
 import io.github.hypocketapp.engine.BlocksStats
@@ -103,6 +104,7 @@ class BlocksActivity : ComponentActivity() {
                     controller = controller,
                     renderScalePercent = settings.renderScalePercent,
                     fpsLimit = settings.fpsLimit,
+                    options = BlocksOptions(dynamicResolution = settings.dynamicResolution),
                     onClose = { finish() },
                 )
             }
@@ -156,6 +158,7 @@ private fun BlocksScreen(
     controller: ControllerInput,
     renderScalePercent: Int,
     fpsLimit: Int,
+    options: BlocksOptions,
     onClose: () -> Unit,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -169,7 +172,7 @@ private fun BlocksScreen(
         // Even sizes keep the scaled frame free of half-pixel seams.
         val width = (screenW * renderScalePercent / 100) and 1.inv()
         val height = (screenH * renderScalePercent / 100) and 1.inv()
-        report = withContext(Dispatchers.IO) { session.run(width, height, fpsLimit, display) }
+        report = withContext(Dispatchers.IO) { session.run(width, height, fpsLimit, display, options) }
     }
     LaunchedEffect(Unit) {
         while (report == null) {
@@ -298,7 +301,7 @@ private fun Hud(stats: BlocksStats, session: BlocksSession, controllerUsed: Bool
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
-                    stringResource(R.string.blocks_resolution, stats.width, stats.height),
+                    stringResource(R.string.blocks_resolution, stats.width, stats.height, stats.scalePercent),
                     color = Color.White,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -382,7 +385,7 @@ private fun BlocksReport.toShareText(inputDevices: List<String>): String = build
     appendLine("Status: $status")
     appendLine("Direct display: $direct")
     appendLine("Renderer: ${renderer ?: "-"}")
-    appendLine("Resolution: ${stats.width}x${stats.height}")
+    appendLine("Resolution: ${stats.width}x${stats.height}, 3D at ${stats.scalePercent}% at the end")
     appendLine("World built in: %.0f ms".format(stats.buildMillis))
     appendLine("Frames: ${stats.frames} in %.1f s".format(seconds))
     appendLine("Exit code: ${exitCode ?: "-"}")

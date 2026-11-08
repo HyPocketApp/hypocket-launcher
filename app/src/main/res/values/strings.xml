@@ -122,7 +122,7 @@
     <string name="blocks_open">Play</string>
     <string name="blocks_loading">Building the world…</string>
     <string name="blocks_stats">%1$.0f fps · %2$.1f ms per frame · %3$d triangles</string>
-    <string name="blocks_resolution">Resolution %1$d×%2$d</string>
+    <string name="blocks_resolution">Resolution %1$d×%2$d, 3D at %3$d%%</string>
     <string name="blocks_hint">Left: walk · Right: drag to look, tap to break</string>
     <string name="blocks_jump">Jump</string>
     <string name="blocks_place">Place</string>
@@ -131,4 +131,5 @@
     <string name="blocks_status_ended">The game ran and closed normally.</string>
     <string name="blocks_summary">%1$d frames, %2$.1f fps on average</string>
     <string name="blocks_hint_controller">Left stick: walk · Right stick: look · A: jump · X/RT: break · B/LT: place · Start: exit</string>
+    <string name="settings_dynamic_resolution">Dynamic resolution: lower the 3D resolution while the GPU cannot keep up (test game only for now)</string>
 </resources>
