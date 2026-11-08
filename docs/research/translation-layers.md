@@ -305,6 +305,35 @@ What it means:
   863 MB free of 3.7 GB with the app idle. The cause is still unknown, so the
   records stay in the app for future reports.
 
+### Memory on the test phone (November 2026)
+
+From the in-app memory report (**Settings > Memory report**) on the Galaxy
+M12 (3704 MB visible to apps), idle, with and without power saving:
+
+| Power saving | Available | Free | Cached | Swap used (of 4095 MB) |
+|--------------|-----------|------|--------|------------------------|
+| On           | 797–832 MB | 207–272 MB | 657–758 MB | ~1640 MB |
+| Off          | 904–1233 MB | 81–136 MB | 886–1263 MB | ~1660 MB |
+
+- The low "free" number is normal: Android keeps memory full of cache and
+  frees it when needed. "Available" is the number that matters.
+- Power saving changes little (it limits CPU and background work, not RAM).
+- About 1.6 GB is already in swap (zram plus Samsung's RAM Plus): the system
+  and the other installed apps want much more than the phone's RAM. That,
+  not a fault, is why so little is available.
+
+During the graphics performance test (power saving on), available memory
+went from 929 MB to a lowest of 561 MB. Peaks: the app 164 MB, the VirGL
+server 91 MB, Box64 with the test program 37 MB, about 295 MB in total; the
+rest of the drop is the GPU driver's memory and cache. The heavy steps were
+slower than in earlier runs (61–70 ms instead of 40–60 ms), probably from
+power saving or heat.
+
+What it means for the game: with the phone idle, roughly 0.8–1.2 GB is
+available for the game client, our runtime and the GPU, plus swap (which is
+slow). The launcher should keep its own share small while the game runs
+(release the UI, run the server lean) and suggest closing other apps.
+
 ### Consequence for the CPU choice
 
 To run glibc Linux programs on Android there are three known setups:
