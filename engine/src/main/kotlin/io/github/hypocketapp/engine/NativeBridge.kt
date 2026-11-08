@@ -12,4 +12,12 @@ internal object NativeBridge {
 
     /** Returns [checksum, elapsed milliseconds]. */
     external fun nativeRunWorkload(): LongArray
+
+    external fun nativeDisplayCreate(surface: android.view.Surface, socketNameOut: Array<String?>): Long
+
+    external fun nativeDisplayResize(handle: Long, width: Int, height: Int)
+
+    external fun nativeDisplayShownFrames(handle: Long): Int
+
+    external fun nativeDisplayDestroy(handle: Long)
 }

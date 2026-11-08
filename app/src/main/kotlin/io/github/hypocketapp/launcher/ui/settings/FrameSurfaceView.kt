@@ -12,6 +12,7 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.withScale
+import io.github.hypocketapp.engine.DirectDisplay
 import io.github.hypocketapp.engine.SharedFrame
 import java.io.File
 
@@ -21,18 +22,27 @@ import java.io.File
  */
 // Created only from code, never inflated from XML.
 @SuppressLint("ViewConstructor")
-class FrameSurfaceView(context: Context, private val frameFile: File) :
-    SurfaceView(context), SurfaceHolder.Callback, Choreographer.FrameCallback {
+class FrameSurfaceView(
+    context: Context,
+    private val frameFile: File,
+    /** Try [DirectDisplay]; [onDirectDisplay] gets it, or null if it is not possible. */
+    private val direct: Boolean = false,
+    private val onDirectDisplay: (DirectDisplay?) -> Unit = {},
+) : SurfaceView(context), SurfaceHolder.Callback, Choreographer.FrameCallback {
+
+    private var directDisplay: DirectDisplay? = null
+    private var directReported = false
 
     private var frame: SharedFrame? = null
     private var bitmap: Bitmap? = null
     private var surfaceReady = false
     private val paint = Paint(Paint.FILTER_BITMAP_FLAG)
 
-    /** New frames shown so far. */
     @Volatile
-    var shownFrames = 0
-        private set
+    private var copiedFrames = 0
+
+    /** New frames shown so far. */
+    val shownFrames: Int get() = directDisplay?.shownFrames ?: copiedFrames
 
     init {
         holder.addCallback(this)
@@ -40,14 +50,23 @@ class FrameSurfaceView(context: Context, private val frameFile: File) :
 
     override fun surfaceCreated(holder: SurfaceHolder) {
         surfaceReady = true
-        Choreographer.getInstance().postFrameCallback(this)
+        if (direct && !directReported) {
+            directReported = true
+            directDisplay = DirectDisplay.create(holder.surface)
+            onDirectDisplay(directDisplay)
+        }
+        if (directDisplay == null) Choreographer.getInstance().postFrameCallback(this)
     }
 
-    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
+    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+        directDisplay?.resize(width, height)
+    }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         surfaceReady = false
         Choreographer.getInstance().removeFrameCallback(this)
+        directDisplay?.close()
+        directDisplay = null
     }
 
     override fun doFrame(frameTimeNanos: Long) {
@@ -59,7 +78,7 @@ class FrameSurfaceView(context: Context, private val frameFile: File) :
             val target = bitmap?.takeIf { it.width == w && it.height == h }
                 ?: createBitmap(w, h, Bitmap.Config.ARGB_8888).also { bitmap = it }
             if (source.copyFrame(target)) {
-                shownFrames++
+                copiedFrames++
                 draw(target)
             }
         }

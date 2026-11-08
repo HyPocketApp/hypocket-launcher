@@ -4,7 +4,12 @@ import android.content.Context
 import java.io.File
 
 /** The on-screen test programs in engine/guest-tests. */
-enum class DisplayTest(internal val asset: String, internal val tag: String) {
+enum class DisplayTest(
+    internal val asset: String,
+    internal val tag: String,
+    /** Shows frames through [DirectDisplay] instead of copying them back. */
+    val direct: Boolean = false,
+) {
     /** An animated scene at 640x360 (gl-display-probe). */
     SCENE("gl-display-probe-x86_64", "gl-display-probe"),
 
@@ -13,6 +18,12 @@ enum class DisplayTest(internal val asset: String, internal val tag: String) {
      * three loads each, timing the GPU per frame (gl-perf-probe).
      */
     PERFORMANCE("gl-perf-probe-x86_64", "gl-perf-probe"),
+
+    /**
+     * The same test, with frames shown by the VirGL server straight on the
+     * screen and no copy back to the program (experimental).
+     */
+    PERFORMANCE_DIRECT("gl-perf-probe-x86_64", "gl-perf-probe", direct = true),
 }
 
 /**
@@ -32,12 +43,23 @@ class DisplayProbe(context: Context) {
      * [screenWidth] and [screenHeight] are the phone's screen in pixels; the
      * performance test derives its resolutions from them.
      */
-    fun run(test: DisplayTest, screenWidth: Int, screenHeight: Int, seconds: Int = 15): DisplayReport {
+    fun run(
+        test: DisplayTest,
+        screenWidth: Int,
+        screenHeight: Int,
+        seconds: Int = 15,
+        display: DirectDisplay? = null,
+    ): DisplayReport {
         frameFile.delete()
         if (!runtime.isAvailable || !VirglServer.binary(runtime).exists()) {
             return DisplayReport(test, DisplayStatus.NOT_AVAILABLE)
         }
-        val (server, failureLog) = VirglServer.start(runtime)
+        val serverEnv = if (display != null) {
+            mapOf("HYPOCKET_DISPLAY_SOCKET" to display.socketName, "HYPOCKET_SKIP_READBACK" to "1")
+        } else {
+            emptyMap()
+        }
+        val (server, failureLog) = VirglServer.start(runtime, serverEnv)
         if (server == null) return DisplayReport(test, DisplayStatus.SERVER_FAILED, serverOutput = failureLog)
 
         MemorySampler().use { sampler -> server.use {
@@ -50,9 +72,10 @@ class DisplayProbe(context: Context) {
                 ),
                 args = when (test) {
                     DisplayTest.SCENE -> listOf(seconds.toString())
-                    DisplayTest.PERFORMANCE -> listOf(screenWidth.toString(), screenHeight.toString(), "3")
+                    DisplayTest.PERFORMANCE, DisplayTest.PERFORMANCE_DIRECT ->
+                        listOf(screenWidth.toString(), screenHeight.toString(), "3")
                 },
-                timeoutSeconds = if (test == DisplayTest.PERFORMANCE) 240L else seconds + 60L,
+                timeoutSeconds = if (test == DisplayTest.SCENE) seconds + 60L else 240L,
             )
             val memory = sampler.finish()
             server.awaitExit(3)
@@ -73,6 +96,7 @@ class DisplayProbe(context: Context) {
                 drawMillis = perFrame?.groupValues?.get(1)?.toDoubleOrNull(),
                 readBackMillis = perFrame?.groupValues?.get(2)?.toDoubleOrNull(),
                 exitCode = result.exitCode,
+                direct = display != null,
                 memory = memory,
                 output = text,
                 serverOutput = server.log,
@@ -94,6 +118,8 @@ data class DisplayReport(
     /** Performance test results, one line per resolution and load. */
     val steps: List<String> = emptyList(),
     val exitCode: Int? = null,
+    /** True when frames were shown through [DirectDisplay]. */
+    val direct: Boolean = false,
     /** Memory while the test ran. */
     val memory: MemoryUsage? = null,
     val output: String = "",

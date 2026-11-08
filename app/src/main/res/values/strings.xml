@@ -115,4 +115,6 @@
     <string name="memory_title">Memory report</string>
     <string name="memory_description">Copies how much memory the phone has free right now, and how much HyPocket uses. Android does not let apps see other apps, so it only shows totals.</string>
     <string name="memory_copy">Copy memory report</string>
+    <string name="perf_direct_title">Graphics performance test (direct display)</string>
+    <string name="perf_direct_description">The same test, but the frames go straight from the GPU to the screen, without the copy back to the test program. Experimental; needs Android 10 or newer. If the screen stays black, send the report.</string>
 </resources>

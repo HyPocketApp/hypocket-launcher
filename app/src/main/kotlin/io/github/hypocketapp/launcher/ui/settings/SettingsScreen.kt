@@ -86,6 +86,8 @@ fun SettingsScreen(store: SettingsStore, modifier: Modifier = Modifier) {
 
         DisplayTestSection(DisplayTest.PERFORMANCE)
 
+        DisplayTestSection(DisplayTest.PERFORMANCE_DIRECT)
+
         MemoryReportSection()
 
         LastExitSection()

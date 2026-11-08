@@ -33,6 +33,9 @@ fetch libepoxy https://github.com/anholt/libepoxy.git "$EPOXY_TAG" "$EPOXY_COMMI
 fetch virglrenderer https://gitlab.freedesktop.org/virgl/virglrenderer.git "$VIRGL_TAG" "$VIRGL_COMMIT"
 git -C virglrenderer checkout -q -- .
 git -C virglrenderer apply "$here/android-egl.patch"
+# Direct display: show frames on the app's screen without a copy (display/).
+git -C virglrenderer apply "$here/android-display.patch"
+cp "$here/display/hypocket_display.c" "$here/display/hypocket_display.h" virglrenderer/vtest/
 
 cat > android.cross <<CROSS
 [binaries]
@@ -47,7 +50,7 @@ pkg_config_libdir = '$prefix/lib/pkgconfig'
 
 [built-in options]
 c_args = ['-I$prefix/include', '-I$here/shim']
-c_link_args = ['-L$prefix/lib', '-llog']
+c_link_args = ['-L$prefix/lib', '-llog', '-lnativewindow']
 
 [host_machine]
 system = 'android'

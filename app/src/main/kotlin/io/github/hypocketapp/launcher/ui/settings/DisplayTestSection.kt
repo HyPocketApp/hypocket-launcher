@@ -34,9 +34,11 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.github.hypocketapp.engine.DisplayProbe
 import io.github.hypocketapp.engine.DisplayReport
+import io.github.hypocketapp.engine.DirectDisplay
 import io.github.hypocketapp.engine.DisplayStatus
 import io.github.hypocketapp.engine.DisplayTest
 import io.github.hypocketapp.launcher.R
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -49,6 +51,8 @@ fun DisplayTestSection(test: DisplayTest) {
     val (title, description, button) = when (test) {
         DisplayTest.SCENE -> Triple(R.string.display_title, R.string.display_description, R.string.display_open)
         DisplayTest.PERFORMANCE -> Triple(R.string.perf_title, R.string.perf_description, R.string.perf_open)
+        DisplayTest.PERFORMANCE_DIRECT ->
+            Triple(R.string.perf_direct_title, R.string.perf_direct_description, R.string.perf_open)
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(stringResource(title), style = MaterialTheme.typography.titleMedium)
@@ -80,10 +84,14 @@ private fun DisplayTestDialog(test: DisplayTest, onClose: () -> Unit) {
     var shownTotal by remember { mutableIntStateOf(0) }
     var startedAt by remember { mutableLongStateOf(0L) }
 
+    val directDisplay = remember { CompletableDeferred<DirectDisplay?>() }
+
     LaunchedEffect(Unit) {
+        // Direct display needs the view's surface before the server starts.
+        val display = if (test.direct) directDisplay.await() else null
         startedAt = System.nanoTime()
         val (width, height) = screenSize(context)
-        report = withContext(Dispatchers.IO) { probe.run(test, width, height, seconds = 15) }
+        report = withContext(Dispatchers.IO) { probe.run(test, width, height, seconds = 15, display = display) }
     }
     // Update the "shown" frame rate once a second while the test runs.
     LaunchedEffect(view) {
@@ -101,7 +109,11 @@ private fun DisplayTestDialog(test: DisplayTest, onClose: () -> Unit) {
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             AndroidView(
-                factory = { FrameSurfaceView(it, probe.frameFile).also { created -> view = created } },
+                factory = {
+                    FrameSurfaceView(it, probe.frameFile, direct = test.direct) { display ->
+                        directDisplay.complete(display)
+                    }.also { created -> view = created }
+                },
                 modifier = Modifier.fillMaxSize(),
             )
             Column(
@@ -111,7 +123,7 @@ private fun DisplayTestDialog(test: DisplayTest, onClose: () -> Unit) {
                 val current = report
                 if (current == null) {
                     Text(
-                        stringResource(if (test == DisplayTest.PERFORMANCE) R.string.perf_running else R.string.display_running),
+                        stringResource(if (test == DisplayTest.SCENE) R.string.display_running else R.string.perf_running),
                         color = Color.White,
                     )
                     Text(stringResource(R.string.display_shown_fps, shownFps), color = Color.White)
@@ -157,6 +169,7 @@ private fun DisplayReport.toShareText(shownFrames: Int, seconds: Double): String
     appendLine("Android: ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
     appendLine("SoC: ${if (android.os.Build.VERSION.SDK_INT >= 31) android.os.Build.SOC_MODEL else "unknown"}")
     appendLine("Status: $status")
+    appendLine("Direct display: $direct")
     appendLine("Renderer: ${renderer ?: "-"}")
     appendLine("Guest fps (640x360, draw + read back): ${guestFps ?: "-"}")
     appendLine("Per frame: draw ${drawMillis ?: "-"} ms, read back ${readBackMillis ?: "-"} ms")

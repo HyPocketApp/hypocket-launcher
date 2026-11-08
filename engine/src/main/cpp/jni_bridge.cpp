@@ -2,6 +2,9 @@
 // file: it only converts types and forwards calls.
 #include <jni.h>
 
+#include <android/native_window_jni.h>
+
+#include "direct_display.h"
 #include "hypocket_engine.h"
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -22,4 +25,38 @@ Java_io_github_hypocketapp_engine_NativeBridge_nativeRunWorkload(JNIEnv* env, jo
     jlongArray array = env->NewLongArray(2);
     if (array != nullptr) env->SetLongArrayRegion(array, 0, 2, values);
     return array;
+}
+
+// Direct display (see direct_display.cpp). The handle is a pointer kept by Kotlin.
+extern "C" JNIEXPORT jlong JNICALL
+Java_io_github_hypocketapp_engine_NativeBridge_nativeDisplayCreate(JNIEnv* env, jobject /* this */, jobject surface,
+                                                                   jobjectArray socket_name_out) {
+    ANativeWindow* window = ANativeWindow_fromSurface(env, surface);
+    if (window == nullptr) return 0;
+    char name[64];
+    auto* handle = hypocket::DirectDisplayCreate(window, name, sizeof(name));
+    if (handle == nullptr) {
+        ANativeWindow_release(window);
+        return 0;
+    }
+    env->SetObjectArrayElement(socket_name_out, 0, env->NewStringUTF(name));
+    return reinterpret_cast<jlong>(handle);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_io_github_hypocketapp_engine_NativeBridge_nativeDisplayResize(JNIEnv* /* env */, jobject /* this */, jlong handle,
+                                                                   jint width, jint height) {
+    hypocket::DirectDisplayResize(reinterpret_cast<std::shared_ptr<hypocket::State>*>(handle), width, height);
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_io_github_hypocketapp_engine_NativeBridge_nativeDisplayShownFrames(JNIEnv* /* env */, jobject /* this */,
+                                                                        jlong handle) {
+    return hypocket::DirectDisplayShownFrames(reinterpret_cast<std::shared_ptr<hypocket::State>*>(handle));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_io_github_hypocketapp_engine_NativeBridge_nativeDisplayDestroy(JNIEnv* /* env */, jobject /* this */,
+                                                                    jlong handle) {
+    hypocket::DirectDisplayDestroy(reinterpret_cast<std::shared_ptr<hypocket::State>*>(handle));
 }

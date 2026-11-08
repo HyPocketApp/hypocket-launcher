@@ -1,0 +1,71 @@
+diff --git a/src/vrend/vrend_winsys_egl.c b/src/vrend/vrend_winsys_egl.c
+index 4ddcd0d..0b196c3 100644
+--- a/src/vrend/vrend_winsys_egl.c
++++ b/src/vrend/vrend_winsys_egl.c
+@@ -1020,3 +1020,15 @@ const char *virgl_egl_error_string(EGLint error)
+     default: return "Unknown error";
+     }
+ }
++
++/* HyPocket: lets the server's direct display share textures with the renderer. */
++VIRGL_EXPORT bool hypocket_egl_get(EGLDisplay *display, EGLConfig *config, EGLContext *context);
++VIRGL_EXPORT bool hypocket_egl_get(EGLDisplay *display, EGLConfig *config, EGLContext *context)
++{
++   if (!egl || !egl->egl_ctx)
++      return false;
++   *display = egl->egl_display;
++   *config = egl->egl_conf;
++   *context = egl->egl_ctx;
++   return true;
++}
+diff --git a/vtest/meson.build b/vtest/meson.build
+index c2bd278..6bcfe12 100644
+--- a/vtest/meson.build
++++ b/vtest/meson.build
+@@ -30,7 +30,9 @@ vtest_sources = [
+    'vtest_server.c',
+    'vtest_renderer.c',
+    'vtest_protocol.h',
+-   'vtest.h'
++   'vtest.h',
++   'hypocket_display.c',
++   'hypocket_display.h',
+ ]
+ 
+ vtest_depends = [
+@@ -40,6 +42,7 @@ vtest_depends = [
+    libdrm_dep,
+    drm_uapi_dep,
+    mesa_dep,
++   epoxy_dep,
+ ]
+ 
+ if with_tracing == 'percetto'
+diff --git a/vtest/vtest_renderer.c b/vtest/vtest_renderer.c
+index ba4feb1..3c6d439 100644
+--- a/vtest/vtest_renderer.c
++++ b/vtest/vtest_renderer.c
+@@ -54,6 +54,7 @@
+ #include "vtest.h"
+ #include "vtest_shm.h"
+ #include "vtest_protocol.h"
++#include "hypocket_display.h"
+ #include "threadpool.h"
+ 
+ #include "util.h"
+@@ -1592,6 +1593,15 @@ static int vtest_transfer_get_internal(struct vtest_context *ctx,
+       }
+    }
+ 
++   /* HyPocket: a full-size read of a 2D colour resource is a frame the guest
++    * wants to show. Show it directly, and skip the copy back when asked. */
++   if (do_transfer && hypocket_display_enabled() && args->level == 0 && args->box.x == 0 &&
++       args->box.y == 0 && args->box.d <= 1 &&
++       hypocket_display_present(res->res_id, args->box.w, args->box.h)) {
++      if (hypocket_display_skip_readback())
++         do_transfer = false;
++   }
++
+    if (do_transfer) {
+       ret = virgl_renderer_transfer_read_iov(res->res_id,
+                                              ctx->ctx_id,

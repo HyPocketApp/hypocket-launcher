@@ -44,7 +44,7 @@ internal class VirglServer private constructor(
         fun binary(runtime: GuestRuntime) = File(runtime.nativeLibDir, "libvirgl_server.so")
 
         /** Starts the server, or returns null and the server's log if it did not come up. */
-        fun start(runtime: GuestRuntime): Pair<VirglServer?, String> {
+        fun start(runtime: GuestRuntime, extraEnv: Map<String, String> = emptyMap()): Pair<VirglServer?, String> {
             val socket = File(runtime.cacheDir, "virgl.sock")
             socket.delete()
             val process = ProcessBuilder(
@@ -61,6 +61,7 @@ internal class VirglServer private constructor(
                     // Log the features the server finds in the phone's driver.
                     environment()["VREND_DEBUG"] = "feat"
                     environment()["VIRGL_LOG_LEVEL"] = "debug"
+                    environment().putAll(extraEnv)
                 }
                 .start()
             val output = StringBuilder()
