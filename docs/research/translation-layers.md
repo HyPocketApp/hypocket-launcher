@@ -332,6 +332,26 @@ frame, so its work can overlap with presenting, but this deserves a closer
 look (for example rendering straight into the shared buffers, which would
 remove the server's copy).
 
+### Direct display, stage 3: no copy at all (November 2026)
+
+Stage 2 still copied every frame twice on the GPU: the guest blitted its
+framebuffer into the pbuffer, and the server copied the pbuffer into an
+AHardwareBuffer. Now our Mesa gives a presented pbuffer three images used in
+turn and announces each one to the server right after creating it
+(`VCMD_HYPOCKET_ADOPT`). The server backs that resource's texture with a new
+AHardwareBuffer, so the guest draws straight into what the app shows, and a
+present only sends a native fence. HyPocket Blocks also draws into the
+pbuffer itself, like a game drawing into its window.
+
+On the Galaxy M12 at 1600x720 with a 60 fps limit: 7199 of 7200 frames were
+shown without any copy (the first one is copied on purpose), 59.3 fps, 6-16
+ms per frame depending on the view, no visible difference. The time per
+frame barely moved because it measures the game's CPU work and the wait for
+the previous frame; what the copies cost was GPU time, which at a 60 fps cap
+shows up as headroom rather than as a higher frame rate. The VirGL server
+grew from 65 to 71 MB because it kept the three copy buffers of the first
+frame; it now frees them once frames need no copy.
+
 ### Graphics performance test (November 2026)
 
 On phones the game should run in a window with the screen's aspect ratio

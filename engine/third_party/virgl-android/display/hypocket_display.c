@@ -436,6 +436,23 @@ void hypocket_display_forget(uint32_t res_id)
    }
 }
 
+/* Once frames need no copy, the copy buffers only hold memory: free them
+ * (they come back if a frame ever needs a copy again). Framebuffer objects
+ * are not shared between contexts, so this needs our own context. */
+static void free_copy_buffers(void)
+{
+   if (d.ctx == EGL_NO_CONTEXT || !d.buf[0].ahb) return;
+   EGLContext prev_ctx = eglGetCurrentContext();
+   EGLSurface prev_draw = eglGetCurrentSurface(EGL_DRAW);
+   EGLSurface prev_read = eglGetCurrentSurface(EGL_READ);
+   eglMakeCurrent(d.dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, d.ctx);
+   for (uint32_t i = 0; i < BUFFERS; i++)
+      if (d.sock >= 0) send_header(MSG_FORGET, i, d.width, d.height, -1);
+   free_buffers();
+   eglMakeCurrent(d.dpy, prev_draw, prev_read, prev_ctx);
+   log_msg("freed the copy buffers");
+}
+
 /* Waits until every adopted buffer except index and the one shown before it
  * is back from the screen: the guest draws into the oldest one next. */
 static void wait_for_releases(int index)
@@ -482,6 +499,7 @@ static void present_adopted(int index)
    d.last_adopted = index;
    d.frames++;
    if (d.adopted_frames++ == 0) log_msg("first frame without a copy");
+   if (d.adopted_frames == 2) free_copy_buffers();
 }
 
 bool hypocket_display_present(uint32_t res_id, uint32_t width, uint32_t height, bool y0_top)
