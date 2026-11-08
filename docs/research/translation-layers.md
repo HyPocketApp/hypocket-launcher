@@ -332,6 +332,21 @@ frame, so its work can overlap with presenting, but this deserves a closer
 look (for example rendering straight into the shared buffers, which would
 remove the server's copy).
 
+### A third phone: Helio G99 with Mali-G57 MC2 (November 2026)
+
+A tester's Galaxy A24 (MT6789, Mali-G57 MC2, 3.7 GB of memory, Android 16):
+
+- Translator test: 122 ms natively, 139 ms through Box64 (14% slower).
+- HyPocket Blocks in heavy mode at the full 2340x1080, 60 fps limit, for
+  277 s: 57-59 fps at 100% for most of the session, 13-16 ms per frame,
+  165-230 thousand triangles. Near the end it fell to 55 fps; dynamic
+  resolution went down to 50% and the frame rate stayed at 55-57, so pixels
+  were not the limit there, yet the scale stayed down. It now raises the
+  scale to test that after 10 seconds stuck below the target.
+- A USB keyboard and mouse worked (pointer capture, 9337 mouse events), and
+  the game counted no audio underruns. The VirGL server peaked at 188 MB on
+  this Mali driver, against 82-104 MB on the Galaxy M12.
+
 ### A second phone: Snapdragon 7s Gen 2 with Adreno 710 (November 2026)
 
 A tester's Xiaomi phone (SM7435, Adreno 710, 7.3 GB of memory, Android 16):
