@@ -82,4 +82,10 @@
     <string name="exit_title">Last app exit</string>
     <string name="exit_description">If the app closed by itself during a test, open it again and tap this button. It copies why the system says the app ended (crash, low memory…) so you can paste it in your report.</string>
     <string name="exit_copy">Copy last exits</string>
+    <string name="storage_title">Secure sign-in storage test</string>
+    <string name="storage_description">Checks that this phone can keep your sign-in encrypted with the Android Keystore. It uses made-up data, not your account.</string>
+    <string name="storage_passed">Passed: the sign-in can be saved encrypted on this phone.</string>
+    <string name="storage_read_back_failed">Failed: the saved data could not be read back.</string>
+    <string name="storage_plain_text">Failed: the data was not encrypted.</string>
+    <string name="storage_error">Failed: the Android Keystore gave an error.</string>
 </resources>

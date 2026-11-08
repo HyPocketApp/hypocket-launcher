@@ -6,7 +6,8 @@ import io.github.hypocketapp.core.account.AccountVerifier
 import io.github.hypocketapp.core.account.UnavailableLicenseChecker
 import io.github.hypocketapp.core.auth.AuthConfig
 import io.github.hypocketapp.core.auth.DeviceAuthClient
-import io.github.hypocketapp.core.auth.InMemoryTokenStore
+import io.github.hypocketapp.core.auth.EncryptedTokenStore
+import io.github.hypocketapp.core.auth.KeystoreTokenCipher
 import io.github.hypocketapp.core.download.GameDownloader
 import io.github.hypocketapp.core.download.UnavailableGameDownloader
 import io.github.hypocketapp.core.launch.GameLauncher
@@ -14,6 +15,7 @@ import io.github.hypocketapp.core.settings.SettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import java.io.File
 
 /** Creates the app's long-lived objects. Kept by [HyPocketApplication]. */
 class AppContainer(context: Context) {
@@ -26,7 +28,8 @@ class AppContainer(context: Context) {
         isConfigured = authConfig.isConfigured,
         authClient = DeviceAuthClient(authConfig),
         verifier = AccountVerifier(UnavailableLicenseChecker()),
-        tokenStore = InMemoryTokenStore(),
+        // noBackupFilesDir: the encrypted sign-in is never copied off the phone.
+        tokenStore = EncryptedTokenStore(File(context.noBackupFilesDir, "sign-in.bin"), KeystoreTokenCipher()),
         scope = appScope,
     )
 

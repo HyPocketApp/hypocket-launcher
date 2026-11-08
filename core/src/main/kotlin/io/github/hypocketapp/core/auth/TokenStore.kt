@@ -7,12 +7,7 @@ interface TokenStore {
     fun clear()
 }
 
-/**
- * Keeps tokens in memory only, so the player signs in again after a restart.
- *
- * TODO: add a store encrypted with the Android Keystore. Tokens must never be
- *  saved in plain text.
- */
+/** Keeps tokens in memory only, so the player signs in again after a restart. Used in tests. */
 class InMemoryTokenStore : TokenStore {
     @Volatile
     private var tokens: Tokens? = null

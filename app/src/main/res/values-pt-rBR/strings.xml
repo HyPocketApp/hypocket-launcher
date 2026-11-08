@@ -80,4 +80,10 @@
     <string name="exit_title">Último fechamento do app</string>
     <string name="exit_description">Se o app fechou sozinho durante um teste, abra de novo e toque neste botão. Ele copia o motivo que o sistema registrou pro fechamento (crash, falta de memória…) pra você colar no relatório.</string>
     <string name="exit_copy">Copiar últimos fechamentos</string>
+    <string name="storage_title">Teste de armazenamento seguro do login</string>
+    <string name="storage_description">Confere se este celular consegue guardar seu login criptografado com o Keystore do Android. Usa dados inventados, não a sua conta.</string>
+    <string name="storage_passed">Passou: o login pode ser guardado criptografado neste celular.</string>
+    <string name="storage_read_back_failed">Falhou: não deu pra ler de volta os dados salvos.</string>
+    <string name="storage_plain_text">Falhou: os dados não foram criptografados.</string>
+    <string name="storage_error">Falhou: o Keystore do Android deu erro.</string>
 </resources>
