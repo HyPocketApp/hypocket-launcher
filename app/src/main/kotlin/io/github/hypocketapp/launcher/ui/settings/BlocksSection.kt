@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,6 +38,12 @@ fun BlocksSection() {
             Text(stringResource(R.string.blocks_heavy), modifier = Modifier.weight(1f))
             Switch(checked = heavy, onCheckedChange = { heavy = it })
         }
-        Button(onClick = { BlocksActivity.start(context, heavy) }) { Text(stringResource(R.string.blocks_open)) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { BlocksActivity.start(context, heavy) }) { Text(stringResource(R.string.blocks_open)) }
+            OutlinedButton(onClick = { BlocksActivity.startBenchmark(context) }) {
+                Text(stringResource(R.string.blocks_benchmark))
+            }
+        }
+        Text(stringResource(R.string.blocks_benchmark_description), style = MaterialTheme.typography.bodySmall)
     }
 }

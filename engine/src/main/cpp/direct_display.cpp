@@ -52,7 +52,7 @@ struct Buffer {
 struct State {
     ANativeWindow* window = nullptr;
     int listen_fd = -1;
-    int conn_fd = -1;
+    std::atomic<int> conn_fd{-1};
     std::atomic<bool> stop{false};
     std::atomic<int> shown{0};
     std::thread thread;
@@ -308,23 +308,21 @@ void Serve(std::shared_ptr<State> state) {
         return;
     }
     Note(s, "EGL ready");
-    // Wait for the server, checking now and then whether we should stop.
+    // Serve one server after another (a benchmark runs several), until the
+    // view goes away.
     while (!s.stop) {
         pollfd p{s.listen_fd, POLLIN, 0};
-        if (poll(&p, 1, 200) > 0) break;
-    }
-    int fd = s.stop ? -1 : accept4(s.listen_fd, nullptr, nullptr, SOCK_CLOEXEC);
-    if (fd >= 0) {
+        if (poll(&p, 1, 200) <= 0) continue;
+        int fd = accept4(s.listen_fd, nullptr, nullptr, SOCK_CLOEXEC);
+        if (fd < 0) continue;
         // Only our own processes (same Linux user) may send us frames.
         ucred cred{};
         socklen_t len = sizeof(cred);
         if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cred, &len) != 0 || cred.uid != getuid()) {
             Note(s, "rejected a connection from another app");
             close(fd);
-            fd = -1;
+            continue;
         }
-    }
-    if (fd >= 0) {
         s.conn_fd = fd;
         Note(s, "server connected");
         uint32_t msg[4];
@@ -354,6 +352,11 @@ void Serve(std::shared_ptr<State> state) {
             }
         }
         Note(s, "server disconnected");
+        s.conn_fd = -1;
+        close(fd);
+        // That server's buffers are gone with it.
+        for (auto& b : s.buffers) FreeBuffer(s, b);
+        s.previous = -1;
     }
     TearDownEgl(s);
 }
@@ -400,9 +403,10 @@ void DirectDisplayDestroy(std::shared_ptr<State>* handle) {
     delete handle;
     State& s = *state;
     s.stop = true;
-    if (s.conn_fd >= 0) shutdown(s.conn_fd, SHUT_RDWR);
+    // The thread closes the connection itself; this only wakes it up.
+    int fd = s.conn_fd.load();
+    if (fd >= 0) shutdown(fd, SHUT_RDWR);
     if (s.thread.joinable()) s.thread.join();
-    if (s.conn_fd >= 0) close(s.conn_fd);
     close(s.listen_fd);
     ANativeWindow_release(s.window);
 }

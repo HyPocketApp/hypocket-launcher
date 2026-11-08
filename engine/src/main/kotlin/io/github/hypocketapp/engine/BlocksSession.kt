@@ -115,6 +115,8 @@ class BlocksSession(context: Context) : AutoCloseable {
         val optionEnv = buildMap {
             if (options.dynamicResolution) put("HYPOCKET_BLOCKS_DYNAMIC", "1")
             if (options.heavy) put("HYPOCKET_BLOCKS_HEAVY", "1")
+            if (options.benchmarkFrames > 0) put("HYPOCKET_BLOCKS_BENCH", "1")
+            putAll(options.extraEnv)
         }
 
         MemorySampler().use { sampler -> server.use { audio.use {
@@ -126,7 +128,8 @@ class BlocksSession(context: Context) : AutoCloseable {
                     "MESA_GL_VERSION_OVERRIDE" to "4.1",
                     "MESA_GLSL_VERSION_OVERRIDE" to "410",
                 ) + presentEnv + audioEnv + optionEnv,
-                args = listOf(width.toString(), height.toString(), fpsLimit.toString()),
+                args = listOf(width.toString(), height.toString(), fpsLimit.toString()) +
+                    (if (options.benchmarkFrames > 0) listOf(options.benchmarkFrames.toString()) else emptyList()),
                 timeoutSeconds = MAX_SESSION_SECONDS,
                 onStart = { started ->
                     process = started
@@ -234,6 +237,10 @@ data class BlocksOptions(
     val dynamicResolution: Boolean = false,
     /** A world four times larger, a longer view and 300 wandering creatures. */
     val heavy: Boolean = false,
+    /** Above 0: a benchmark of this many frames with a fixed camera path. */
+    val benchmarkFrames: Int = 0,
+    /** More environment for the game (Mesa and Box64 options under test). */
+    val extraEnv: Map<String, String> = emptyMap(),
 )
 
 data class BlocksReport(

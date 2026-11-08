@@ -134,4 +134,11 @@
     <string name="blocks_creatures">%1$d criaturas na tela</string>
     <string name="blocks_hint_mouse">Mouse: mexa para olhar · Botão esquerdo: quebrar · Direito: colocar · WASD: andar · Espaço: pular · Esc: soltar o ponteiro</string>
     <string name="settings_look_sensitivity">Sensibilidade da câmera (toque, controle e mouse): %1$d%%</string>
+    <string name="blocks_benchmark">Benchmark</string>
+    <string name="blocks_benchmark_description">Benchmark: roda o modo pesado com a câmera fixa, sem limite de FPS, uma vez com cada conjunto de opções em teste (cerca de 2 a 3 minutos), e mostra qual é mais rápido neste celular.</string>
+    <string name="bench_running">Benchmark: fase %1$d de %2$d (%3$s)</string>
+    <string name="bench_hint">Cerca de 2 a 3 minutos. Deixe o app aberto.</string>
+    <string name="bench_title">Resultado do benchmark</string>
+    <string name="bench_row">%1$s: %2$.1f fps · jogo %3$.1f ms · espera %4$.1f ms · servidor %5$.1f ms</string>
+    <string name="bench_legend">Jogo: o trabalho do próprio jogo por quadro, pelo tradutor. Espera: pela GPU e pelo servidor VirGL. Servidor: tempo rodando os comandos gráficos do jogo por quadro.</string>
 </resources>

@@ -52,6 +52,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import io.github.hypocketapp.engine.BlocksBenchmark
 import io.github.hypocketapp.engine.BlocksOptions
 import io.github.hypocketapp.engine.BlocksReport
 import io.github.hypocketapp.engine.BlocksSession
@@ -83,6 +84,7 @@ class BlocksActivity : ComponentActivity() {
     private lateinit var session: BlocksSession
     private lateinit var controller: ControllerInput
     private lateinit var mouse: MouseInput
+    private var benchmark: BlocksBenchmark? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -101,6 +103,12 @@ class BlocksActivity : ComponentActivity() {
         val sensitivity = settings.lookSensitivityPercent / 100f
         controller = ControllerInput(session, sensitivity, onExit = { session.stop() })
         mouse = MouseInput(session, sensitivity)
+        if (intent.getBooleanExtra(EXTRA_BENCHMARK, false)) {
+            val run = BlocksBenchmark(this).also { benchmark = it }
+            val (width, height) = landscapeScreen(this)
+            setContent { HyPocketTheme { BenchmarkScreen(run, width, height, onClose = { finish() }) } }
+            return
+        }
         setContent {
             HyPocketTheme {
                 BlocksScreen(
@@ -149,6 +157,7 @@ class BlocksActivity : ComponentActivity() {
         super.onStop()
         if (!isChangingConfigurations) {
             session.stop()
+            benchmark?.cancel()
             finish()
         }
     }
@@ -160,9 +169,15 @@ class BlocksActivity : ComponentActivity() {
 
     companion object {
         private const val EXTRA_HEAVY = "heavy"
+        private const val EXTRA_BENCHMARK = "benchmark"
 
         fun start(context: Context, heavy: Boolean) {
             context.startActivity(Intent(context, BlocksActivity::class.java).putExtra(EXTRA_HEAVY, heavy))
+        }
+
+        /** Runs the benchmark instead of the game. */
+        fun startBenchmark(context: Context) {
+            context.startActivity(Intent(context, BlocksActivity::class.java).putExtra(EXTRA_BENCHMARK, true))
         }
     }
 }

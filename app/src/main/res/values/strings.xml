@@ -136,4 +136,11 @@
     <string name="blocks_creatures">%1$d creatures on screen</string>
     <string name="blocks_hint_mouse">Mouse: move to look · Left button: break · Right button: place · WASD: walk · Space: jump · Esc: free the pointer</string>
     <string name="settings_look_sensitivity">Camera sensitivity (touch, controller and mouse): %1$d%%</string>
+    <string name="blocks_benchmark">Benchmark</string>
+    <string name="blocks_benchmark_description">Benchmark: runs the heavy mode with a fixed camera, without an FPS limit, once with each set of options being tested (about 2 to 3 minutes), and shows which is fastest on this phone.</string>
+    <string name="bench_running">Benchmark: phase %1$d of %2$d (%3$s)</string>
+    <string name="bench_hint">About 2 to 3 minutes. Keep the app open.</string>
+    <string name="bench_title">Benchmark results</string>
+    <string name="bench_row">%1$s: %2$.1f fps · game %3$.1f ms · wait %4$.1f ms · server %5$.1f ms</string>
+    <string name="bench_legend">Game: the game\'s own work per frame, through the translator. Wait: for the GPU and the VirGL server. Server: time spent running the game\'s graphics commands per frame.</string>
 </resources>

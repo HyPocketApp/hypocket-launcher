@@ -20,7 +20,10 @@
  * HYPOCKET_BLOCKS_DYNAMIC=1 lowers the 3D resolution when the game misses the
  * FPS limit while waiting for the GPU, and raises it again when it keeps up.
  * With [frames] the program exits after that many frames and walks on its
- * own, for testing on a desktop. */
+ * own, for testing on a desktop. With HYPOCKET_BLOCKS_BENCH=1 as well it is a
+ * benchmark instead: the camera hovers above the start and turns a full
+ * circle over the frames, so every run sees the same views, and it prints
+ * the averages at the end. */
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GL/glcorearb.h>
@@ -1223,6 +1226,11 @@ int main(int argc, char** argv) {
 
     start_audio();
     float step_timer = 0, rate_yaw = 0, rate_pitch = 0;
+    int bench = max_frames > 0 && getenv("HYPOCKET_BLOCKS_BENCH") != NULL;
+    const float bench_x = player.x, bench_y = player.y + 10, bench_z = player.z;
+    double stats_wait = 0, bench_start = 0, bench_work = 0, bench_wait = 0;
+    int bench_frames = 0;
+    const int bench_warmup = 60; /* frames left out: shaders, caches, ramp-up */
     int step_variant = 0, was_in_water = 0;
 
     while (!io->quit && (max_frames == 0 || frames < max_frames)) {
@@ -1277,6 +1285,15 @@ int main(int argc, char** argv) {
                            0.9f + 0.2f * rand01(frames, 1, 2));
                 step_timer = 0.38f;
             }
+        }
+
+        if (bench) { /* hover and turn: the same views on every run */
+            player.x = bench_x;
+            player.y = bench_y;
+            player.z = bench_z;
+            player.vy = 0;
+            player.yaw = 6.2831853f * frames / max_frames;
+            player.pitch = -0.35f;
         }
 
         /* ---- Break and place ---- */
@@ -1443,6 +1460,13 @@ int main(int argc, char** argv) {
         work_total += frame_end - frame_start;
         window_work += frame_end - frame_start;
         window_wait += wait_total;
+        stats_wait += wait_total;
+        if (bench && frames >= bench_warmup) {
+            if (bench_frames == 0) bench_start = frame_start;
+            bench_frames++;
+            bench_work += frame_end - frame_start;
+            bench_wait += wait_total;
+        }
         wait_total = 0;
         window_frames++;
         if (dynamic && frame_end - window_start >= 500.0) {
@@ -1496,16 +1520,26 @@ int main(int argc, char** argv) {
         if (frame_end - stats_start >= 1000.0) {
             io->fps = (float)(stats_frames * 1000.0 / (frame_end - stats_start));
             io->frame_ms = (float)(work_total / stats_frames);
-            printf("blocks: %.1f fps, %.1f ms/frame, %d triangles, %d chunks, scale %d%%, %d creatures\n", io->fps,
-                   io->frame_ms, triangles, visible_count, io->scale_percent, creatures_drawn);
+            /* cpu: the game's own work per frame; wait: for the GPU and server. */
+            printf("blocks: %.1f fps, %.1f ms/frame (cpu %.1f, wait %.1f), %d triangles, %d chunks, scale %d%%, "
+                   "%d creatures\n",
+                   io->fps, io->frame_ms, (work_total - stats_wait) / stats_frames, stats_wait / stats_frames,
+                   triangles, visible_count, io->scale_percent, creatures_drawn);
             fflush(stdout);
             stats_start = frame_end;
             stats_frames = 0;
             work_total = 0;
+            stats_wait = 0;
         }
         if (fps_limit > 0) sleep_ms(1000.0 / fps_limit - (now_ms() - frame_start));
     }
     if (previous) p_glDeleteSync(previous);
+    if (bench && bench_frames > 0) {
+        double elapsed = now_ms() - bench_start;
+        printf("bench: %d frames in %.0f ms: %.1f fps, %.2f ms/frame, cpu %.2f ms, wait %.2f ms\n", bench_frames,
+               elapsed, bench_frames * 1000.0 / elapsed, elapsed / bench_frames, (bench_work - bench_wait) / bench_frames,
+               bench_wait / bench_frames);
+    }
     stop_audio();
     if (header) __atomic_store_n(&header[4], 0, __ATOMIC_RELEASE);
     printf("blocks: %d frames, GL error 0x%x\n", frames, p_glGetError());

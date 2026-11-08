@@ -228,10 +228,97 @@ index ba4feb1..3ef6dd1 100644
        ret = virgl_renderer_transfer_read_iov(res->res_id,
                                               ctx->ctx_id,
 diff --git a/vtest/vtest_server.c b/vtest/vtest_server.c
-index 64a29e1..31cdd53 100644
+index 64a29e1..f49833d 100644
 --- a/vtest/vtest_server.c
 +++ b/vtest/vtest_server.c
-@@ -730,6 +730,8 @@ static const struct vtest_command {
+@@ -27,6 +27,7 @@
+ #endif
+ 
+ #include <stdio.h>
++#include <time.h>
+ #include <signal.h>
+ #include <stdbool.h>
+ #include <unistd.h>
+@@ -129,6 +130,70 @@ static void vtest_server_open_read_file(void);
+ static void vtest_server_open_socket(void);
+ static void vtest_server_run(void);
+ static void vtest_server_close_socket(void);
++/* HyPocket: where the server's time goes, logged every 5 seconds: decoding
++ * and running the guest's GL commands (SUBMIT), showing frames (PRESENT,
++ * which includes waiting for the screen to give a buffer back) and the
++ * rest. The remainder of the time the server waits for the guest. */
++static struct {
++   double window_start, submit_ms, present_ms, other_ms;
++   unsigned submits, presents, others;
++   double total_submit_ms, total_present_ms, total_ms;
++   unsigned total_presents;
++} hypocket_stats;
++
++static double hypocket_stats_now_ms(void)
++{
++   struct timespec ts;
++   clock_gettime(CLOCK_MONOTONIC, &ts);
++   return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
++}
++
++static void hypocket_stats_add(uint32_t id, double ms)
++{
++   double now = hypocket_stats_now_ms();
++   if (hypocket_stats.window_start == 0)
++      hypocket_stats.window_start = now;
++   if (id == VCMD_SUBMIT_CMD || id == VCMD_SUBMIT_CMD2) {
++      hypocket_stats.submit_ms += ms;
++      hypocket_stats.submits++;
++   } else if (id == VCMD_HYPOCKET_PRESENT) {
++      hypocket_stats.present_ms += ms;
++      hypocket_stats.presents++;
++   } else {
++      hypocket_stats.other_ms += ms;
++      hypocket_stats.others++;
++   }
++   double window = now - hypocket_stats.window_start;
++   if (window < 5000)
++      return;
++   hypocket_stats.total_submit_ms += hypocket_stats.submit_ms;
++   hypocket_stats.total_present_ms += hypocket_stats.present_ms;
++   hypocket_stats.total_ms += window;
++   hypocket_stats.total_presents += hypocket_stats.presents;
++   unsigned frames = hypocket_stats.presents ? hypocket_stats.presents : 1;
++   fprintf(stderr,
++           "hypocket-stats: %.1f s, %u frames: commands %.1f ms/frame (%.0f%% busy, %u submits), "
++           "present %.1f ms/frame, other %.1f ms (%u)\n",
++           window / 1000.0, hypocket_stats.presents, hypocket_stats.submit_ms / frames,
++           100.0 * hypocket_stats.submit_ms / window, hypocket_stats.submits, hypocket_stats.present_ms / frames,
++           hypocket_stats.other_ms, hypocket_stats.others);
++   hypocket_stats.window_start = now;
++   hypocket_stats.submit_ms = hypocket_stats.present_ms = hypocket_stats.other_ms = 0;
++   hypocket_stats.submits = hypocket_stats.presents = hypocket_stats.others = 0;
++}
++
++/* The client left: a summary of the whole session. */
++static void hypocket_stats_finish(void)
++{
++   double total = hypocket_stats.total_ms;
++   if (total <= 0)
++      return;
++   unsigned frames = hypocket_stats.total_presents ? hypocket_stats.total_presents : 1;
++   fprintf(stderr, "hypocket-stats: total %.1f s, %u frames: commands %.1f ms/frame (%.0f%% busy), present %.1f ms/frame\n",
++           total / 1000.0, hypocket_stats.total_presents, hypocket_stats.total_submit_ms / frames,
++           100.0 * hypocket_stats.total_submit_ms / total, hypocket_stats.total_present_ms / frames);
++}
++
+ static int vtest_client_dispatch_commands(struct vtest_client *client);
+ 
+ 
+@@ -535,6 +600,7 @@ static void vtest_server_dispatch_clients(void)
+ 
+       ret = vtest_client_dispatch_commands(client);
+       if (ret) {
++         hypocket_stats_finish();
+          fprintf(ret == VTEST_CLIENT_DISCONNECTED ? stdout : stderr, "client: %s\n",
+                  vtest_client_result_string(ret));
+          list_del(&client->head);
+@@ -730,6 +796,8 @@ static const struct vtest_command {
     HANDLER(DRM_SYNC_TRANSFER,           drm_sync_transfer,         true   ),
  #endif /* ENABLE_DRM */
     HANDLER(RESOURCE_EXPORT_FD,          resource_export_fd,        true   ),
@@ -240,3 +327,13 @@ index 64a29e1..31cdd53 100644
  };
  
  static int vtest_client_dispatch_commands(struct vtest_client *client)
+@@ -784,7 +852,9 @@ static int vtest_client_dispatch_commands(struct vtest_client *client)
+    vtest_set_current_context(client->context);
+ 
+    void *trace_scope = TRACE_SCOPE_BEGIN(cmd->name);
++   double hypocket_start = hypocket_stats_now_ms();
+    ret = cmd->dispatch(header[0]);
++   hypocket_stats_add(header[1], hypocket_stats_now_ms() - hypocket_start);
+    TRACE_SCOPE_END(trace_scope);
+ 
+    if (ret < 0) {
