@@ -279,8 +279,19 @@ itself for now.
 For now the server treats a full-size read-back of a 2D colour resource as
 "the frame", and skips the copy back to the guest. Stage 2 replaces that
 with a present command sent by Mesa on `eglSwapBuffers`, so programs no
-longer need `glReadPixels` at all. Testing on the phone (**Settings > Graphics performance test (direct
-display)**).
+longer need `glReadPixels` at all. **Phone test (Galaxy M12): WORKS** after three fixes found on the phone:
+the copy is a shader (a blit between BGRA and RGBA targets fails silently),
+it runs after a one-pixel read through the renderer (virglrenderer switches
+to the client's GL context lazily), and the display context is created in
+the guest contexts' share group (virglrenderer's first context does not
+share with the EGL setup context, so texture names pointed elsewhere). The
+centre pixel of the first frame matched on both sides (39 70 31) and the
+terrain showed on screen, 758 frames in 27.7 s.
+
+Frame times are not better than the copying path yet (light 12–30 ms,
+medium 21–24 ms, heavy 57–64 ms), because the one-pixel read makes the
+server wait for the GPU on every frame and the program still calls
+`glReadPixels`. Stage 2 removes both.
 
 ### Graphics performance test (November 2026)
 
