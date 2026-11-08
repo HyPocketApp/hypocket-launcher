@@ -17,8 +17,8 @@
  * file (HYPOCKET_AUDIO_PATH), which the app plays (audio_output.cpp).
  *
  * Usage: blocks <width> <height> [fps limit] [frames]
- * HYPOCKET_BLOCKS_DYNAMIC=1 lowers the 3D resolution when the GPU cannot keep
- * up with the FPS limit, and raises it again when it can.
+ * HYPOCKET_BLOCKS_DYNAMIC=1 lowers the 3D resolution when the game misses the
+ * FPS limit while waiting for the GPU, and raises it again when it keeps up.
  * With [frames] the program exits after that many frames and walks on its
  * own, for testing on a desktop. */
 #include <EGL/egl.h>
@@ -1210,8 +1210,9 @@ int main(int argc, char** argv) {
     int stats_frames = 0, frames = 0;
     /* Dynamic resolution looks at half a second at a time. */
     double wait_total = 0, window_start = last, window_work = 0, window_wait = 0;
-    int window_frames = 0, calm_windows = 0;
-    const double budget = 1000.0 / (fps_limit > 0 ? fps_limit : 60);
+    int window_frames = 0, calm_windows = 0, cooldown_windows = 0;
+    const double target_fps = fps_limit > 0 ? fps_limit : 60;
+    const double run_start = last;
     GLsync previous = 0;
     io->width = w;
     io->height = h;
@@ -1443,15 +1444,23 @@ int main(int argc, char** argv) {
         window_frames++;
         if (dynamic && frame_end - window_start >= 500.0) {
             double work = window_work / window_frames, wait = window_wait / window_frames;
-            /* Lower the resolution only when frames are late and the time goes
-             * into waiting for the GPU: if the CPU is the slow part, fewer
-             * pixels would not help. */
-            if (work > 0.85 * budget && wait > 0.25 * work && scale > 0.5f) {
-                scale -= work > 1.2 * budget ? 0.1f : 0.05f;
+            double fps_now = window_frames * 1000.0 / (frame_end - window_start);
+            /* Lower the resolution only when the game misses its frame rate and
+             * the time goes into waiting for the GPU (if the CPU is the slow
+             * part, fewer pixels would not help). Frames that merely come close
+             * to the budget are fine. The first two seconds are skipped: the
+             * start is always slow. */
+            if (frame_end - run_start < 2000.0) {
+                /* warming up */
+            } else if (fps_now < 0.92 * target_fps && wait > 0.25 * work && scale > 0.5f) {
+                scale -= fps_now < 0.75 * target_fps ? 0.1f : 0.05f;
                 if (scale < 0.5f) scale = 0.5f;
                 calm_windows = 0;
-            } else if (work < 0.6 * budget) {
-                if (++calm_windows >= 4 && scale < 1.0f) {
+                cooldown_windows = 8; /* wait 4 s before trying higher again */
+            } else if (fps_now >= 0.97 * target_fps) {
+                if (cooldown_windows > 0) {
+                    cooldown_windows--;
+                } else if (++calm_windows >= 4 && scale < 1.0f) {
                     scale += 0.05f;
                     if (scale > 1.0f) scale = 1.0f;
                     calm_windows = 0;
