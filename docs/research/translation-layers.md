@@ -184,7 +184,9 @@ Progress:
   The ratio is optimistic: `memcpy`, `malloc` and other libc calls run as
   native code through Box64's wrapped libc, so only part of the workload is
   translated. Startup time is mostly Box64 initialising (it also tries to
-  run `lscpu` through `/bin/sh`, which does not exist on Android).
+  run `lscpu` through `/bin/sh`, which does not exist on Android). Since
+  November 2026 the app passes the CPU name, core count and frequency in
+  `BOX64_SYSINFO_*` variables, so Box64 no longer runs `lscpu`.
 
 ### Graphics proof of concept (November 2026)
 

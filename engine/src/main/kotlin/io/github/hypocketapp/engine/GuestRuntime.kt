@@ -1,6 +1,7 @@
 package io.github.hypocketapp.engine
 
 import android.content.Context
+import android.os.Build
 import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.TimeUnit
@@ -47,6 +48,7 @@ internal class GuestRuntime(context: Context) {
                 environment()["HOME"] = appContext.filesDir.absolutePath
                 environment()["TMPDIR"] = appContext.cacheDir.absolutePath
                 environment()["BOX64_LOG"] = "1"
+                environment().putAll(HostCpu.box64Environment)
                 environment().putAll(extraEnv)
             }
         return run(builder, timeoutSeconds)
@@ -80,6 +82,36 @@ internal class GuestRuntime(context: Context) {
         // back to copying the code into memory when mapping it is denied.
         check(target.setExecutable(true, true)) { "Could not mark ${target.name} as executable" }
         return target
+    }
+
+    /**
+     * Box64 reads the CPU name, core count and frequency at startup. ARM
+     * kernels do not list a CPU name in /proc/cpuinfo, so Box64 then runs
+     * `lscpu` through a shell, which does not exist on Android and slows every
+     * start. Box64 skips all of that when BOX64_SYSINFO_CACHED is set
+     * (src/os/sysinfo.c), so the app reads the values once and passes them.
+     */
+    private object HostCpu {
+        val box64Environment: Map<String, String> by lazy {
+            buildMap {
+                put("BOX64_SYSINFO_CACHED", "1")
+                put("BOX64_SYSINFO_NCPU", Runtime.getRuntime().availableProcessors().toString())
+                put("BOX64_SYSINFO_CPUNAME", cpuName())
+                maxFrequencyHz()?.let { put("BOX64_SYSINFO_FREQUENCY", it.toString()) }
+            }
+        }
+
+        private fun cpuName(): String {
+            val soc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Build.SOC_MODEL else ""
+            return soc.takeIf { it.isNotBlank() && it != Build.UNKNOWN } ?: "ARM64 CPU"
+        }
+
+        /** Fastest core's maximum frequency, from cpufreq (kHz there). */
+        private fun maxFrequencyHz(): Long? = File("/sys/devices/system/cpu").listFiles().orEmpty()
+            .filter { it.name.matches(Regex("cpu\\d+")) }
+            .mapNotNull { runCatching { File(it, "cpufreq/cpuinfo_max_freq").readText().trim().toLong() }.getOrNull() }
+            .maxOrNull()
+            ?.times(1000)
     }
 
     data class RunResult(val finished: Boolean, val exitCode: Int?, val millis: Long, val output: String) {
