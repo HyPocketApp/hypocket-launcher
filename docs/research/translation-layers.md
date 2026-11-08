@@ -186,7 +186,10 @@ Progress:
   translated. Startup time is mostly Box64 initialising (it also tries to
   run `lscpu` through `/bin/sh`, which does not exist on Android). Since
   November 2026 the app passes the CPU name, core count and frequency in
-  `BOX64_SYSINFO_*` variables, so Box64 no longer runs `lscpu`.
+  `BOX64_SYSINFO_*` variables, so Box64 no longer runs `lscpu`. On the
+  phone this cut the total from 2614 ms to 608 ms (native 309 ms,
+  translated 382 ms): starting glibc, Box64 and the probe now takes about
+  0.2 s instead of 2.2 s.
 
 ### Graphics proof of concept (November 2026)
 
