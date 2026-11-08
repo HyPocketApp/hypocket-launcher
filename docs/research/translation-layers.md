@@ -260,7 +260,44 @@ and 100% of the phone's own screen, with three loads of a textured, lit,
 depth-tested block terrain (2048, 8192 and 27648 cubes, every face drawn).
 It times draw plus `glFinish` (GPU time through VirGL) separately from the
 read-back used for display (**Settings > Graphics performance test**).
-Verified through VirGL under qemu; not yet tested on a phone.
+Verified through VirGL under qemu.
+
+**Phone test (Galaxy M12, Mali-G52, 1600x720 screen): PASSED** (no GL
+errors). Draw plus `glFinish` per frame, with the read-back copy apart:
+
+| Render scale         | Light (24.6k triangles) | Medium (98.3k) | Heavy (332k) |
+|----------------------|-------------------------|----------------|--------------|
+| 50% (800x360)        | 16.8 ms (59 fps)*       | 20.6 ms (49)   | 39.6 ms (25) |
+| 75% (1200x540)       | 11.0 ms (91 fps)        | 22.8 ms (44)   | 41.0 ms (24) |
+| 100% (1600x720)      | 13.6 ms (74 fps)        | 26.7 ms (37)   | 59.3 ms (17) |
+
+\* The first step also pays for warming up (shader compile, first use of the
+buffers), so it reads slower than the 75% one.
+
+Read-back copy: 3–9 ms per frame, with spikes of 136 ms (first frame at
+1600x720, when the bigger frame is first touched) and 33 ms.
+
+What it means:
+
+- **The cost follows the triangle count much more than the pixel count.**
+  Going from 50% to 75% of the screen barely changes the time; going from
+  98k to 332k triangles doubles it. The scene is a single instanced draw, so
+  this is the Mali-G52's vertex throughput (about 8 million triangles per
+  second through VirGL), not per-call overhead.
+- So lowering the render resolution helps little once the scene is heavy;
+  **lowering the view distance** (fewer chunks, fewer triangles) is the
+  setting that matters on this class of GPU. The launcher should expose it
+  and default it low.
+- The test draws every cube face. A real voxel renderer hides the faces
+  between blocks, so a world with the "heavy" number of blocks draws far
+  fewer triangles; how many the game's client actually draws is unknown
+  until it runs.
+- 75% looks like the right default for the render scale: 100% costs a bit
+  more on the GPU and a lot more on the copy.
+- The user saw the app crash on some runs. The report of a crashed run is
+  lost, so the app now records why its previous run ended (see
+  **Settings > Last app exit**) to find out whether it is a native crash,
+  the system killing it for memory, or something else.
 
 ### Consequence for the CPU choice
 
