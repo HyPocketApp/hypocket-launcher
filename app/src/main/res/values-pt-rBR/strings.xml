@@ -77,4 +77,7 @@
     <string name="perf_description">Desenha um terreno de blocos com textura e iluminação em 50%, 75% e 100% da resolução da sua tela, com três quantidades de blocos, e mede o tempo por quadro. Leva uns 30 segundos e não usa nenhum arquivo do jogo.</string>
     <string name="perf_open">Abrir teste de desempenho</string>
     <string name="perf_running">Medindo o desempenho… (uns 30 segundos)</string>
+    <string name="exit_title">Último fechamento do app</string>
+    <string name="exit_description">Se o app fechou sozinho durante um teste, abra de novo e toque neste botão. Ele copia o motivo que o sistema registrou pro fechamento (crash, falta de memória…) pra você colar no relatório.</string>
+    <string name="exit_copy">Copiar últimos fechamentos</string>
 </resources>

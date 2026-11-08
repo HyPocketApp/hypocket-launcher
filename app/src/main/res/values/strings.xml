@@ -79,4 +79,7 @@
     <string name="perf_description">Draws a block terrain with textures and lighting at 50%, 75% and 100% of your screen\'s resolution, with three amounts of blocks, and measures the time per frame. Takes about 30 seconds and does not use any game files.</string>
     <string name="perf_open">Open performance test</string>
     <string name="perf_running">Measuring performance… (about 30 seconds)</string>
+    <string name="exit_title">Last app exit</string>
+    <string name="exit_description">If the app closed by itself during a test, open it again and tap this button. It copies why the system says the app ended (crash, low memory…) so you can paste it in your report.</string>
+    <string name="exit_copy">Copy last exits</string>
 </resources>
