@@ -89,7 +89,7 @@ index 1bd515c..39b500c 100644
  #define VCMD_RES_CREATE_SIZE 10
  #define VCMD_RES_CREATE_RES_HANDLE 0 /* must be 0 since protocol version 3 */
 diff --git a/vtest/vtest_renderer.c b/vtest/vtest_renderer.c
-index ba4feb1..048fc70 100644
+index ba4feb1..034b57f 100644
 --- a/vtest/vtest_renderer.c
 +++ b/vtest/vtest_renderer.c
 @@ -54,6 +54,7 @@
@@ -100,7 +100,7 @@ index ba4feb1..048fc70 100644
  #include "threadpool.h"
  
  #include "util.h"
-@@ -1447,6 +1448,29 @@ int vtest_resource_create_blob(UNUSED uint32_t length_dw)
+@@ -1447,6 +1448,42 @@ int vtest_resource_create_blob(UNUSED uint32_t length_dw)
     return 0;
  }
  
@@ -120,9 +120,22 @@ index ba4feb1..048fc70 100644
 +      logged = true;
 +      fprintf(stderr, "hypocket-display: first present command, resource %u\n", buf[0]);
 +   }
++   if (!res) {
++      static unsigned missing;
++      if (missing++ < 3)
++         fprintf(stderr, "hypocket-display: present of unknown resource %u\n", buf[0]);
++      return 0;
++   }
++   if (!hypocket_display_enabled())
++      return 0;
 +   /* Switching makes the guest's GL context current without waiting for the GPU. */
-+   if (res && hypocket_display_enabled() && hypocket_renderer_switch_context(ctx->ctx_id) &&
-+       virgl_renderer_resource_get_info((int)res->res_id, &info) == 0)
++   if (!hypocket_renderer_switch_context(ctx->ctx_id)) {
++      static unsigned failed;
++      if (failed++ < 3)
++         fprintf(stderr, "hypocket-display: cannot switch to context %u\n", ctx->ctx_id);
++      return 0;
++   }
++   if (virgl_renderer_resource_get_info((int)res->res_id, &info) == 0)
 +      hypocket_display_present(res->res_id, info.width, info.height, true);
 +   return 0;
 +}
@@ -130,7 +143,7 @@ index ba4feb1..048fc70 100644
  int vtest_resource_unref(UNUSED uint32_t length_dw)
  {
     struct vtest_context *ctx = vtest_get_current_context();
-@@ -1592,6 +1616,22 @@ static int vtest_transfer_get_internal(struct vtest_context *ctx,
+@@ -1592,6 +1629,22 @@ static int vtest_transfer_get_internal(struct vtest_context *ctx,
        }
     }
  

@@ -326,12 +326,19 @@ bool hypocket_display_present(uint32_t res_id, uint32_t width, uint32_t height, 
    if (!init()) return false;
 
    struct virgl_renderer_resource_info info;
-   if (virgl_renderer_resource_get_info((int)res_id, &info) != 0 || !info.tex_id || info.depth > 1 ||
-       info.width != width || info.height != height)
+   static unsigned rejected;
+   if (virgl_renderer_resource_get_info((int)res_id, &info) != 0) {
+      if (rejected++ < 5) fprintf(stderr, "hypocket-display: resource %u: no info\n", res_id);
       return false;
-   switch (info.virgl_format) {
-   case 1: case 2: case 67: case 134: break; /* B8G8R8A8/X8, R8G8B8A8/X8 UNORM */
-   default: return false;
+   }
+   bool format_ok = info.virgl_format == 1 || info.virgl_format == 2 || /* B8G8R8A8/X8 */
+                    info.virgl_format == 67 || info.virgl_format == 134; /* R8G8B8A8/X8 */
+   if (!info.tex_id || info.depth > 1 || info.width != width || info.height != height || !format_ok) {
+      if (rejected++ < 5)
+         fprintf(stderr, "hypocket-display: resource %u rejected: tex %u, %ux%ux%u (wanted %ux%u), format %u, flags 0x%x\n",
+                 res_id, info.tex_id, info.width, info.height, info.depth, width, height, info.virgl_format,
+                 info.flags);
+      return false;
    }
 
    if (!make_context()) {
