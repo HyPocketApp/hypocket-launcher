@@ -60,6 +60,9 @@ struct AudioState {
     AAudioStream* stream = nullptr;
     std::atomic<bool> closing{false};
     std::atomic<uint64_t> played{0};
+    // Only the data callback uses these: whether the guest is still writing.
+    uint64_t last_write = 0;
+    int64_t idle_frames = 0;
     std::atomic<int> restarts{0};
     int32_t burst = 0, buffer = 0, device_rate = 0;
     bool low_latency = false;
@@ -82,10 +85,17 @@ aaudio_data_callback_result_t OnData(AAudioStream* /* stream */, void* user, voi
         out[i * 2] = s->samples[index * 2];
         out[i * 2 + 1] = s->samples[index * 2 + 1];
     }
+    // A guest that stopped writing (it exited, or has not started) is not
+    // late: only count underruns while it writes.
+    if (write != s->last_write) {
+        s->last_write = write;
+        s->idle_frames = 0;
+    } else {
+        s->idle_frames += frames;
+    }
     if (available < frames) {
         memset(out + available * 2, 0, static_cast<size_t>(frames - available) * kChannels * sizeof(int16_t));
-        // Before the guest's first samples, silence is expected.
-        if (write > 0) __atomic_fetch_add(&r->underruns, 1, __ATOMIC_RELAXED);
+        if (write > 0 && s->idle_frames < kRate / 4) __atomic_fetch_add(&r->underruns, 1, __ATOMIC_RELAXED);
     }
     __atomic_store_n(&r->read_pos, read + static_cast<uint64_t>(available), __ATOMIC_RELEASE);
     s->played += static_cast<uint64_t>(available);

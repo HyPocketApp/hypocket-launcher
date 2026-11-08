@@ -953,10 +953,11 @@ static void mix(uint64_t start, int frames) {
     pthread_mutex_unlock(&audio.lock);
 }
 
-/* Keeps about 40 ms of sound ahead of what the app has played. */
+/* Keeps about 60 ms of sound ahead of what the app has played: enough to
+ * ride out the thread being late now and then on a busy phone. */
 static void* audio_thread(void* unused) {
     (void)unused;
-    uint64_t ahead = (uint64_t)audio.rate * 40 / 1000;
+    uint64_t ahead = (uint64_t)audio.rate * 60 / 1000;
     uint64_t write = __atomic_load_n(&audio.ring->read_pos, __ATOMIC_ACQUIRE);
     while (audio.running) {
         uint64_t read = __atomic_load_n(&audio.ring->read_pos, __ATOMIC_ACQUIRE);
@@ -974,7 +975,7 @@ static void* audio_thread(void* unused) {
                 play_sound(SND_CHIRP, 0.12f + 0.1f * (audio_noise() + 1), audio_noise(), 0.9f + 0.2f * audio_noise());
             audio.next_chirp = now + 4000 + 6000 * (audio_noise() + 1);
         }
-        sleep_ms(4);
+        sleep_ms(3);
     }
     return NULL;
 }
