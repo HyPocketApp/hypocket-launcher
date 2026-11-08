@@ -110,4 +110,7 @@
     <string name="download_failed_corrupted">Um arquivo baixado veio com defeito e foi apagado. Tente de novo.</string>
     <string name="download_failed_server">Os servidores do jogo não responderam direito. Tente mais tarde.</string>
     <string name="download_failed_storage">Não deu pra salvar o arquivo no celular. Confira o espaço livre e tente de novo.</string>
+    <string name="memory_title">Relatório de memória</string>
+    <string name="memory_description">Copia quanta memória o celular tem livre agora e quanto o HyPocket usa. O Android não deixa um app ver os outros, então só aparecem os totais.</string>
+    <string name="memory_copy">Copiar relatório de memória</string>
 </resources>

@@ -86,6 +86,8 @@ fun SettingsScreen(store: SettingsStore, modifier: Modifier = Modifier) {
 
         DisplayTestSection(DisplayTest.PERFORMANCE)
 
+        MemoryReportSection()
+
         LastExitSection()
 
         Text(stringResource(R.string.unofficial_notice), style = MaterialTheme.typography.bodySmall)

@@ -112,4 +112,7 @@
     <string name="download_failed_corrupted">A downloaded file was damaged and was deleted. Try again.</string>
     <string name="download_failed_server">The game servers did not answer correctly. Try again later.</string>
     <string name="download_failed_storage">The file could not be saved on the phone. Check the free space and try again.</string>
+    <string name="memory_title">Memory report</string>
+    <string name="memory_description">Copies how much memory the phone has free right now, and how much HyPocket uses. Android does not let apps see other apps, so it only shows totals.</string>
+    <string name="memory_copy">Copy memory report</string>
 </resources>

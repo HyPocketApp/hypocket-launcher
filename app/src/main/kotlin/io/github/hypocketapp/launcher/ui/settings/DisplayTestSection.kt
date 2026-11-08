@@ -163,6 +163,7 @@ private fun DisplayReport.toShareText(shownFrames: Int, seconds: Double): String
     appendLine("Frames shown by the app: $shownFrames in %.1f s".format(seconds))
     steps.forEach { appendLine("Step: $it") }
     appendLine("Exit code: ${exitCode ?: "-"}")
+    memory?.toLines()?.forEach { appendLine("Memory: $it") }
     appendLine("--- probe output ---")
     appendLine(output)
     appendLine("--- server output ---")

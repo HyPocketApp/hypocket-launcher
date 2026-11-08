@@ -40,7 +40,7 @@ class DisplayProbe(context: Context) {
         val (server, failureLog) = VirglServer.start(runtime)
         if (server == null) return DisplayReport(test, DisplayStatus.SERVER_FAILED, serverOutput = failureLog)
 
-        server.use {
+        MemorySampler().use { sampler -> server.use {
             val result = runtime.runAsset(
                 test.asset,
                 extraEnv = server.guestEnvironment + mapOf(
@@ -54,6 +54,7 @@ class DisplayProbe(context: Context) {
                 },
                 timeoutSeconds = if (test == DisplayTest.PERFORMANCE) 240L else seconds + 60L,
             )
+            val memory = sampler.finish()
             server.awaitExit(3)
             val text = result.output
             val fps = Regex("""gl-display-probe: \d+ frames in \d+ ms, ([\d.]+) fps""").find(text)
@@ -72,10 +73,11 @@ class DisplayProbe(context: Context) {
                 drawMillis = perFrame?.groupValues?.get(1)?.toDoubleOrNull(),
                 readBackMillis = perFrame?.groupValues?.get(2)?.toDoubleOrNull(),
                 exitCode = result.exitCode,
+                memory = memory,
                 output = text,
                 serverOutput = server.log,
             )
-        }
+        } }
     }
 }
 
@@ -92,6 +94,8 @@ data class DisplayReport(
     /** Performance test results, one line per resolution and load. */
     val steps: List<String> = emptyList(),
     val exitCode: Int? = null,
+    /** Memory while the test ran. */
+    val memory: MemoryUsage? = null,
     val output: String = "",
     val serverOutput: String = "",
 )
