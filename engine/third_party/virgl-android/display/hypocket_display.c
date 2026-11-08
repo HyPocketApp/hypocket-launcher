@@ -51,6 +51,7 @@ static struct {
    bool skip_readback;
    bool has_wait_sync, has_native_fence;
    EGLDisplay dpy;
+   EGLConfig config;
    EGLContext ctx;
    GLuint program, sampler, vao;
    GLint size_location;
@@ -217,29 +218,31 @@ static bool init(void)
    }
    d.has_wait_sync = epoxy_has_egl_extension(d.dpy, "EGL_KHR_wait_sync");
    d.has_native_fence = epoxy_has_egl_extension(d.dpy, "EGL_ANDROID_native_fence_sync");
-   const EGLint attribs[] = { EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE };
-   d.ctx = eglCreateContext(d.dpy, config, share, attribs);
-   if (d.ctx == EGL_NO_CONTEXT) {
-      disable("cannot create the display context");
-      return false;
-   }
-   EGLContext prev = eglGetCurrentContext();
-   EGLSurface prev_draw = eglGetCurrentSurface(EGL_DRAW), prev_read = eglGetCurrentSurface(EGL_READ);
-   eglMakeCurrent(d.dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, d.ctx);
-   bool has_image = epoxy_has_gl_extension("GL_OES_EGL_image");
-   bool has_program = has_image && make_program();
-   eglMakeCurrent(d.dpy, prev_draw, prev_read, prev);
-   if (!has_image) {
-      disable("the driver lacks GL_OES_EGL_image");
-      return false;
-   }
-   if (!has_program) {
-      disable("cannot build the copy shader");
-      return false;
-   }
+   (void)share;
+   d.config = config;
    d.state = 1;
    log_msg("on");
    return true;
+}
+
+/*
+ * Creates our context in the share group of the current context, which is
+ * the guest's: virglrenderer's first context is not shared with the EGL
+ * setup context, so texture names only mean the same thing in the group of
+ * the contexts that render. Called with the guest's context current.
+ */
+static bool make_context(void)
+{
+   if (d.ctx != EGL_NO_CONTEXT) return true;
+   EGLContext share = eglGetCurrentContext();
+   EGLSurface draw = eglGetCurrentSurface(EGL_DRAW), read = eglGetCurrentSurface(EGL_READ);
+   const EGLint attribs[] = { EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE };
+   d.ctx = eglCreateContext(d.dpy, d.config, share, attribs);
+   if (d.ctx == EGL_NO_CONTEXT) return false;
+   eglMakeCurrent(d.dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, d.ctx);
+   bool ok = epoxy_has_gl_extension("GL_OES_EGL_image") && make_program();
+   eglMakeCurrent(d.dpy, draw, read, share);
+   return ok;
 }
 
 bool hypocket_display_enabled(void)
@@ -329,6 +332,10 @@ bool hypocket_display_present(uint32_t res_id, uint32_t width, uint32_t height)
    default: return false;
    }
 
+   if (!make_context()) {
+      disable("cannot create the display context");
+      return false;
+   }
    EGLContext prev_ctx = eglGetCurrentContext();
    EGLSurface prev_draw = eglGetCurrentSurface(EGL_DRAW);
    EGLSurface prev_read = eglGetCurrentSurface(EGL_READ);
