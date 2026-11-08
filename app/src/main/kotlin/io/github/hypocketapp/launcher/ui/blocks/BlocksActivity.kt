@@ -81,6 +81,7 @@ import kotlin.math.roundToInt
 class BlocksActivity : ComponentActivity() {
     private lateinit var session: BlocksSession
     private lateinit var controller: ControllerInput
+    private lateinit var mouse: MouseInput
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -96,12 +97,14 @@ class BlocksActivity : ComponentActivity() {
         }
         session = BlocksSession(this)
         controller = ControllerInput(session, onExit = { session.stop() })
+        mouse = MouseInput(session)
         val settings = (application as HyPocketApplication).container.settingsStore.settings.value
         setContent {
             HyPocketTheme {
                 BlocksScreen(
                     session = session,
                     controller = controller,
+                    mouse = mouse,
                     renderScalePercent = settings.renderScalePercent,
                     fpsLimit = settings.fpsLimit,
                     options = BlocksOptions(
@@ -118,11 +121,26 @@ class BlocksActivity : ComponentActivity() {
     // otherwise use the d-pad to move focus. androidx marks its override of
     // this public Activity method as restricted, which lint flags wrongly.
     @SuppressLint("RestrictedApi")
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean =
-        controller.onKey(event) || super.dispatchKeyEvent(event)
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // With the mouse captured, Esc gives the pointer back instead of exiting.
+        if (event.keyCode == KeyEvent.KEYCODE_ESCAPE && mouse.captured.value) {
+            if (event.action == KeyEvent.ACTION_UP) mouse.release()
+            return true
+        }
+        return controller.onKey(event) || super.dispatchKeyEvent(event)
+    }
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean =
-        controller.onMotion(event) || super.dispatchGenericMotionEvent(event)
+        mouse.onUncaptured(event) || controller.onMotion(event) || super.dispatchGenericMotionEvent(event)
+
+    // A mouse click before capture arrives as a touch: it captures the pointer instead.
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean =
+        mouse.onUncaptured(event) || super.dispatchTouchEvent(event)
+
+    override fun onPointerCaptureChanged(hasCapture: Boolean) {
+        super.onPointerCaptureChanged(hasCapture)
+        mouse.onCaptureChanged(hasCapture)
+    }
 
     override fun onStop() {
         super.onStop()
@@ -161,6 +179,7 @@ private fun landscapeScreen(context: Context): Pair<Int, Int> {
 private fun BlocksScreen(
     session: BlocksSession,
     controller: ControllerInput,
+    mouse: MouseInput,
     renderScalePercent: Int,
     fpsLimit: Int,
     options: BlocksOptions,
@@ -190,15 +209,18 @@ private fun BlocksScreen(
         AndroidView(
             factory = {
                 FrameSurfaceView(it, session.frameFile, direct = true) { display -> directDisplay.complete(display) }
+                    .also { view -> mouse.attach(view) }
             },
             modifier = Modifier.fillMaxSize(),
         )
         val finished = report
         if (finished == null) {
             TouchControls(session)
-            Hud(stats, session, controller.used.value, onExit = { session.stop() })
+            Hud(stats, session, controller.used.value, mouse.captured.value, onExit = { session.stop() })
         } else {
-            ReportPanel(finished, controller.deviceNames.toList(), onClose)
+            // The pointer works normally again on the report.
+            LaunchedEffect(Unit) { mouse.stop() }
+            ReportPanel(finished, (controller.deviceNames + mouse.deviceNames).toList(), onClose)
         }
     }
 }
@@ -294,7 +316,13 @@ private fun TouchControls(session: BlocksSession) {
 }
 
 @Composable
-private fun Hud(stats: BlocksStats, session: BlocksSession, controllerUsed: Boolean, onExit: () -> Unit) {
+private fun Hud(
+    stats: BlocksStats,
+    session: BlocksSession,
+    controllerUsed: Boolean,
+    mouseCaptured: Boolean,
+    onExit: () -> Unit,
+) {
     Box(Modifier.fillMaxSize().padding(16.dp)) {
         Column(Modifier.align(Alignment.TopStart), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             if (!stats.ready) {
@@ -318,7 +346,12 @@ private fun Hud(stats: BlocksStats, session: BlocksSession, controllerUsed: Bool
                     )
                 }
             }
-            Text(stringResource(if (controllerUsed) R.string.blocks_hint_controller else R.string.blocks_hint), color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
+            val hint = when {
+                mouseCaptured -> R.string.blocks_hint_mouse
+                controllerUsed -> R.string.blocks_hint_controller
+                else -> R.string.blocks_hint
+            }
+            Text(stringResource(hint), color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
         }
         OutlinedButton(onClick = onExit, modifier = Modifier.align(Alignment.TopEnd)) {
             Text(stringResource(R.string.blocks_exit), color = Color.White)

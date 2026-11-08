@@ -127,7 +127,8 @@ so it goes through the same path a real game will: Box64, desktop OpenGL 4.1
 and VirGL, with frames shown by the direct display. Touch input reaches it
 through a small shared file (see `BlocksSession.kt`), and its sound comes
 back through a ring of samples the app plays with AAudio
-(`audio_output.cpp`). It works with touch, game controllers and keyboards;
+(`audio_output.cpp`). It works with touch, game controllers, keyboards and mice (a click captures
+the pointer, Esc frees it);
 **Heavy mode** enlarges the world and adds 300 creatures, and the
 **Dynamic resolution** setting lets it lower its 3D resolution when the GPU
 falls behind. Use it to check performance with a game-like load, and paste

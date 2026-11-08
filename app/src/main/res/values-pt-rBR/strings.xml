@@ -116,7 +116,7 @@
     <string name="perf_direct_title">Teste de desempenho de gráficos (exibição direta)</string>
     <string name="perf_direct_description">O mesmo teste, mas os quadros vão direto da GPU pra tela, sem a cópia de volta pro programa de teste. Experimental. Se a tela ficar preta, manda o relatório.</string>
     <string name="blocks_title">HyPocket Blocks (jogo de teste)</string>
-    <string name="blocks_description">Um pequeno mundo de blocos feito para o HyPocket, de código aberto e sem relação com nenhum outro jogo. Ele roda pelo mesmo caminho de um jogo de verdade (tradutor x86-64, OpenGL de PC e exibição direta), então mostra como o celular aguenta uma carga parecida com a de um jogo. Tem som e funciona com toque, controle e teclado. Usa a escala de renderização e o limite de FPS acima. Sair da tela encerra a sessão.</string>
+    <string name="blocks_description">Um pequeno mundo de blocos feito para o HyPocket, de código aberto e sem relação com nenhum outro jogo. Ele roda pelo mesmo caminho de um jogo de verdade (tradutor x86-64, OpenGL de PC e exibição direta), então mostra como o celular aguenta uma carga parecida com a de um jogo. Tem som e funciona com toque, controle, teclado e mouse (clique para prender o ponteiro). Usa a escala de renderização e o limite de FPS acima. Sair da tela encerra a sessão.</string>
     <string name="blocks_open">Jogar</string>
     <string name="blocks_loading">Construindo o mundo…</string>
     <string name="blocks_stats">%1$.0f fps · %2$.1f ms por quadro · %3$d triângulos</string>
@@ -132,4 +132,5 @@
     <string name="settings_dynamic_resolution">Resolução dinâmica: baixa a resolução do 3D quando a GPU não dá conta (por enquanto só no jogo de teste)</string>
     <string name="blocks_heavy">Modo pesado: mundo quatro vezes maior, visão mais longa e 300 criaturas andando</string>
     <string name="blocks_creatures">%1$d criaturas na tela</string>
+    <string name="blocks_hint_mouse">Mouse: mexa para olhar · Botão esquerdo: quebrar · Direito: colocar · WASD: andar · Espaço: pular · Esc: soltar o ponteiro</string>
 </resources>
