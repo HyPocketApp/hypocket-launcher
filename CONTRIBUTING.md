@@ -119,6 +119,22 @@ the same work natively, and checks that both give the same result. Use
 The test program is committed already built. To rebuild it, run
 `engine/guest-tests/probe/build.sh` on an x86-64 Linux machine with gcc.
 
+### Testing with HyPocket Blocks
+
+**Settings > HyPocket Blocks > Play** opens a small block world written for
+this project (`engine/guest-tests/blocks`). It is an x86-64 Linux program,
+so it goes through the same path a real game will: Box64, desktop OpenGL 4.1
+and VirGL, with frames shown by the direct display. Touch input reaches it
+through a small shared file (see `BlocksSession.kt`). Use it to check
+performance with a game-like load, and paste the report from **Exit > Copy
+report** in your issue or pull request.
+
+To rebuild it, run `engine/guest-tests/blocks/build.sh` on an x86-64 Linux
+machine with gcc and the EGL/GL development files. Running it there with
+`EGL_PLATFORM=surfaceless` and a frame count as the fourth argument draws
+that many frames on its own, which is handy for checking changes without a
+phone.
+
 ```bash
 ./gradlew test                 # unit tests
 ./gradlew connectedCheck       # instrumented tests (needs a device)

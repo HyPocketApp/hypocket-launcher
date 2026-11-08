@@ -115,4 +115,17 @@
     <string name="memory_copy">Copiar relatório de memória</string>
     <string name="perf_direct_title">Teste de desempenho de gráficos (exibição direta)</string>
     <string name="perf_direct_description">O mesmo teste, mas os quadros vão direto da GPU pra tela, sem a cópia de volta pro programa de teste. Experimental. Se a tela ficar preta, manda o relatório.</string>
+    <string name="blocks_title">HyPocket Blocks (jogo de teste)</string>
+    <string name="blocks_description">Um pequeno mundo de blocos feito para o HyPocket, de código aberto e sem relação com nenhum outro jogo. Ele roda pelo mesmo caminho de um jogo de verdade (tradutor x86-64, OpenGL de PC e exibição direta), então mostra como o celular aguenta uma carga parecida com a de um jogo. Usa a escala de renderização e o limite de FPS acima. Sair da tela encerra a sessão.</string>
+    <string name="blocks_open">Jogar</string>
+    <string name="blocks_loading">Construindo o mundo…</string>
+    <string name="blocks_stats">%1$.0f fps · %2$.1f ms por quadro · %3$d triângulos</string>
+    <string name="blocks_resolution">Resolução %1$d×%2$d</string>
+    <string name="blocks_hint">Esquerda: andar · Direita: arraste para olhar, toque para quebrar</string>
+    <string name="blocks_jump">Pular</string>
+    <string name="blocks_place">Colocar</string>
+    <string name="blocks_exit">Sair</string>
+    <string name="blocks_report_title">Sessão encerrada</string>
+    <string name="blocks_status_ended">O jogo rodou e fechou normalmente.</string>
+    <string name="blocks_summary">%1$d quadros, %2$.1f fps em média</string>
 </resources>

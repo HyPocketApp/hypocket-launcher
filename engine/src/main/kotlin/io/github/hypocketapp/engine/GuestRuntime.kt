@@ -31,6 +31,7 @@ internal class GuestRuntime(context: Context) {
         extraEnv: Map<String, String> = emptyMap(),
         args: List<String> = emptyList(),
         timeoutSeconds: Long,
+        onStart: (Process) -> Unit = {},
     ): RunResult {
         val guest = extractAsset(name)
         val libDir = prepareLibDir()
@@ -51,7 +52,7 @@ internal class GuestRuntime(context: Context) {
                 environment().putAll(HostCpu.box64Environment)
                 environment().putAll(extraEnv)
             }
-        return run(builder, timeoutSeconds)
+        return run(builder, timeoutSeconds, onStart)
     }
 
     /**
@@ -144,9 +145,10 @@ internal class GuestRuntime(context: Context) {
         )
 
         /** Starts a process and collects its output, killing it after the timeout. */
-        fun run(builder: ProcessBuilder, timeoutSeconds: Long): RunResult {
+        fun run(builder: ProcessBuilder, timeoutSeconds: Long, onStart: (Process) -> Unit = {}): RunResult {
             val startNanos = System.nanoTime()
             val process = builder.start()
+            onStart(process)
             val output = StringBuilder()
             val reader = thread(name = "guest-output") {
                 process.inputStream.bufferedReader().useLines { lines ->
