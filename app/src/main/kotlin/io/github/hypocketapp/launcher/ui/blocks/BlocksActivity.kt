@@ -96,15 +96,17 @@ class BlocksActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
         session = BlocksSession(this)
-        controller = ControllerInput(session, onExit = { session.stop() })
-        mouse = MouseInput(session)
         val settings = (application as HyPocketApplication).container.settingsStore.settings.value
+        val sensitivity = settings.lookSensitivityPercent / 100f
+        controller = ControllerInput(session, sensitivity, onExit = { session.stop() })
+        mouse = MouseInput(session, sensitivity)
         setContent {
             HyPocketTheme {
                 BlocksScreen(
                     session = session,
                     controller = controller,
                     mouse = mouse,
+                    lookSensitivity = sensitivity,
                     renderScalePercent = settings.renderScalePercent,
                     fpsLimit = settings.fpsLimit,
                     options = BlocksOptions(
@@ -180,6 +182,7 @@ private fun BlocksScreen(
     session: BlocksSession,
     controller: ControllerInput,
     mouse: MouseInput,
+    lookSensitivity: Float,
     renderScalePercent: Int,
     fpsLimit: Int,
     options: BlocksOptions,
@@ -215,7 +218,7 @@ private fun BlocksScreen(
         )
         val finished = report
         if (finished == null) {
-            TouchControls(session)
+            TouchControls(session, lookSensitivity)
             Hud(stats, session, controller.used.value, mouse.captured.value, onExit = { session.stop() })
         } else {
             // The pointer works normally again on the report.
@@ -238,10 +241,10 @@ private fun BlocksScreen(
 
 /** Left half: a joystick that appears where the thumb lands. Right half: drag to look, tap to break. */
 @Composable
-private fun TouchControls(session: BlocksSession) {
+private fun TouchControls(session: BlocksSession, sensitivity: Float) {
     val density = LocalDensity.current
     val radiusPx = with(density) { 56.dp.toPx() }
-    val lookPerPx = 0.0045f / density.density * 1.6f
+    val lookPerPx = 0.0045f / density.density * 1.6f * sensitivity
     val tapSlopPx = with(density) { 10.dp.toPx() }
     var stickCenter by remember { mutableStateOf<Offset?>(null) }
     var stickKnob by remember { mutableStateOf(Offset.Zero) }

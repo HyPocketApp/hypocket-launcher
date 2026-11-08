@@ -16,7 +16,12 @@ import kotlin.math.sign
  * Keyboard: WASD walks, arrow keys look, Space jumps, Q breaks, E places,
  * Esc exits.
  */
-class ControllerInput(private val session: BlocksSession, private val onExit: () -> Unit) {
+class ControllerInput(
+    private val session: BlocksSession,
+    /** 1 is the default camera speed (the launcher's sensitivity setting). */
+    private val sensitivity: Float,
+    private val onExit: () -> Unit,
+) {
 
     /** True once a controller or keyboard was used, to show its hint. */
     val used = mutableStateOf(false)
@@ -67,7 +72,7 @@ class ControllerInput(private val session: BlocksSession, private val onExit: ()
             ry = axis(event, device, MotionEvent.AXIS_RY)
         }
         // Squared response: fine aim near the centre, fast turns at the edge.
-        stickLook = rx * abs(rx) * LOOK_YAW_RATE to -ry * abs(ry) * LOOK_PITCH_RATE
+        stickLook = rx * abs(rx) * LOOK_YAW_RATE * sensitivity to -ry * abs(ry) * LOOK_PITCH_RATE * sensitivity
         val right = maxOf(event.getAxisValue(MotionEvent.AXIS_RTRIGGER), event.getAxisValue(MotionEvent.AXIS_GAS))
         val left = maxOf(event.getAxisValue(MotionEvent.AXIS_LTRIGGER), event.getAxisValue(MotionEvent.AXIS_BRAKE))
         if (right > TRIGGER_ON && !rightTrigger) session.breakBlock()
@@ -115,7 +120,7 @@ class ControllerInput(private val session: BlocksSession, private val onExit: ()
         keyLook = if (dpadWalks) {
             0f to 0f
         } else {
-            axisOf(left, right) * KEY_LOOK_RATE to axisOf(downKeys, up) * KEY_LOOK_RATE * 0.7f
+            axisOf(left, right) * KEY_LOOK_RATE * sensitivity to axisOf(downKeys, up) * KEY_LOOK_RATE * 0.7f * sensitivity
         }
         update()
         return true
@@ -180,8 +185,8 @@ class ControllerInput(private val session: BlocksSession, private val onExit: ()
 
         private const val DEAD_ZONE = 0.12f
         private const val TRIGGER_ON = 0.5f
-        private const val LOOK_YAW_RATE = 3.2f // radians per second at full stick
-        private const val LOOK_PITCH_RATE = 2.2f
+        private const val LOOK_YAW_RATE = 4.0f // radians per second at full stick
+        private const val LOOK_PITCH_RATE = 2.6f
         private const val KEY_LOOK_RATE = 2.0f
 
         private val DPAD_KEYS = setOf(

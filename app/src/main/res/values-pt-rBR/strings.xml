@@ -133,4 +133,5 @@
     <string name="blocks_heavy">Modo pesado: mundo quatro vezes maior, visão mais longa e 300 criaturas andando</string>
     <string name="blocks_creatures">%1$d criaturas na tela</string>
     <string name="blocks_hint_mouse">Mouse: mexa para olhar · Botão esquerdo: quebrar · Direito: colocar · WASD: andar · Espaço: pular · Esc: soltar o ponteiro</string>
+    <string name="settings_look_sensitivity">Sensibilidade da câmera (toque, controle e mouse): %1$d%%</string>
 </resources>

@@ -48,6 +48,15 @@ fun SettingsScreen(store: SettingsStore, modifier: Modifier = Modifier) {
             }
         }
 
+        val sensitivity = LauncherSettings.LOOK_SENSITIVITY_RANGE
+        Text(stringResource(R.string.settings_look_sensitivity, settings.lookSensitivityPercent))
+        Slider(
+            value = settings.lookSensitivityPercent.toFloat(),
+            onValueChange = { value -> store.update { it.copy(lookSensitivityPercent = (value / 25).roundToInt() * 25) } },
+            valueRange = sensitivity.first.toFloat()..sensitivity.last.toFloat(),
+            steps = (sensitivity.last - sensitivity.first) / 25 - 1,
+        )
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,

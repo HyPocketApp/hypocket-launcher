@@ -135,4 +135,5 @@
     <string name="blocks_heavy">Heavy mode: a world four times larger, a longer view and 300 wandering creatures</string>
     <string name="blocks_creatures">%1$d creatures on screen</string>
     <string name="blocks_hint_mouse">Mouse: move to look · Left button: break · Right button: place · WASD: walk · Space: jump · Esc: free the pointer</string>
+    <string name="settings_look_sensitivity">Camera sensitivity (touch, controller and mouse): %1$d%%</string>
 </resources>

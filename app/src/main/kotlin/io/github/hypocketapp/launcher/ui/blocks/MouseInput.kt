@@ -15,7 +15,11 @@ import io.github.hypocketapp.engine.BlocksSession
  * Captured events carry relative movement and reach only [view], so the
  * pointer neither leaves the game nor touches its controls.
  */
-class MouseInput(private val session: BlocksSession) {
+class MouseInput(
+    private val session: BlocksSession,
+    /** 1 is the default camera speed (the launcher's sensitivity setting). */
+    private val sensitivity: Float,
+) {
 
     /** True while the pointer is captured, to show the mouse hint. */
     val captured = mutableStateOf(false)
@@ -95,7 +99,7 @@ class MouseInput(private val session: BlocksSession) {
         }
         dx += event.x
         dy += event.y
-        if (dx != 0f || dy != 0f) session.look(dx * LOOK_PER_COUNT, -dy * LOOK_PER_COUNT)
+        if (dx != 0f || dy != 0f) session.look(dx * LOOK_PER_COUNT * sensitivity, -dy * LOOK_PER_COUNT * sensitivity)
         // Act on newly pressed buttons, whatever action carries them.
         val state = event.buttonState
         val pressed = state and buttons.inv()
