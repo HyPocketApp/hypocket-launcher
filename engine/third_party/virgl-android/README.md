@@ -19,13 +19,16 @@ Changes for Android:
   path only accepts a display handed in by an embedder). The default display
   is the phone's own driver.
 - `android-display.patch` and `display/` (our own code, GPL-3.0-or-later):
-  direct display. When the app sets `HYPOCKET_DISPLAY_SOCKET`, the server
-  copies each frame the guest reads back into an AHardwareBuffer on the GPU
-  and passes it to the app over a Unix socket, so the app can draw it on
-  screen without any CPU copy. With `HYPOCKET_SKIP_READBACK` the
-  copy back to the guest is skipped as well. For now a "frame" is detected
-  as a full-size read of a 2D colour resource; a real present command from
-  Mesa will replace that.
+  direct display. When the app sets `HYPOCKET_DISPLAY_SOCKET`, frames reach
+  the app as AHardwareBuffers over a Unix socket and never go through the
+  CPU. Our Mesa (`../mesa-guest`) asks the server to adopt each pbuffer image
+  it will present (`VCMD_HYPOCKET_ADOPT`, id 65): the server backs that
+  resource's texture with a new AHardwareBuffer, so the guest draws straight
+  into what the screen shows, and a present (`VCMD_HYPOCKET_PRESENT`, id 64)
+  only sends a fence. Anything else presented is copied on the GPU into one
+  of three buffers instead. The older trigger, a full-size read of a 2D
+  colour resource (optionally skipping the read-back with
+  `HYPOCKET_SKIP_READBACK`), is still there for the earlier tests.
 - `shim/`: two tiny headers that stand in for AOSP-internal headers
   (`<log/log.h>`, `<cutils/properties.h>`) using the NDK's public APIs.
 

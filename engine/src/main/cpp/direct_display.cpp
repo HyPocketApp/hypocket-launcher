@@ -37,12 +37,15 @@
 
 namespace hypocket {
 
-constexpr int kBuffers = 3;
+// Ids 0-2 are the server's copy buffers, the others buffers the guest draws
+// into directly (see hypocket_display.c).
+constexpr int kBuffers = 8;
 
 struct Buffer {
     AHardwareBuffer* ahb = nullptr;
     EGLImageKHR image = EGL_NO_IMAGE_KHR;
     GLuint texture = 0;
+    uint32_t width = 0, height = 0;
     EGLSyncKHR read_done = EGL_NO_SYNC_KHR;  // the last draw that read this buffer
 };
 
@@ -61,17 +64,19 @@ struct State {
     GLuint program = 0, vao = 0;
     GLint scale_location = -1;
     Buffer buffers[kBuffers];
-    uint32_t width = 0, height = 0;
     int previous = -1;
 
     std::mutex info_mutex;
     std::string info;  // for the test report
     int received_buffers = 0;
+    int forgotten_buffers = 0;
+    std::atomic<int> direct_frames{0};  // frames drawn from a buffer the guest drew into
 };
 
 namespace {
 
-constexpr uint32_t kMsgBuffer = 1, kMsgFrame = 2, kMsgRelease = 3;
+constexpr uint32_t kMsgBuffer = 1, kMsgFrame = 2, kMsgRelease = 3, kMsgForget = 4;
+constexpr int kCopyBuffers = 3;
 
 void Note(State& s, const char* text) {
     __android_log_print(ANDROID_LOG_INFO, "HyPocketDisplay", "%s", text);
@@ -209,23 +214,24 @@ void DrawFrame(State& s, int id, int fence) {
         }
     }
 
+    Buffer& b = s.buffers[id];
     EGLint vw = 0, vh = 0;
     eglQuerySurface(s.display, s.surface, EGL_WIDTH, &vw);
     eglQuerySurface(s.display, s.surface, EGL_HEIGHT, &vh);
     // Fit the frame in the view, keeping its aspect ratio.
-    float fit = std::min(static_cast<float>(vw) / s.width, static_cast<float>(vh) / s.height);
-    int w = static_cast<int>(s.width * fit), h = static_cast<int>(s.height * fit);
+    float fit = std::min(static_cast<float>(vw) / b.width, static_cast<float>(vh) / b.height);
+    int w = static_cast<int>(b.width * fit), h = static_cast<int>(b.height * fit);
     glViewport(0, 0, vw, vh);
     glClear(GL_COLOR_BUFFER_BIT);
     glViewport((vw - w) / 2, (vh - h) / 2, w, h);
     glUseProgram(s.program);
     glUniform2f(s.scale_location, 1.0f, 1.0f);
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, s.buffers[id].texture);
+    glBindTexture(GL_TEXTURE_2D, b.texture);
     glBindVertexArray(s.vao);
     glDrawArrays(GL_TRIANGLES, 0, 3);
+    if (id >= kCopyBuffers) s.direct_frames++;
 
-    Buffer& b = s.buffers[id];
     if (b.read_done != EGL_NO_SYNC_KHR) eglDestroySyncKHR(s.display, b.read_done);
     b.read_done = eglCreateSyncKHR(s.display, EGL_SYNC_FENCE_KHR, nullptr);
     if (s.shown == 0) {
@@ -238,7 +244,7 @@ void DrawFrame(State& s, int id, int fence) {
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, b.texture, 0);
         GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
         if (status == GL_FRAMEBUFFER_COMPLETE) {
-            glReadPixels(static_cast<GLint>(s.width / 2), static_cast<GLint>(s.height / 2), 1, 1, GL_RGBA,
+            glReadPixels(static_cast<GLint>(b.width / 2), static_cast<GLint>(b.height / 2), 1, 1, GL_RGBA,
                          GL_UNSIGNED_BYTE, px);
         }
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -250,7 +256,7 @@ void DrawFrame(State& s, int id, int fence) {
         snprintf(text, sizeof(text),
                  "first frame drawn: view %dx%d, frame %ux%u, GL error 0x%x, fbo 0x%x, "
                  "buffer centre %u %u %u %u, window centre %u %u %u %u, after 0x%x",
-                 vw, vh, s.width, s.height, error, status, px[0], px[1], px[2], px[3], win[0], win[1], win[2],
+                 vw, vh, b.width, b.height, error, status, px[0], px[1], px[2], px[3], win[0], win[1], win[2],
                  win[3], glGetError());
         Note(s, text);
     }
@@ -332,10 +338,15 @@ void Serve(std::shared_ptr<State> state) {
                     Note(s, "could not import a buffer");
                     break;
                 }
-                s.width = msg[2];
-                s.height = msg[3];
-                s.previous = -1;  // a new set of buffers: none of them is on screen
+                b.width = msg[2];
+                b.height = msg[3];
+                if (s.previous == static_cast<int>(msg[1])) s.previous = -1;  // replaced while on screen
                 s.received_buffers++;
+            } else if (msg[0] == kMsgForget && msg[1] < kBuffers) {
+                if (passed >= 0) close(passed);
+                FreeBuffer(s, s.buffers[msg[1]]);
+                if (s.previous == static_cast<int>(msg[1])) s.previous = -1;
+                s.forgotten_buffers++;
             } else if (msg[0] == kMsgFrame) {
                 DrawFrame(s, static_cast<int>(msg[1]), passed);
             } else if (passed >= 0) {
@@ -379,7 +390,9 @@ std::string DirectDisplayInfo(std::shared_ptr<State>* handle) {
     State& s = **handle;
     std::lock_guard<std::mutex> lock(s.info_mutex);
     return s.info + "buffers received: " + std::to_string(s.received_buffers) +
-           ", frames drawn: " + std::to_string(s.shown.load());
+           ", forgotten: " + std::to_string(s.forgotten_buffers) +
+           ", frames drawn: " + std::to_string(s.shown.load()) +
+           ", without a copy: " + std::to_string(s.direct_frames.load());
 }
 
 void DirectDisplayDestroy(std::shared_ptr<State>* handle) {

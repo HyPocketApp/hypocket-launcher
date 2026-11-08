@@ -663,11 +663,18 @@ int main(int argc, char** argv) {
 
     EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (!eglInitialize(display, NULL, NULL) || !eglBindAPI(EGL_OPENGL_API)) return 1;
+    /* With direct present, draw straight into the pbuffer like a game draws
+     * into its window: that needs a depth buffer in the config. */
+    const EGLint depth_attribs[] = {EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
+                                    EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8,
+                                    EGL_DEPTH_SIZE, 24, EGL_NONE};
     const EGLint config_attribs[] = {EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
                                      EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_NONE};
     EGLConfig config;
     EGLint count = 0;
-    eglChooseConfig(display, config_attribs, &config, 1, &count);
+    int window_target = 0; /* draw into the pbuffer itself, without our own framebuffer */
+    if (present && eglChooseConfig(display, depth_attribs, &config, 1, &count) && count > 0) window_target = 1;
+    else eglChooseConfig(display, config_attribs, &config, 1, &count);
     /* With direct present the pbuffer is the frame; otherwise it is unused. */
     const EGLint surface_attribs[] = {EGL_WIDTH, present ? w : 16, EGL_HEIGHT, present ? h : 16, EGL_NONE};
     EGLSurface surface = count ? eglCreatePbufferSurface(display, config, surface_attribs) : EGL_NO_SURFACE;
@@ -686,8 +693,9 @@ int main(int argc, char** argv) {
     printf("blocks: %dx%d, fps limit %d\n", w, h, fps_limit);
     fflush(stdout);
 
-    GLuint fbo;
-    if (!create_target(w, h, &fbo)) {
+    GLuint fbo = 0;
+    printf("blocks: drawing into %s\n", window_target ? "the pbuffer" : "a framebuffer object");
+    if (!window_target && !create_target(w, h, &fbo)) {
         printf("blocks: framebuffer %dx%d incomplete\n", w, h);
         return 1;
     }
@@ -876,9 +884,11 @@ int main(int argc, char** argv) {
         p_glDisable(GL_BLEND);
 
         if (present) {
-            p_glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
-            p_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-            p_glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+            if (!window_target) {
+                p_glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+                p_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+                p_glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+            }
             eglSwapBuffers(display, surface);
         } else if (header) {
             p_glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels);

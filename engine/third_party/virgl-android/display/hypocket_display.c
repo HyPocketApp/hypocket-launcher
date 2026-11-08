@@ -2,17 +2,23 @@
  * HyPocket direct display for the VirGL server.
  * Copyright (C) 2026 HyPocket Launcher contributors. GPL-3.0-or-later.
  *
- * The app listens on an abstract Unix socket (HYPOCKET_DISPLAY_SOCKET). This
- * server allocates a few AHardwareBuffers of the frame's size, sends them to
- * the app once, and for every frame copies the guest's texture into a free
- * buffer on the GPU and tells the app which buffer to show, with a native
- * fence. The app hands the buffer to the system compositor, so the frame
- * never goes through the CPU.
+ * The app listens on an abstract Unix socket (HYPOCKET_DISPLAY_SOCKET) and
+ * draws the AHardwareBuffers this server sends it, so frames never go
+ * through the CPU. There are two kinds of buffers:
+ *
+ * - Adopted (ids 3 and up): the guest's Mesa asks us to adopt each pbuffer
+ *   image it will present (VCMD_HYPOCKET_ADOPT) right after creating it. We
+ *   back that resource's texture with a new AHardwareBuffer, so the guest
+ *   draws straight into it and a present only sends a fence: no copy.
+ * - Copy (ids 0 to 2): for anything else presented (the first frame, or a
+ *   format we cannot adopt), the guest's texture is copied into a free one
+ *   of these on the GPU.
  *
  * Messages (little endian, 16 bytes): uint32 type, id, width, height.
  *   server -> app  1 BUFFER  followed by the AHardwareBuffer handle
  *   server -> app  2 FRAME   with the fence fd (if any) attached
  *   app -> server  3 RELEASE the buffer is no longer on screen
+ *   server -> app  4 FORGET  the buffer is gone
  */
 #include "hypocket_display.h"
 
@@ -22,6 +28,7 @@
 #include <epoxy/egl.h>
 #include <epoxy/gl.h>
 #include <errno.h>
+#include <poll.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,17 +39,23 @@
 
 #include "virglrenderer.h"
 
-/* Exported by our patch to src/vrend/vrend_winsys_egl.c. */
+/* Exported by our patches to src/vrend/vrend_winsys_egl.c and vrend_renderer.c. */
 bool hypocket_egl_get(EGLDisplay *display, EGLConfig *config, EGLContext *context);
+GLuint hypocket_vrend_back_with_image(uint32_t res_id, void *image);
 
-#define BUFFERS 3
-enum { MSG_BUFFER = 1, MSG_FRAME = 2, MSG_RELEASE = 3 };
+#define BUFFERS 3     /* copy buffers, ids 0 to BUFFERS - 1 */
+#define ALL_BUFFERS 8 /* adopted buffers use the ids after them */
+/* How long a present may wait for the screen to give back an adopted buffer. */
+#define RELEASE_WAIT_MS 50
+enum { MSG_BUFFER = 1, MSG_FRAME = 2, MSG_RELEASE = 3, MSG_FORGET = 4 };
 
 struct buffer {
    AHardwareBuffer *ahb;
    EGLImageKHR image;
    GLuint tex, fbo;
    bool busy;
+   /* Adopted buffers only: the resource and its (new) texture. */
+   uint32_t res_id, width, height;
 };
 
 static struct {
@@ -57,9 +70,11 @@ static struct {
    GLint size_location, flip_location;
    unsigned logged_errors;
    uint32_t width, height;
-   struct buffer buf[BUFFERS];
+   struct buffer buf[ALL_BUFFERS];
    unsigned frames, dropped;
-} d = { .sock = -1 };
+   int last_adopted; /* id of the adopted buffer presented last, or -1 */
+   unsigned adopted_frames, release_timeouts;
+} d = { .sock = -1, .last_adopted = -1 };
 
 static void log_msg(const char *msg)
 {
@@ -79,9 +94,9 @@ static bool send_all(const void *data, size_t size)
    return true;
 }
 
-static bool send_header(uint32_t type, uint32_t id, int fd)
+static bool send_header(uint32_t type, uint32_t id, uint32_t width, uint32_t height, int fd)
 {
-   uint32_t msg[4] = { type, id, d.width, d.height };
+   uint32_t msg[4] = { type, id, width, height };
    if (fd < 0) return send_all(msg, sizeof(msg));
 
    struct iovec iov = { msg, sizeof(msg) };
@@ -259,6 +274,7 @@ bool hypocket_display_skip_readback(void)
 
 static void free_buffers(void)
 {
+   /* Only the copy buffers: adopted ones live as long as their resource. */
    for (int i = 0; i < BUFFERS; i++) {
       struct buffer *b = &d.buf[i];
       if (b->fbo) glDeleteFramebuffers(1, &b->fbo);
@@ -300,7 +316,8 @@ static bool make_buffers(uint32_t width, uint32_t height)
          fprintf(stderr, "hypocket-display: buffer framebuffer incomplete 0x%x\n", status);
          return false;
       }
-      if (!send_header(MSG_BUFFER, i, -1) || AHardwareBuffer_sendHandleToUnixSocket(b->ahb, d.sock) != 0)
+      if (!send_header(MSG_BUFFER, i, width, height, -1) ||
+          AHardwareBuffer_sendHandleToUnixSocket(b->ahb, d.sock) != 0)
          return false;
    }
    return true;
@@ -317,13 +334,168 @@ static void read_releases(void)
          return;
       }
       if (recv(d.sock, msg, sizeof(msg), MSG_WAITALL) != (ssize_t)sizeof(msg)) return;
-      if (msg[0] == MSG_RELEASE && msg[1] < BUFFERS) d.buf[msg[1]].busy = false;
+      if (msg[0] == MSG_RELEASE && msg[1] < ALL_BUFFERS) d.buf[msg[1]].busy = false;
    }
+}
+
+
+/* The buffer format matching a resource's format, as virglrenderer stores
+ * it on GLES (BGRA and 10-bit BGR formats are stored in RGBA order), or 0
+ * when we do not adopt it. Formats without alpha are left out: for those
+ * virglrenderer treats an EGL-image-backed texture as 24-bit. */
+static uint32_t buffer_format(uint32_t virgl_format)
+{
+   switch (virgl_format) {
+   case 1:   /* B8G8R8A8_UNORM */
+   case 67:  /* R8G8B8A8_UNORM */
+      return AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM;
+   case 131: /* B10G10R10A2_UNORM */
+   case 233: /* B10G10R10X2_UNORM */
+   case 8:   /* R10G10B10A2_UNORM */
+   case 308: /* R10G10B10X2_UNORM */
+      return AHARDWAREBUFFER_FORMAT_R10G10B10A2_UNORM;
+   default:
+      return 0;
+   }
+}
+
+static void free_adopted(struct buffer *b)
+{
+   if (b->image) eglDestroyImageKHR(d.dpy, b->image);
+   if (b->ahb) AHardwareBuffer_release(b->ahb);
+   memset(b, 0, sizeof(*b));
+}
+
+void hypocket_display_adopt(uint32_t res_id)
+{
+   static unsigned refused;
+   if (!init()) return;
+   struct virgl_renderer_resource_info info;
+   if (virgl_renderer_resource_get_info((int)res_id, &info) != 0 || !info.tex_id || info.depth > 1)
+      return;
+   uint32_t format = buffer_format(info.virgl_format);
+   if (!format) {
+      if (refused++ < 3)
+         fprintf(stderr, "hypocket-display: not adopting resource %u: format %u\n", res_id, info.virgl_format);
+      return;
+   }
+   int index = -1;
+   for (int i = BUFFERS; i < ALL_BUFFERS; i++)
+      if (!d.buf[i].ahb) { index = i; break; }
+   if (index < 0) {
+      if (refused++ < 3) log_msg("not adopting: no free buffer slot");
+      return;
+   }
+   struct buffer *b = &d.buf[index];
+   AHardwareBuffer_Desc desc = {
+      .width = info.width, .height = info.height, .layers = 1, .format = format,
+      .usage = AHARDWAREBUFFER_USAGE_GPU_FRAMEBUFFER | AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE |
+               AHARDWAREBUFFER_USAGE_COMPOSER_OVERLAY,
+   };
+   if (AHardwareBuffer_allocate(&desc, &b->ahb) != 0) {
+      b->ahb = NULL;
+      if (refused++ < 3)
+         fprintf(stderr, "hypocket-display: not adopting resource %u: no %ux%u buffer of format %u\n", res_id,
+                 info.width, info.height, format);
+      return;
+   }
+   const EGLint image_attribs[] = { EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE };
+   b->image = eglCreateImageKHR(d.dpy, EGL_NO_CONTEXT, EGL_NATIVE_BUFFER_ANDROID,
+                                eglGetNativeClientBufferANDROID(b->ahb), image_attribs);
+   b->tex = b->image != EGL_NO_IMAGE_KHR ? hypocket_vrend_back_with_image(res_id, b->image) : 0;
+   if (!b->tex) {
+      if (refused++ < 3) fprintf(stderr, "hypocket-display: could not back resource %u with a buffer\n", res_id);
+      free_adopted(b);
+      return;
+   }
+   b->res_id = res_id;
+   b->width = info.width;
+   b->height = info.height;
+   if (!send_header(MSG_BUFFER, (uint32_t)index, b->width, b->height, -1) ||
+       AHardwareBuffer_sendHandleToUnixSocket(b->ahb, d.sock) != 0) {
+      disable("cannot send an adopted buffer");
+      return;
+   }
+   static bool logged;
+   if (!logged) {
+      logged = true;
+      fprintf(stderr, "hypocket-display: adopted resource %u, %ux%u format %u: frames need no copy\n", res_id,
+              info.width, info.height, info.virgl_format);
+   }
+}
+
+void hypocket_display_forget(uint32_t res_id)
+{
+   if (d.state <= 0) return;
+   for (int i = BUFFERS; i < ALL_BUFFERS; i++) {
+      struct buffer *b = &d.buf[i];
+      if (!b->ahb || b->res_id != res_id) continue;
+      if (d.sock >= 0) send_header(MSG_FORGET, (uint32_t)i, b->width, b->height, -1);
+      free_adopted(b);
+      if (d.last_adopted == i) d.last_adopted = -1;
+   }
+}
+
+/* Waits until every adopted buffer except index and the one shown before it
+ * is back from the screen: the guest draws into the oldest one next. */
+static void wait_for_releases(int index)
+{
+   for (int waited = 0;;) {
+      read_releases();
+      if (d.state < 0) return;
+      bool ready = true;
+      for (int i = BUFFERS; i < ALL_BUFFERS; i++)
+         if (d.buf[i].ahb && d.buf[i].busy && i != index && i != d.last_adopted) ready = false;
+      if (ready) return;
+      if (waited >= RELEASE_WAIT_MS) {
+         if (d.release_timeouts++ < 3) log_msg("the screen kept a buffer too long; drawing anyway");
+         return;
+      }
+      struct pollfd p = { d.sock, POLLIN, 0 };
+      poll(&p, 1, 5);
+      waited += 5;
+   }
+}
+
+/* Presents an adopted buffer: the guest drew into it already, so only a
+ * fence goes to the app. Called with the guest's context current. */
+static void present_adopted(int index)
+{
+   struct buffer *b = &d.buf[index];
+   int fence_fd = -1;
+   EGLSyncKHR done = d.has_native_fence ? eglCreateSyncKHR(d.dpy, EGL_SYNC_NATIVE_FENCE_ANDROID, NULL)
+                                        : EGL_NO_SYNC_KHR;
+   glFlush();
+   if (done != EGL_NO_SYNC_KHR) {
+      fence_fd = eglDupNativeFenceFDANDROID(d.dpy, done);
+      eglDestroySyncKHR(d.dpy, done);
+   }
+   if (fence_fd < 0) glFinish();
+   wait_for_releases(index);
+   if (d.state < 0) {
+      if (fence_fd >= 0) close(fence_fd);
+      return;
+   }
+   b->busy = true;
+   if (!send_header(MSG_FRAME, (uint32_t)index, b->width, b->height, fence_fd)) disable("cannot send a frame");
+   if (fence_fd >= 0) close(fence_fd);
+   d.last_adopted = index;
+   d.frames++;
+   if (d.adopted_frames++ == 0) log_msg("first frame without a copy");
 }
 
 bool hypocket_display_present(uint32_t res_id, uint32_t width, uint32_t height, bool y0_top)
 {
    if (!init()) return false;
+
+   /* An adopted pbuffer image: no copy needed. Its rows are stored top first,
+    * like the copy buffers. */
+   for (int i = BUFFERS; y0_top && i < ALL_BUFFERS; i++) {
+      if (d.buf[i].ahb && d.buf[i].res_id == res_id) {
+         present_adopted(i);
+         return true;
+      }
+   }
 
    struct virgl_renderer_resource_info info;
    static unsigned rejected;
@@ -426,7 +598,7 @@ bool hypocket_display_present(uint32_t res_id, uint32_t width, uint32_t height, 
    if (fence_fd < 0) glFinish();
 
    b->busy = true;
-   if (!send_header(MSG_FRAME, (uint32_t)free_index, fence_fd)) disable("cannot send a frame");
+   if (!send_header(MSG_FRAME, (uint32_t)free_index, d.width, d.height, fence_fd)) disable("cannot send a frame");
    if (fence_fd >= 0) close(fence_fd);
    d.frames++;
 
@@ -444,5 +616,7 @@ bool hypocket_display_present(uint32_t res_id, uint32_t width, uint32_t height, 
    (void)res_id; (void)width; (void)height; (void)y0_top;
    return false;
 }
+void hypocket_display_adopt(uint32_t res_id) { (void)res_id; }
+void hypocket_display_forget(uint32_t res_id) { (void)res_id; }
 
 #endif

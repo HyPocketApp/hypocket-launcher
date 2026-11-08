@@ -19,6 +19,41 @@ index 7774a25..9751e87 100644
 +   struct vrend_decode_ctx *dctx = (struct vrend_decode_ctx *)ctx;
 +   return vrend_hw_switch_context(dctx->grctx, true);
 +}
+diff --git a/src/vrend/vrend_renderer.c b/src/vrend/vrend_renderer.c
+index 4bf88e0..34341b6 100644
+--- a/src/vrend/vrend_renderer.c
++++ b/src/vrend/vrend_renderer.c
+@@ -13789,3 +13789,30 @@ vrend_renderer_pipe_resource_get_layout(UNUSED struct vrend_context *ctx,
+    return EINVAL;
+ }
+ #endif
++
++/* HyPocket: backs a new 2D texture resource with an EGL image (an Android
++ * hardware buffer the phone's screen shows directly), so the guest draws
++ * straight into it. Only for resources nothing has used yet: the guest
++ * asks right after creating them. Returns the new texture name, or 0. */
++VIRGL_EXPORT GLuint hypocket_vrend_back_with_image(uint32_t res_id, void *image);
++VIRGL_EXPORT GLuint hypocket_vrend_back_with_image(uint32_t res_id, void *image)
++{
++   struct virgl_resource *res = virgl_resource_lookup(res_id);
++   if (!res || !res->pipe_resource || !image)
++      return 0;
++   struct vrend_resource *gr = (struct vrend_resource *)res->pipe_resource;
++   if (gr->target != GL_TEXTURE_2D || gr->base.last_level != 0 || gr->base.nr_samples > 1 ||
++       gr->base.array_size > 1 || !has_bit(gr->storage_bits, VREND_STORAGE_GL_TEXTURE) ||
++       has_bit(gr->storage_bits, VREND_STORAGE_EGL_IMAGE))
++      return 0;
++   GLuint old_id = gr->gl_id;
++   uint32_t old_bits = gr->storage_bits;
++   gr->storage_bits &= ~(VREND_STORAGE_GL_TEXTURE | VREND_STORAGE_GL_IMMUTABLE);
++   if (vrend_resource_alloc_texture(gr, gr->base.format, image) != 0) {
++      gr->gl_id = old_id;
++      gr->storage_bits = old_bits;
++      return 0;
++   }
++   glDeleteTextures(1, &old_id);
++   return gr->gl_id;
++}
 diff --git a/src/vrend/vrend_winsys_egl.c b/src/vrend/vrend_winsys_egl.c
 index 4ddcd0d..0b196c3 100644
 --- a/src/vrend/vrend_winsys_egl.c
@@ -63,33 +98,37 @@ index c2bd278..6bcfe12 100644
  
  if with_tracing == 'percetto'
 diff --git a/vtest/vtest.h b/vtest/vtest.h
-index b2708a2..42f552f 100644
+index b2708a2..69531da 100644
 --- a/vtest/vtest.h
 +++ b/vtest/vtest.h
-@@ -62,6 +62,7 @@ int vtest_send_caps2(uint32_t length_dw);
+@@ -62,6 +62,8 @@ int vtest_send_caps2(uint32_t length_dw);
  int vtest_create_resource(uint32_t length_dw);
  int vtest_create_resource2(uint32_t length_dw);
  int vtest_resource_unref(uint32_t length_dw);
 +int vtest_hypocket_present(uint32_t length_dw);
++int vtest_hypocket_adopt(uint32_t length_dw);
  int vtest_submit_cmd(uint32_t length_dw);
  
  int vtest_transfer_get(uint32_t length_dw);
 diff --git a/vtest/vtest_protocol.h b/vtest/vtest_protocol.h
-index 1bd515c..39b500c 100644
+index 1bd515c..8a5d2f4 100644
 --- a/vtest/vtest_protocol.h
 +++ b/vtest/vtest_protocol.h
-@@ -93,6 +93,9 @@
+@@ -93,6 +93,12 @@
  #define VCMD_DRM_SYNC_QUERY 36
  #define VCMD_DRM_SYNC_TRANSFER 37
  #define VCMD_RESOURCE_EXPORT_FD 38
 +/* HyPocket: show a resource on the phone's screen (hypocket_display.c). */
 +#define VCMD_HYPOCKET_PRESENT 64
 +#define VCMD_HYPOCKET_PRESENT_SIZE 1
++/* HyPocket: back a new resource with a screen buffer (hypocket_display.c). */
++#define VCMD_HYPOCKET_ADOPT 65
++#define VCMD_HYPOCKET_ADOPT_SIZE 1
  
  #define VCMD_RES_CREATE_SIZE 10
  #define VCMD_RES_CREATE_RES_HANDLE 0 /* must be 0 since protocol version 3 */
 diff --git a/vtest/vtest_renderer.c b/vtest/vtest_renderer.c
-index ba4feb1..034b57f 100644
+index ba4feb1..3ef6dd1 100644
 --- a/vtest/vtest_renderer.c
 +++ b/vtest/vtest_renderer.c
 @@ -54,6 +54,7 @@
@@ -100,10 +139,32 @@ index ba4feb1..034b57f 100644
  #include "threadpool.h"
  
  #include "util.h"
-@@ -1447,6 +1448,42 @@ int vtest_resource_create_blob(UNUSED uint32_t length_dw)
+@@ -281,6 +282,8 @@ static void vtest_unref_resource(struct vtest_resource *res)
+     * are implied
+     */
+    virgl_renderer_resource_unref(res->res_id);
++   /* HyPocket: free the screen buffer behind it, if any. */
++   hypocket_display_forget(res->res_id);
+ 
+    if (res->iov.iov_base)
+       munmap(res->iov.iov_base, res->iov.iov_len);
+@@ -1447,6 +1450,55 @@ int vtest_resource_create_blob(UNUSED uint32_t length_dw)
     return 0;
  }
  
++/* HyPocket: the guest created a pbuffer image it will present (Mesa patch). */
++int vtest_hypocket_adopt(UNUSED uint32_t length_dw)
++{
++   struct vtest_context *ctx = vtest_get_current_context();
++   uint32_t buf[VCMD_HYPOCKET_ADOPT_SIZE];
++   if (ctx->input->read(ctx->input, buf, sizeof(buf)) != sizeof(buf))
++      return -1;
++   struct vtest_resource *res = util_hash_table_get(ctx->resource_table, intptr_to_pointer(buf[0]));
++   if (res && hypocket_display_enabled())
++      hypocket_display_adopt(res->res_id);
++   return 0;
++}
++
 +/* HyPocket: the guest presented a frame with eglSwapBuffers (Mesa patch). */
 +bool hypocket_renderer_switch_context(uint32_t ctx_id);
 +
@@ -143,7 +204,7 @@ index ba4feb1..034b57f 100644
  int vtest_resource_unref(UNUSED uint32_t length_dw)
  {
     struct vtest_context *ctx = vtest_get_current_context();
-@@ -1592,6 +1629,22 @@ static int vtest_transfer_get_internal(struct vtest_context *ctx,
+@@ -1592,6 +1644,22 @@ static int vtest_transfer_get_internal(struct vtest_context *ctx,
        }
     }
  
@@ -167,14 +228,15 @@ index ba4feb1..034b57f 100644
        ret = virgl_renderer_transfer_read_iov(res->res_id,
                                               ctx->ctx_id,
 diff --git a/vtest/vtest_server.c b/vtest/vtest_server.c
-index 64a29e1..85409af 100644
+index 64a29e1..31cdd53 100644
 --- a/vtest/vtest_server.c
 +++ b/vtest/vtest_server.c
-@@ -730,6 +730,7 @@ static const struct vtest_command {
+@@ -730,6 +730,8 @@ static const struct vtest_command {
     HANDLER(DRM_SYNC_TRANSFER,           drm_sync_transfer,         true   ),
  #endif /* ENABLE_DRM */
     HANDLER(RESOURCE_EXPORT_FD,          resource_export_fd,        true   ),
 +   HANDLER(HYPOCKET_PRESENT,            hypocket_present,          true   ),
++   HANDLER(HYPOCKET_ADOPT,              hypocket_adopt,            true   ),
  };
  
  static int vtest_client_dispatch_commands(struct vtest_client *client)

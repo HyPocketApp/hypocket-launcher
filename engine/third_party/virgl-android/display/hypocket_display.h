@@ -24,4 +24,14 @@ bool hypocket_display_skip_readback(void);
  */
 bool hypocket_display_present(uint32_t res_id, uint32_t width, uint32_t height, bool y0_top);
 
+/*
+ * Backs a new pbuffer image (a resource nothing has drawn into yet) with a
+ * buffer the app's screen shows directly, and sends it to the app, so
+ * presenting it later needs no copy. Does nothing when that is not possible.
+ */
+void hypocket_display_adopt(uint32_t res_id);
+
+/* The resource res_id is gone: frees the screen buffer behind it, if any. */
+void hypocket_display_forget(uint32_t res_id);
+
 #endif
