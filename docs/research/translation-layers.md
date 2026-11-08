@@ -332,6 +332,26 @@ frame, so its work can overlap with presenting, but this deserves a closer
 look (for example rendering straight into the shared buffers, which would
 remove the server's copy).
 
+### HyPocket Blocks with sound, controllers and heavy mode (November 2026)
+
+Galaxy M12, 1600x720, 60 fps limit, dynamic resolution on:
+
+- Normal mode: 59.5 fps, 11-16 ms per frame. The first dynamic-resolution
+  rule lowered the 3D scale to 50% although the game held its frame rate
+  (frames came close to the budget while waiting for the GPU); it now acts
+  only when frames are actually missed.
+- Heavy mode (16 x 16 chunks, view distance 128, 300 creatures with their
+  own draw calls, 195-228 thousand triangles, about 120-145 creatures and
+  some 250 extra draw calls on screen): 30-35 fps, 28-34 ms per frame, the
+  world built in 1.1 s. Halving the 3D resolution barely helped, so this
+  load is limited by geometry and draw calls (the guest's CPU, VirGL's
+  command path or the GPU's vertex work), not by pixels. Peak memory:
+  launcher 132 MB, VirGL server 104 MB, game 44 MB.
+- Audio through AAudio: 48 kHz low latency, 240-frame bursts, 480 frames of
+  buffer. The game's own log counted 8 and 30 underruns in 77 and 114 s;
+  the app's count was inflated by the silence after the game exited, which
+  no longer counts, and the game now keeps 60 ms ahead instead of 40.
+
 ### Direct display, stage 3: no copy at all (November 2026)
 
 Stage 2 still copied every frame twice on the GPU: the guest blitted its
