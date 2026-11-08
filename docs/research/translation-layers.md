@@ -294,10 +294,16 @@ What it means:
   until it runs.
 - 75% looks like the right default for the render scale: 100% costs a bit
   more on the GPU and a lot more on the copy.
-- The user saw the app crash on some runs. The report of a crashed run is
-  lost, so the app now records why its previous run ended (see
-  **Settings > Last app exit**) to find out whether it is a native crash,
-  the system killing it for memory, or something else.
+- Three more runs gave the same numbers within a few percent (light 10–14
+  ms, medium 20–29 ms, heavy 39–62 ms), so the results are repeatable. The
+  slow first step of the first run was warm-up. Copy spikes (up to 30 ms at
+  1600x720) still appear now and then.
+- The tester saw the app crash on some early runs. The report of a crashed
+  run is lost, so the app now records why its previous runs ended
+  (**Settings > Last app exit**). Three runs in a row with that build did not
+  crash, and the exit records only showed normal closes; the phone had
+  863 MB free of 3.7 GB with the app idle. The cause is still unknown, so the
+  records stay in the app for future reports.
 
 ### Consequence for the CPU choice
 
