@@ -1,0 +1,128 @@
+--- a/src/egl/main/eglapi.c
++++ b/src/egl/main/eglapi.c
+@@ -1432,7 +1432,10 @@
+       RETURN_EGL_ERROR(disp, EGL_BAD_SURFACE, EGL_FALSE);
+ #endif
+ 
+-   if (surf->Type != EGL_WINDOW_BIT)
++   /* HyPocket: with HYPOCKET_PRESENT, a pbuffer swap presents it (see
++    * surfaceless_swap_buffers in platform_surfaceless.c). */
++   if (surf->Type != EGL_WINDOW_BIT &&
++       !(surf->Type == EGL_PBUFFER_BIT && getenv("HYPOCKET_PRESENT")))
+       RETURN_EGL_EVAL(disp, EGL_TRUE);
+ 
+    /* From the EGL 1.5 spec:
+--- a/src/egl/drivers/dri2/platform_surfaceless.c
++++ b/src/egl/drivers/dri2/platform_surfaceless.c
+@@ -41,6 +41,11 @@
+ #include "loader_dri_helper.h"
+ #include "dri_util.h"
+ #include "dri_screen.h"
++#include "dri_context.h"
++#include "state_tracker/st_context.h"
++
++/* HyPocket: must match HYPOCKET_PRESENT_DRAWABLE in virgl_vtest_winsys.c. */
++#define HYPOCKET_PRESENT_DRAWABLE ((void *)(uintptr_t)0x48504b54u)
+ 
+ static struct dri_image *
+ surfaceless_alloc_image(struct dri2_egl_display *dri2_dpy,
+@@ -173,8 +178,38 @@
+                                           attrib_list);
+ }
+ 
++/*
++ * HyPocket: with HYPOCKET_PRESENT set, eglSwapBuffers on a pbuffer presents
++ * it: the virgl vtest winsys tells the VirGL server to show the pbuffer's
++ * image on the phone's screen. Pbuffers here render to a front image (see
++ * surfaceless_image_get_buffers). Without the variable it does nothing, as
++ * before.
++ */
++static EGLBoolean
++surfaceless_swap_buffers(_EGLDisplay *disp, _EGLSurface *surf)
++{
++   static int enabled = -1;
++   if (enabled < 0)
++      enabled = getenv("HYPOCKET_PRESENT") != NULL;
++
++   struct dri2_egl_display *dri2_dpy = dri2_egl_display(disp);
++   struct dri2_egl_surface *dri2_surf = dri2_egl_surface(surf);
++   _EGLContext *ctx = _eglGetCurrentContext();
++   if (!enabled || !ctx || !dri2_surf->front || !dri2_surf->front->texture)
++      return EGL_TRUE;
++
++   struct dri_context *dri_ctx = dri2_egl_context(ctx)->dri_context;
++   struct pipe_screen *screen = dri2_dpy->dri_screen_render_gpu->base.screen;
++   dri_flush_drawable(dri2_surf->dri_drawable);
++   if (screen->flush_frontbuffer)
++      screen->flush_frontbuffer(screen, dri_ctx->st->pipe, dri2_surf->front->texture, 0, 0,
++                                HYPOCKET_PRESENT_DRAWABLE, 0, NULL);
++   return EGL_TRUE;
++}
++
+ static const struct dri2_egl_display_vtbl dri2_surfaceless_display_vtbl = {
+    .create_pbuffer_surface = dri2_surfaceless_create_pbuffer_surface,
++   .swap_buffers = surfaceless_swap_buffers,
+    .destroy_surface = surfaceless_destroy_surface,
+    .create_image = dri2_create_image_khr,
+    .get_dri_drawable = dri2_surface_get_dri_drawable,
+--- a/src/gallium/winsys/virgl/vtest/virgl_vtest_winsys.c
++++ b/src/gallium/winsys/virgl/vtest/virgl_vtest_winsys.c
+@@ -31,6 +31,9 @@
+ #include "util/os_mman.h"
+ 
+ #include "virgl_vtest_winsys.h"
++
++/* HyPocket: must match HYPOCKET_PRESENT_DRAWABLE in platform_surfaceless.c. */
++#define HYPOCKET_PRESENT_DRAWABLE ((void *)(uintptr_t)0x48504b54u)
+ #include "virgl_vtest_public.h"
+ #include "virtio-gpu/virgl_protocol.h"
+ 
+@@ -690,6 +693,11 @@
+    struct virgl_vtest_winsys *vtws = virgl_vtest_winsys(vws);
+    struct pipe_box box;
+    uint32_t offset = 0;
++   /* HyPocket: a pbuffer presented by eglSwapBuffers (platform_surfaceless.c). */
++   if (winsys_drawable_handle == HYPOCKET_PRESENT_DRAWABLE) {
++      virgl_vtest_send_hypocket_present(vtws, res->res_handle);
++      return;
++   }
+    if (!res->dt)
+       return;
+ 
+--- a/src/gallium/winsys/virgl/vtest/virgl_vtest_socket.c
++++ b/src/gallium/winsys/virgl/vtest/virgl_vtest_socket.c
+@@ -393,6 +393,21 @@
+    return 0;
+ }
+ 
++/* HyPocket: VCMD_HYPOCKET_PRESENT, a command only HyPocket's VirGL server knows. */
++#define VCMD_HYPOCKET_PRESENT 64
++
++int virgl_vtest_send_hypocket_present(struct virgl_vtest_winsys *vws,
++                                      uint32_t handle)
++{
++   uint32_t vtest_hdr[VTEST_HDR_SIZE];
++   uint32_t cmd[1] = { handle };
++   vtest_hdr[VTEST_CMD_LEN] = 1;
++   vtest_hdr[VTEST_CMD_ID] = VCMD_HYPOCKET_PRESENT;
++   virgl_block_write(vws->sock_fd, &vtest_hdr, sizeof(vtest_hdr));
++   virgl_block_write(vws->sock_fd, &cmd, sizeof(cmd));
++   return 0;
++}
++
+ int virgl_vtest_send_resource_unref(struct virgl_vtest_winsys *vws,
+                                     uint32_t handle)
+ {
+--- a/src/gallium/winsys/virgl/vtest/virgl_vtest_winsys.h
++++ b/src/gallium/winsys/virgl/vtest/virgl_vtest_winsys.h
+@@ -119,6 +119,10 @@
+                                           uint32_t size,
+                                           int *out_fd);
+ 
++/* HyPocket: asks the VirGL server to show a resource on the phone's screen. */
++int virgl_vtest_send_hypocket_present(struct virgl_vtest_winsys *vws,
++                                      uint32_t handle);
++
+ int virgl_vtest_send_resource_unref(struct virgl_vtest_winsys *vws,
+                                     uint32_t handle);
+ 

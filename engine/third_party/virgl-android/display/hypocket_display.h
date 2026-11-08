@@ -17,8 +17,11 @@ bool hypocket_display_skip_readback(void);
 
 /*
  * Shows the renderer resource res_id on the app's screen if it is a 2D colour
- * texture of exactly width x height. Returns true when it was handled.
+ * texture of exactly width x height. y0_top is true for window-system images
+ * (an EGL pbuffer), whose first row is the top one, and false for textures
+ * the guest rendered as GL framebuffer objects (first row at the bottom).
+ * Returns true when it was handled.
  */
-bool hypocket_display_present(uint32_t res_id, uint32_t width, uint32_t height);
+bool hypocket_display_present(uint32_t res_id, uint32_t width, uint32_t height, bool y0_top);
 
 #endif

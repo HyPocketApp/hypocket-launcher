@@ -54,7 +54,7 @@ static struct {
    EGLConfig config;
    EGLContext ctx;
    GLuint program, sampler, vao;
-   GLint size_location;
+   GLint size_location, flip_location;
    unsigned logged_errors;
    uint32_t width, height;
    struct buffer buf[BUFFERS];
@@ -123,10 +123,11 @@ static const char *fragment_src =
    "precision mediump float;\n"
    "uniform sampler2D frame;\n"
    "uniform ivec2 size;\n"
+   "uniform bool flip;\n"
    "out vec4 color;\n"
    "void main() {\n"
    "   ivec2 p = ivec2(gl_FragCoord.xy);\n"
-   "   color = vec4(texelFetch(frame, ivec2(p.x, size.y - 1 - p.y), 0).rgb, 1.0);\n"
+   "   color = vec4(texelFetch(frame, ivec2(p.x, flip ? size.y - 1 - p.y : p.y), 0).rgb, 1.0);\n"
    "}\n";
 
 static GLuint compile(GLenum type, const char *src)
@@ -164,6 +165,7 @@ static bool make_program(void)
    glUseProgram(d.program);
    glUniform1i(glGetUniformLocation(d.program, "frame"), 0);
    d.size_location = glGetUniformLocation(d.program, "size");
+   d.flip_location = glGetUniformLocation(d.program, "flip");
    /* A sampler object makes the texture complete whatever its own filters say. */
    glGenSamplers(1, &d.sampler);
    glSamplerParameteri(d.sampler, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -319,7 +321,7 @@ static void read_releases(void)
    }
 }
 
-bool hypocket_display_present(uint32_t res_id, uint32_t width, uint32_t height)
+bool hypocket_display_present(uint32_t res_id, uint32_t width, uint32_t height, bool y0_top)
 {
    if (!init()) return false;
 
@@ -380,6 +382,8 @@ bool hypocket_display_present(uint32_t res_id, uint32_t width, uint32_t height)
    glClear(GL_COLOR_BUFFER_BIT);
    glUseProgram(d.program);
    glUniform2i(d.size_location, (GLint)info.width, (GLint)info.height);
+   /* Our buffer's first row is the screen's top row. */
+   glUniform1i(d.flip_location, y0_top ? 0 : 1);
    glActiveTexture(GL_TEXTURE0);
    glBindTexture(GL_TEXTURE_2D, info.tex_id);
    glBindSampler(0, d.sampler);
@@ -419,9 +423,9 @@ restore:
 
 bool hypocket_display_enabled(void) { return false; }
 bool hypocket_display_skip_readback(void) { return false; }
-bool hypocket_display_present(uint32_t res_id, uint32_t width, uint32_t height)
+bool hypocket_display_present(uint32_t res_id, uint32_t width, uint32_t height, bool y0_top)
 {
-   (void)res_id; (void)width; (void)height;
+   (void)res_id; (void)width; (void)height; (void)y0_top;
    return false;
 }
 

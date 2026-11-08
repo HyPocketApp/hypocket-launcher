@@ -31,6 +31,8 @@ echo "$SHA256  $tarball" | sha256sum -c -
 rm -rf src build
 mkdir src
 tar -xf "$tarball" -C src --strip-components=1
+# HyPocket: eglSwapBuffers on a pbuffer presents it through the VirGL server.
+(cd src && git apply "$here/hypocket-present.patch")
 
 cat > aarch64.cross <<CROSS
 [binaries]

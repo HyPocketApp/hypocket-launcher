@@ -14,3 +14,12 @@ The app runs the guest with `GALLIUM_DRIVER=virpipe`,
 `VTEST_SOCKET_NAME` pointing at the server's socket.
 
 Licenses: Mesa, libdrm and expat are MIT; zlib is under the zlib license.
+
+## Changes
+
+- `hypocket-present.patch` (GPL-3.0-or-later, part of HyPocket): when
+  `HYPOCKET_PRESENT` is set, `eglSwapBuffers` on a surfaceless pbuffer sends
+  a `VCMD_HYPOCKET_PRESENT` command (id 64) with the pbuffer's resource to
+  the VirGL server, which shows it on the phone's screen without copying it
+  back (see `../virgl-android/display`). Without the variable nothing
+  changes.

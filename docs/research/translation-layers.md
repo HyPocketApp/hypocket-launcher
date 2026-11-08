@@ -293,6 +293,26 @@ medium 21–24 ms, heavy 57–64 ms), because the one-pixel read makes the
 server wait for the GPU on every frame and the program still calls
 `glReadPixels`. Stage 2 removes both.
 
+### Direct display, stage 2 (November 2026)
+
+The present now comes from the program itself, with no read-back at all:
+
+- `engine/third_party/mesa-guest/hypocket-present.patch`: with
+  `HYPOCKET_PRESENT` set, Mesa lets `eglSwapBuffers` on a surfaceless pbuffer
+  reach the driver (EGL normally ignores it), flushes and sends a new vtest
+  command, `VCMD_HYPOCKET_PRESENT` (64), with the pbuffer's resource.
+- The VirGL server (`android-display.patch`) switches to the client's GL
+  context without waiting for the GPU and shows the resource through the
+  direct display. Window-system images have their first row at the top, so
+  the copy does not flip them.
+- `gl-perf-probe` shows each frame by blitting its framebuffer object to a
+  pbuffer of the frame's size and calling `eglSwapBuffers`.
+
+This is the path a game's window layer would use: for example SDL3's
+offscreen video driver renders to an EGL pbuffer and swaps it. Verified
+under qemu (the server receives a present per swap); not yet tested on a
+phone.
+
 ### Graphics performance test (November 2026)
 
 On phones the game should run in a window with the screen's aspect ratio

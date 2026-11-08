@@ -1,3 +1,24 @@
+diff --git a/src/vrend/vrend_decode.c b/src/vrend/vrend_decode.c
+index 7774a25..9751e87 100644
+--- a/src/vrend/vrend_decode.c
++++ b/src/vrend/vrend_decode.c
+@@ -2155,3 +2155,16 @@ static void vrend_decode_ctx_init_base(struct vrend_decode_ctx *dctx,
+    ctx->retire_fences = vrend_decode_ctx_retire_fences;
+    ctx->submit_fence = vrend_decode_ctx_submit_fence;
+ }
++
++/* HyPocket: makes a client's GL context current (without waiting for the GPU)
++ * so the direct display can sync with its rendering. */
++VIRGL_EXPORT bool hypocket_renderer_switch_context(uint32_t ctx_id);
++VIRGL_EXPORT bool hypocket_renderer_switch_context(uint32_t ctx_id)
++{
++   struct virgl_context *ctx = virgl_context_lookup(ctx_id);
++   /* Only virgl (vrend) contexts, not venus ones. */
++   if (!ctx || ctx->destroy != vrend_decode_ctx_destroy)
++      return false;
++   struct vrend_decode_ctx *dctx = (struct vrend_decode_ctx *)ctx;
++   return vrend_hw_switch_context(dctx->grctx, true);
++}
 diff --git a/src/vrend/vrend_winsys_egl.c b/src/vrend/vrend_winsys_egl.c
 index 4ddcd0d..0b196c3 100644
 --- a/src/vrend/vrend_winsys_egl.c
@@ -41,8 +62,34 @@ index c2bd278..6bcfe12 100644
  ]
  
  if with_tracing == 'percetto'
+diff --git a/vtest/vtest.h b/vtest/vtest.h
+index b2708a2..42f552f 100644
+--- a/vtest/vtest.h
++++ b/vtest/vtest.h
+@@ -62,6 +62,7 @@ int vtest_send_caps2(uint32_t length_dw);
+ int vtest_create_resource(uint32_t length_dw);
+ int vtest_create_resource2(uint32_t length_dw);
+ int vtest_resource_unref(uint32_t length_dw);
++int vtest_hypocket_present(uint32_t length_dw);
+ int vtest_submit_cmd(uint32_t length_dw);
+ 
+ int vtest_transfer_get(uint32_t length_dw);
+diff --git a/vtest/vtest_protocol.h b/vtest/vtest_protocol.h
+index 1bd515c..39b500c 100644
+--- a/vtest/vtest_protocol.h
++++ b/vtest/vtest_protocol.h
+@@ -93,6 +93,9 @@
+ #define VCMD_DRM_SYNC_QUERY 36
+ #define VCMD_DRM_SYNC_TRANSFER 37
+ #define VCMD_RESOURCE_EXPORT_FD 38
++/* HyPocket: show a resource on the phone's screen (hypocket_display.c). */
++#define VCMD_HYPOCKET_PRESENT 64
++#define VCMD_HYPOCKET_PRESENT_SIZE 1
+ 
+ #define VCMD_RES_CREATE_SIZE 10
+ #define VCMD_RES_CREATE_RES_HANDLE 0 /* must be 0 since protocol version 3 */
 diff --git a/vtest/vtest_renderer.c b/vtest/vtest_renderer.c
-index ba4feb1..3c6d439 100644
+index ba4feb1..048fc70 100644
 --- a/vtest/vtest_renderer.c
 +++ b/vtest/vtest_renderer.c
 @@ -54,6 +54,7 @@
@@ -53,7 +100,37 @@ index ba4feb1..3c6d439 100644
  #include "threadpool.h"
  
  #include "util.h"
-@@ -1592,6 +1593,22 @@ static int vtest_transfer_get_internal(struct vtest_context *ctx,
+@@ -1447,6 +1448,29 @@ int vtest_resource_create_blob(UNUSED uint32_t length_dw)
+    return 0;
+ }
+ 
++/* HyPocket: the guest presented a frame with eglSwapBuffers (Mesa patch). */
++bool hypocket_renderer_switch_context(uint32_t ctx_id);
++
++int vtest_hypocket_present(UNUSED uint32_t length_dw)
++{
++   struct vtest_context *ctx = vtest_get_current_context();
++   uint32_t buf[VCMD_HYPOCKET_PRESENT_SIZE];
++   if (ctx->input->read(ctx->input, buf, sizeof(buf)) != sizeof(buf))
++      return -1;
++   struct vtest_resource *res = util_hash_table_get(ctx->resource_table, intptr_to_pointer(buf[0]));
++   struct virgl_renderer_resource_info info;
++   static bool logged;
++   if (!logged) {
++      logged = true;
++      fprintf(stderr, "hypocket-display: first present command, resource %u\n", buf[0]);
++   }
++   /* Switching makes the guest's GL context current without waiting for the GPU. */
++   if (res && hypocket_display_enabled() && hypocket_renderer_switch_context(ctx->ctx_id) &&
++       virgl_renderer_resource_get_info((int)res->res_id, &info) == 0)
++      hypocket_display_present(res->res_id, info.width, info.height, true);
++   return 0;
++}
++
+ int vtest_resource_unref(UNUSED uint32_t length_dw)
+ {
+    struct vtest_context *ctx = vtest_get_current_context();
+@@ -1592,6 +1616,22 @@ static int vtest_transfer_get_internal(struct vtest_context *ctx,
        }
     }
  
@@ -68,7 +145,7 @@ index ba4feb1..3c6d439 100644
 +      struct virgl_box one = { args->box.w / 2, args->box.h / 2, 0, 1, 1, 1 };
 +      virgl_renderer_transfer_read_iov(res->res_id, ctx->ctx_id, 0, sizeof(pixel), 0, &one, 0,
 +                                       &pixel_iov, 1);
-+      if (hypocket_display_present(res->res_id, args->box.w, args->box.h) &&
++      if (hypocket_display_present(res->res_id, args->box.w, args->box.h, false) &&
 +          hypocket_display_skip_readback())
 +         do_transfer = false;
 +   }
@@ -76,3 +153,15 @@ index ba4feb1..3c6d439 100644
     if (do_transfer) {
        ret = virgl_renderer_transfer_read_iov(res->res_id,
                                               ctx->ctx_id,
+diff --git a/vtest/vtest_server.c b/vtest/vtest_server.c
+index 64a29e1..85409af 100644
+--- a/vtest/vtest_server.c
++++ b/vtest/vtest_server.c
+@@ -730,6 +730,7 @@ static const struct vtest_command {
+    HANDLER(DRM_SYNC_TRANSFER,           drm_sync_transfer,         true   ),
+ #endif /* ENABLE_DRM */
+    HANDLER(RESOURCE_EXPORT_FD,          resource_export_fd,        true   ),
++   HANDLER(HYPOCKET_PRESENT,            hypocket_present,          true   ),
+ };
+ 
+ static int vtest_client_dispatch_commands(struct vtest_client *client)

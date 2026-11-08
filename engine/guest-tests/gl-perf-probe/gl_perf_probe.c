@@ -32,6 +32,7 @@
     X(PFNGLENABLEPROC, glEnable) \
     X(PFNGLFINISHPROC, glFinish) \
     X(PFNGLREADPIXELSPROC, glReadPixels) \
+    X(PFNGLBLITFRAMEBUFFERPROC, glBlitFramebuffer) \
     X(PFNGLCREATESHADERPROC, glCreateShader) \
     X(PFNGLSHADERSOURCEPROC, glShaderSource) \
     X(PFNGLCOMPILESHADERPROC, glCompileShader) \
@@ -159,6 +160,10 @@ int main(int argc, char** argv) {
     double step_ms = (argc > 3 ? atof(argv[3]) : 3.0) * 1000.0;
     if (screen_w < screen_h) { int t = screen_w; screen_w = screen_h; screen_h = t; }
     const char* path = getenv("HYPOCKET_FRAME_PATH");
+    /* HyPocket's direct display: show frames with eglSwapBuffers on a pbuffer
+     * of the frame's size instead of reading them back. */
+    int present = getenv("HYPOCKET_PRESENT") != NULL;
+    if (present) path = NULL;
 
     uint32_t* header = NULL;
     unsigned char* pixels = NULL;
@@ -254,6 +259,16 @@ int main(int argc, char** argv) {
             printf("gl-perf-probe: framebuffer %dx%d incomplete\n", w, h);
             return 1;
         }
+        EGLSurface frame_surface = EGL_NO_SURFACE;
+        if (present) {
+            const EGLint attribs[] = {EGL_WIDTH, w, EGL_HEIGHT, h, EGL_NONE};
+            frame_surface = eglCreatePbufferSurface(display, config, attribs);
+            if (frame_surface == EGL_NO_SURFACE || !eglMakeCurrent(display, frame_surface, frame_surface, context)) {
+                printf("gl-perf-probe: no %dx%d pbuffer (0x%x)\n", w, h, eglGetError());
+                return 1;
+            }
+            p_glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        }
         p_glViewport(0, 0, w, h);
         float fy = 1.0f / 0.6f; /* about 62 degrees vertical field of view */
         p_glUniform2f(u_aspect, fy * h / w, fy);
@@ -272,7 +287,14 @@ int main(int argc, char** argv) {
                 p_glFinish();
                 double t1 = now_ms();
                 gpu_total += t1 - t0;
-                if (header) {
+                if (present) {
+                    p_glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+                    p_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+                    p_glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+                    eglSwapBuffers(display, frame_surface);
+                    p_glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+                    read_total += now_ms() - t1;
+                } else if (header) {
                     p_glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
                     header[1] = (uint32_t)w;
                     header[2] = (uint32_t)h;
@@ -289,6 +311,10 @@ int main(int argc, char** argv) {
         p_glBindFramebuffer(GL_FRAMEBUFFER, 0);
         p_glDeleteFramebuffers(1, &fbo);
         p_glDeleteRenderbuffers(2, buffers);
+        if (frame_surface != EGL_NO_SURFACE) {
+            eglMakeCurrent(display, surface, surface, context);
+            eglDestroySurface(display, frame_surface);
+        }
     }
     if (header) __atomic_store_n(&header[4], 0, __ATOMIC_RELEASE);
     printf("gl-perf-probe: GL error 0x%x\n", p_glGetError());

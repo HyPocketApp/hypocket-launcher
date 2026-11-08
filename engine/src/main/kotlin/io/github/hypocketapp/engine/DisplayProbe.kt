@@ -54,11 +54,10 @@ class DisplayProbe(context: Context) {
         if (!runtime.isAvailable || !VirglServer.binary(runtime).exists()) {
             return DisplayReport(test, DisplayStatus.NOT_AVAILABLE)
         }
-        val serverEnv = if (display != null) {
-            mapOf("HYPOCKET_DISPLAY_SOCKET" to display.socketName, "HYPOCKET_SKIP_READBACK" to "1")
-        } else {
-            emptyMap()
-        }
+        val serverEnv = if (display != null) mapOf("HYPOCKET_DISPLAY_SOCKET" to display.socketName) else emptyMap()
+        // The test program then shows each frame with eglSwapBuffers, which our
+        // Mesa turns into a present command for the server: no read-back.
+        val presentEnv = if (display != null) mapOf("HYPOCKET_PRESENT" to "1") else emptyMap()
         val (server, failureLog) = VirglServer.start(runtime, serverEnv)
         if (server == null) return DisplayReport(test, DisplayStatus.SERVER_FAILED, serverOutput = failureLog)
 
@@ -69,7 +68,7 @@ class DisplayProbe(context: Context) {
                     "HYPOCKET_FRAME_PATH" to frameFile.absolutePath,
                     "MESA_GL_VERSION_OVERRIDE" to "4.1",
                     "MESA_GLSL_VERSION_OVERRIDE" to "410",
-                ),
+                ) + presentEnv,
                 args = when (test) {
                     DisplayTest.SCENE -> listOf(seconds.toString())
                     DisplayTest.PERFORMANCE, DisplayTest.PERFORMANCE_DIRECT ->
