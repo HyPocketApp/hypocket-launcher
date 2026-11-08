@@ -4,6 +4,7 @@
 
 #include <android/native_window_jni.h>
 
+#include "audio_output.h"
 #include "direct_display.h"
 #include "hypocket_engine.h"
 
@@ -65,4 +66,25 @@ extern "C" JNIEXPORT jstring JNICALL
 Java_io_github_hypocketapp_engine_NativeBridge_nativeDisplayInfo(JNIEnv* env, jobject /* this */, jlong handle) {
     return env->NewStringUTF(
         hypocket::DirectDisplayInfo(reinterpret_cast<std::shared_ptr<hypocket::State>*>(handle)).c_str());
+}
+
+// Audio bridge (see audio_output.cpp). The handle is a pointer kept by Kotlin.
+extern "C" JNIEXPORT jlong JNICALL
+Java_io_github_hypocketapp_engine_NativeBridge_nativeAudioCreate(JNIEnv* env, jobject /* this */, jstring path) {
+    const char* chars = env->GetStringUTFChars(path, nullptr);
+    if (chars == nullptr) return 0;
+    auto* handle = hypocket::AudioOutputCreate(chars);
+    env->ReleaseStringUTFChars(path, chars);
+    return reinterpret_cast<jlong>(handle);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_io_github_hypocketapp_engine_NativeBridge_nativeAudioInfo(JNIEnv* env, jobject /* this */, jlong handle) {
+    auto* state = reinterpret_cast<std::shared_ptr<hypocket::AudioState>*>(handle);
+    return env->NewStringUTF(hypocket::AudioOutputInfo(state).c_str());
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_io_github_hypocketapp_engine_NativeBridge_nativeAudioDestroy(JNIEnv* /* env */, jobject /* this */, jlong handle) {
+    hypocket::AudioOutputDestroy(reinterpret_cast<std::shared_ptr<hypocket::AudioState>*>(handle));
 }

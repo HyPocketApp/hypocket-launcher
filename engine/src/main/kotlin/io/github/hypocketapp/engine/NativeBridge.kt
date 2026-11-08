@@ -22,4 +22,10 @@ internal object NativeBridge {
     external fun nativeDisplayDestroy(handle: Long)
 
     external fun nativeDisplayInfo(handle: Long): String
+
+    external fun nativeAudioCreate(path: String): Long
+
+    external fun nativeAudioInfo(handle: Long): String
+
+    external fun nativeAudioDestroy(handle: Long)
 }

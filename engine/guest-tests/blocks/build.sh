@@ -6,5 +6,5 @@
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 out="$here/../../src/main/assets/guest-tests/blocks-x86_64"
-gcc -O2 -s -Wall -Wextra -Wno-unused-parameter -o "$out" "$here/blocks.c" -lEGL -lm
+gcc -O2 -s -Wall -Wextra -Wno-unused-parameter -o "$out" "$here/blocks.c" -lEGL -lm -pthread
 echo "Built $out"

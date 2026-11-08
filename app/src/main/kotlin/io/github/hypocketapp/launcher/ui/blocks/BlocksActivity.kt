@@ -365,6 +365,7 @@ private fun BlocksReport.toShareText(): String = buildString {
     appendLine("Frames: ${stats.frames} in %.1f s".format(seconds))
     appendLine("Exit code: ${exitCode ?: "-"}")
     memory?.toLines()?.forEach { appendLine("Memory: $it") }
+    appendLine("Audio: $audioInfo")
     appendLine("--- game output ---")
     appendLine(output)
     if (directInfo.isNotBlank()) {

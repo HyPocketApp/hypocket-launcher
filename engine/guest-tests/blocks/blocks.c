@@ -11,7 +11,9 @@
  * gl-display-probe).
  *
  * Input and statistics go through a small shared file (HYPOCKET_INPUT_PATH);
- * the layout is below and must match BlocksSession.kt.
+ * the layout is below and must match BlocksSession.kt. Sound is synthesized
+ * here and mixed on an audio thread into a ring of samples in another shared
+ * file (HYPOCKET_AUDIO_PATH), which the app plays (audio_output.cpp).
  *
  * Usage: blocks <width> <height> [fps limit] [frames]
  * With [frames] the program exits after that many frames and walks on its
@@ -20,12 +22,14 @@
 #include <EGL/eglext.h>
 #include <GL/glcorearb.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -605,6 +609,225 @@ static void view_projection(float* out, const Player* p, float aspect, float far
     mat_mul(out, proj, view);
 }
 
+/* ---- Audio ------------------------------------------------------------ */
+
+/* Ring of 16-bit stereo samples shared with the app; must match
+ * engine/src/main/cpp/audio_output.cpp. */
+#define AUDIO_MAGIC 0x41425048u /* "HPBA" */
+typedef struct {
+    uint32_t magic, version, rate, channels, capacity, reserved;
+    uint64_t write_pos, read_pos;
+    uint32_t underruns;
+} AudioRing;
+
+enum { SND_STEP, SND_STEP2, SND_BREAK, SND_PLACE, SND_JUMP, SND_SPLASH, SND_CHIRP, SOUNDS };
+
+typedef struct {
+    float* data;
+    int length;
+} Sound;
+
+typedef struct {
+    const Sound* sound;
+    int pos;
+    float left, right, pitch, frac;
+} Voice;
+
+#define VOICES 24
+
+static struct {
+    AudioRing* ring;
+    int16_t* samples;
+    int rate;
+    Sound sounds[SOUNDS];
+    Voice voices[VOICES];
+    pthread_mutex_t lock;
+    pthread_t thread;
+    volatile int running;
+    float wind_state, wind_gust, wind_phase;
+    uint32_t noise;
+    double next_chirp;
+    uint64_t mixed;
+    int peak_voices;
+} audio = {.lock = PTHREAD_MUTEX_INITIALIZER, .noise = 22222};
+
+static float audio_noise(void) {
+    audio.noise = audio.noise * 1664525u + 1013904223u;
+    return (int32_t)audio.noise / 2147483648.0f;
+}
+
+/* All sounds are made here from noise and sine waves: no sound files. */
+static Sound make_sound(float seconds, int kind) {
+    Sound s;
+    s.length = (int)(seconds * audio.rate);
+    s.data = calloc((size_t)s.length, sizeof(float));
+    float lp = 0, lp2 = 0, phase = 0;
+    for (int i = 0; i < s.length; i++) {
+        float t = (float)i / audio.rate, k = (float)i / s.length;
+        float n = audio_noise(), v = 0;
+        switch (kind) {
+        case SND_STEP: case SND_STEP2: { /* a soft crunch on grass */
+            float cut = kind == SND_STEP ? 0.18f : 0.24f;
+            lp += cut * (n - lp);
+            v = lp * expf(-t * 45.0f) * 2.2f;
+            break;
+        }
+        case SND_BREAK: { /* crumbling: noise with clicks, darker as it ends */
+            lp += (0.5f - 0.4f * k) * (n - lp);
+            float clicks = (i % (audio.rate / 37) < 40) ? 1.6f : 1.0f;
+            v = lp * clicks * expf(-t * 11.0f) * 1.6f;
+            break;
+        }
+        case SND_PLACE: /* a wooden knock */
+            phase += 2 * 3.14159265f * (180.0f - 60.0f * k) / audio.rate;
+            lp += 0.3f * (n - lp);
+            v = (sinf(phase) * 0.9f + lp * 0.6f) * expf(-t * 30.0f);
+            break;
+        case SND_JUMP: /* a short whoosh */
+            lp += (0.05f + 0.25f * k) * (n - lp);
+            v = lp * sinf(3.14159265f * k) * 1.4f;
+            break;
+        case SND_SPLASH: /* water: bright noise, slower decay */
+            lp += 0.6f * (n - lp);
+            lp2 += 0.08f * (lp - lp2);
+            v = (lp - lp2) * expf(-t * 5.0f) * 1.8f;
+            break;
+        default: { /* a bird: three quick rising chirps */
+            float local = fmodf(t, 0.11f);
+            float f = 2600.0f + 9000.0f * local;
+            phase += 2 * 3.14159265f * f / audio.rate;
+            v = local < 0.07f ? sinf(phase) * sinf(3.14159265f * local / 0.07f) * 0.5f : 0;
+            break;
+        }
+        }
+        s.data[i] = v;
+    }
+    return s;
+}
+
+/* Starts a sound; pan -1 (left) to 1 (right). Callable from the game loop. */
+static void play_sound(int id, float gain, float pan, float pitch) {
+    if (!audio.ring) return;
+    pthread_mutex_lock(&audio.lock);
+    Voice* v = NULL;
+    for (int i = 0; i < VOICES && !v; i++)
+        if (!audio.voices[i].sound) v = &audio.voices[i];
+    if (!v) v = &audio.voices[0]; /* all busy: steal the first */
+    if (pan < -1) pan = -1;
+    if (pan > 1) pan = 1;
+    v->sound = &audio.sounds[id];
+    v->pos = 0;
+    v->frac = 0;
+    v->pitch = pitch;
+    v->left = gain * sqrtf(0.5f * (1 - pan));
+    v->right = gain * sqrtf(0.5f * (1 + pan));
+    pthread_mutex_unlock(&audio.lock);
+}
+
+/* Mixes frames into the ring: the active voices plus wind and birds. */
+static void mix(uint64_t start, int frames) {
+    pthread_mutex_lock(&audio.lock);
+    int active = 0;
+    for (int i = 0; i < VOICES; i++) active += audio.voices[i].sound != NULL;
+    if (active > audio.peak_voices) audio.peak_voices = active;
+    for (int f = 0; f < frames; f++) {
+        /* Wind: slowly varying, filtered noise. */
+        audio.wind_phase += 1.0f / audio.rate;
+        float gust = 0.5f + 0.5f * sinf(audio.wind_phase * 0.23f) * sinf(audio.wind_phase * 0.071f + 1.0f);
+        audio.wind_state += 0.012f * (audio_noise() - audio.wind_state);
+        float l = audio.wind_state * (0.12f + 0.25f * gust), r = l * 0.85f;
+        for (int i = 0; i < VOICES; i++) {
+            Voice* v = &audio.voices[i];
+            if (!v->sound) continue;
+            float s = v->sound->data[v->pos];
+            l += s * v->left;
+            r += s * v->right;
+            v->frac += v->pitch;
+            while (v->frac >= 1.0f) { v->frac -= 1.0f; v->pos++; }
+            if (v->pos >= v->sound->length) v->sound = NULL;
+        }
+        /* Soft clip, then 16 bits. */
+        l = l / (1.0f + fabsf(l));
+        r = r / (1.0f + fabsf(r));
+        uint32_t index = (uint32_t)((start + (uint64_t)f) % audio.ring->capacity);
+        audio.samples[index * 2] = (int16_t)(l * 32000.0f);
+        audio.samples[index * 2 + 1] = (int16_t)(r * 32000.0f);
+    }
+    pthread_mutex_unlock(&audio.lock);
+}
+
+/* Keeps about 40 ms of sound ahead of what the app has played. */
+static void* audio_thread(void* unused) {
+    (void)unused;
+    uint64_t ahead = (uint64_t)audio.rate * 40 / 1000;
+    uint64_t write = __atomic_load_n(&audio.ring->read_pos, __ATOMIC_ACQUIRE);
+    while (audio.running) {
+        uint64_t read = __atomic_load_n(&audio.ring->read_pos, __ATOMIC_ACQUIRE);
+        if (read > write) write = read; /* we fell behind: skip ahead */
+        if (write - read < ahead) {
+            int frames = (int)(ahead - (write - read));
+            mix(write, frames);
+            write += (uint64_t)frames;
+            audio.mixed += (uint64_t)frames;
+            __atomic_store_n(&audio.ring->write_pos, write, __ATOMIC_RELEASE);
+        }
+        double now = now_ms();
+        if (now > audio.next_chirp) {
+            if (audio.next_chirp > 0)
+                play_sound(SND_CHIRP, 0.12f + 0.1f * (audio_noise() + 1), audio_noise(), 0.9f + 0.2f * audio_noise());
+            audio.next_chirp = now + 4000 + 6000 * (audio_noise() + 1);
+        }
+        sleep_ms(4);
+    }
+    return NULL;
+}
+
+static void start_audio(void) {
+    const char* path = getenv("HYPOCKET_AUDIO_PATH");
+    if (!path) return;
+    int fd = open(path, O_RDWR);
+    if (fd < 0) return;
+    struct stat st;
+    void* map = MAP_FAILED;
+    if (fstat(fd, &st) == 0 && st.st_size > 64)
+        map = mmap(NULL, (size_t)st.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    close(fd);
+    if (map == MAP_FAILED) return;
+    AudioRing* ring = map;
+    if (__atomic_load_n(&ring->magic, __ATOMIC_ACQUIRE) != AUDIO_MAGIC || ring->channels != 2 || !ring->rate ||
+        64 + (uint64_t)ring->capacity * 4 > (uint64_t)st.st_size) {
+        printf("blocks: audio ring not usable\n");
+        return;
+    }
+    audio.rate = (int)ring->rate;
+    static const float lengths[SOUNDS] = {0.12f, 0.12f, 0.45f, 0.16f, 0.25f, 0.6f, 0.33f};
+    for (int i = 0; i < SOUNDS; i++) audio.sounds[i] = make_sound(lengths[i], i);
+    audio.samples = (int16_t*)((char*)map + 64);
+    audio.ring = ring;
+    audio.running = 1;
+    if (pthread_create(&audio.thread, NULL, audio_thread, NULL) != 0) {
+        audio.ring = NULL;
+        return;
+    }
+    printf("blocks: audio %d Hz, %u frames of ring\n", audio.rate, ring->capacity);
+}
+
+static void stop_audio(void) {
+    if (!audio.ring) return;
+    audio.running = 0;
+    pthread_join(audio.thread, NULL);
+    printf("blocks: audio mixed %.1f s, up to %d sounds at once, %u underruns\n",
+           (double)audio.mixed / audio.rate, audio.peak_voices, audio.ring->underruns);
+}
+
+/* Plays a sound coming from a block: panned and quieter with distance. */
+static void play_at(int id, const Player* p, float x, float y, float z, float pitch) {
+    float dx = x - p->x, dy = y - (p->y + EYE_HEIGHT), dz = z - p->z;
+    float dist = sqrtf(dx * dx + dy * dy + dz * dz) + 0.001f;
+    float pan = (dx * cosf(p->yaw) + dz * sinf(p->yaw)) / dist;
+    play_sound(id, 0.9f / (1.0f + 0.25f * dist), pan * 0.8f, pitch);
+}
+
 /* ---- Main ------------------------------------------------------------- */
 
 static int create_target(int width, int height, GLuint* fbo) {
@@ -771,6 +994,10 @@ int main(int argc, char** argv) {
     io->height = h;
     io->build_ms = (float)build_ms;
 
+    start_audio();
+    float step_timer = 0;
+    int step_variant = 0, was_in_water = 0;
+
     while (!io->quit && (max_frames == 0 || frames < max_frames)) {
         double frame_start = now_ms();
         float dt = (float)((frame_start - last) / 1000.0);
@@ -794,14 +1021,33 @@ int main(int argc, char** argv) {
         float vx = (mx * cy + my * sy) * speed, vz = (mx * sy - my * cy) * speed;
         int in_water = block_at((int)floorf(player.x), (int)floorf(player.y + 0.5f), (int)floorf(player.z)) == WATER;
         if ((io->jump || (max_frames && player.on_ground)) && (player.on_ground || in_water)) {
+            if (player.on_ground && !in_water) play_sound(SND_JUMP, 0.25f, 0, 1.0f);
             player.vy = in_water ? 3.5f : 8.2f;
             player.on_ground = 0;
         }
+        if (in_water && !was_in_water && player.vy < -2) play_sound(SND_SPLASH, 0.6f, 0, 1.0f);
+        was_in_water = in_water;
+        float fall_speed = -player.vy;
+        int was_on_ground = player.on_ground;
         player.vy -= (in_water ? 10.0f : 26.0f) * dt;
         if (player.vy < -40) player.vy = -40;
         if (in_water) { vx *= 0.6f; vz *= 0.6f; if (player.vy < -3) player.vy = -3; }
         move_player(&player, vx * dt, player.vy * dt, vz * dt);
         if (player.y < -10) { player.y = WY; player.vy = 0; }
+        /* Footsteps while walking on the ground, and a thud on landing. */
+        float ground_speed = sqrtf(vx * vx + vz * vz);
+        if (player.on_ground && !was_on_ground && fall_speed > 6) {
+            play_sound(SND_STEP, 0.55f, 0, 0.8f);
+            step_timer = 0.3f;
+        } else if (player.on_ground && !in_water && ground_speed > 0.5f) {
+            step_timer -= dt * ground_speed / 4.3f;
+            if (step_timer <= 0) {
+                step_variant ^= 1;
+                play_sound(step_variant ? SND_STEP : SND_STEP2, 0.32f, step_variant ? -0.15f : 0.15f,
+                           0.9f + 0.2f * rand01(frames, 1, 2));
+                step_timer = 0.38f;
+            }
+        }
 
         /* ---- Break and place ---- */
         int breaks = io->breaks, places = io->places;
@@ -809,10 +1055,13 @@ int main(int argc, char** argv) {
             int hit[3], before[3];
             if (raycast(&player, hit, before)) {
                 if (breaks != seen_breaks) {
+                    play_at(SND_BREAK, &player, hit[0] + 0.5f, hit[1] + 0.5f, hit[2] + 0.5f,
+                            0.9f + 0.2f * rand01(hit[0], hit[1], hit[2]));
                     set_block(hit[0], hit[1], hit[2], hit[1] < WATER_LEVEL + 1 && block_at(hit[0], hit[1] + 1, hit[2]) == WATER ? WATER : AIR);
                 } else if (block_at(before[0], before[1], before[2]) == AIR || block_at(before[0], before[1], before[2]) == WATER) {
                     set_block(before[0], before[1], before[2], PLANKS);
                     if (collides(player.x, player.y, player.z)) set_block(before[0], before[1], before[2], AIR);
+                    else play_at(SND_PLACE, &player, before[0] + 0.5f, before[1] + 0.5f, before[2] + 0.5f, 1.0f);
                 }
             }
             seen_breaks = breaks;
@@ -928,6 +1177,7 @@ int main(int argc, char** argv) {
         if (fps_limit > 0) sleep_ms(1000.0 / fps_limit - (now_ms() - frame_start));
     }
     if (previous) p_glDeleteSync(previous);
+    stop_audio();
     if (header) __atomic_store_n(&header[4], 0, __ATOMIC_RELEASE);
     printf("blocks: %d frames, GL error 0x%x\n", frames, p_glGetError());
     printf("blocks: ok\n");

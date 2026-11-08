@@ -23,6 +23,7 @@ class BlocksSession(context: Context) : AutoCloseable {
     /** Frames read back by the game when direct display is not possible. */
     val frameFile: File = File(runtime.cacheDir, "hypocket-frame.bin")
     private val ioFile = File(runtime.cacheDir, "hypocket-blocks-io.bin")
+    private val audioFile = File(runtime.cacheDir, "hypocket-blocks-audio.bin")
     private val io: MappedByteBuffer
 
     private var yaw = 0f
@@ -100,8 +101,11 @@ class BlocksSession(context: Context) : AutoCloseable {
         val presentEnv = if (display != null) mapOf("HYPOCKET_PRESENT" to "1") else emptyMap()
         val (server, failureLog) = VirglServer.start(runtime, serverEnv)
         if (server == null) return BlocksReport(DisplayStatus.SERVER_FAILED, stats, serverOutput = failureLog)
+        // Without audio the game runs silent.
+        val audio = AudioOutput.create(audioFile)
+        val audioEnv = if (audio != null) mapOf("HYPOCKET_AUDIO_PATH" to audioFile.absolutePath) else emptyMap()
 
-        MemorySampler().use { sampler -> server.use {
+        MemorySampler().use { sampler -> server.use { audio.use {
             val result = runtime.runAsset(
                 ASSET,
                 extraEnv = server.guestEnvironment + mapOf(
@@ -109,7 +113,7 @@ class BlocksSession(context: Context) : AutoCloseable {
                     "HYPOCKET_FRAME_PATH" to frameFile.absolutePath,
                     "MESA_GL_VERSION_OVERRIDE" to "4.1",
                     "MESA_GLSL_VERSION_OVERRIDE" to "410",
-                ) + presentEnv,
+                ) + presentEnv + audioEnv,
                 args = listOf(width.toString(), height.toString(), fpsLimit.toString()),
                 timeoutSeconds = MAX_SESSION_SECONDS,
                 onStart = { started ->
@@ -135,10 +139,11 @@ class BlocksSession(context: Context) : AutoCloseable {
                 direct = display != null,
                 directInfo = display?.info.orEmpty(),
                 memory = memory,
+                audioInfo = audio?.info ?: "no audio stream",
                 output = text,
                 serverOutput = server.log,
             )
-        } }
+        } } }
     }
 
     /** Asks the game to exit, and ends it if it does not within a few seconds. */
@@ -212,6 +217,8 @@ data class BlocksReport(
     val direct: Boolean = false,
     val directInfo: String = "",
     val memory: MemoryUsage? = null,
+    /** What the app's audio output saw. */
+    val audioInfo: String = "",
     val output: String = "",
     val serverOutput: String = "",
 )
