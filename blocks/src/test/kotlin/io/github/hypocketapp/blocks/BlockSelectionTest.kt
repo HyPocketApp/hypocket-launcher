@@ -73,13 +73,30 @@ class BlockSelectionTest {
     }
 
     @Test
-    fun inventoryCursorWrapsThroughTheGrid() {
-        val inventory = Inventory()
+    fun inventoryCursorWalksTheGridAndTheRecipes() {
+        val inventory = Inventory(recipes = 3)
         inventory.move(-1, 0)
-        assertEquals(BuildBlock.entries.size - 1, inventory.cursor.intValue)
-        inventory.move(1, 1)
-        assertEquals(Inventory.COLUMNS, inventory.cursor.intValue)
+        assertEquals(Inventory.BLOCKS - 1, inventory.cursor.intValue) // wraps around the grid
+        inventory.cursor.intValue = Inventory.COLUMNS - 1
+        inventory.move(1, 0) // right from the last column: the first recipe
+        assertEquals(Inventory.BLOCKS, inventory.cursor.intValue)
+        inventory.move(0, -1) // up from the first recipe: the last one
+        assertEquals(Inventory.BLOCKS + 2, inventory.cursor.intValue)
+        inventory.move(-1, 0) // back to the grid's last column
+        assertEquals(2 * Inventory.COLUMNS - 1, inventory.cursor.intValue)
+        val made = mutableListOf<Int>()
+        inventory.cursor.intValue = Inventory.BLOCKS + 1
+        inventory.confirm(selection(), craft = { made += it })
+        assertEquals(listOf(1), made)
         inventory.show()
         assertTrue(inventory.open.value)
+    }
+
+    @Test
+    fun withoutRecipesTheCursorStaysInTheGrid() {
+        val inventory = Inventory()
+        inventory.cursor.intValue = Inventory.COLUMNS - 1
+        inventory.move(1, 0)
+        assertEquals(Inventory.COLUMNS, inventory.cursor.intValue)
     }
 }

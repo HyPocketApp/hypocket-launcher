@@ -80,6 +80,9 @@
     <string name="blocks_day_always_day">Always day</string>
     <string name="blocks_day_always_night">Always night</string>
     <string name="blocks_day_mode_hint">Holding the time does not change the time kept in the world: back on 15-minute days, it continues where it was.</string>
+    <string name="blocks_recipes">Recipes</string>
+    <string name="blocks_inventory_hint_recipes">Choose a place in the bar, then the block to put there, or tap a recipe to make it. Controller: d-pad and A, B closes. Keyboard: arrows and Enter, I closes.</string>
+    <string name="blocks_recipe_arrow" translatable="false">→</string>
     <string name="blocks_close">Close</string>
     <string name="blocks_copy_report">Copy report</string>
     <string name="blocks_status_server_failed">Failed: the graphics server did not start.</string>

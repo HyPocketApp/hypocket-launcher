@@ -8,10 +8,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -27,17 +30,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import io.github.hypocketapp.blocks.BlocksRecipes
 import io.github.hypocketapp.blocks.R
+import io.github.hypocketapp.blocks.Recipe
 
 /**
- * Whether the inventory screen is open, and the block a controller or the
- * arrow keys point at in it. [onOpenChanged] lets the game screen stop the
- * player and free the mouse pointer while it is open.
+ * Whether the inventory screen is open, and what a controller or the arrow
+ * keys point at in it: a block of the grid (indices below the number of
+ * blocks) or a recipe (after them). [onOpenChanged] lets the game screen stop
+ * the player and free the mouse pointer while it is open.
  */
-class Inventory(private val onOpenChanged: (Boolean) -> Unit = {}) {
+class Inventory(
+    /** Recipes listed beside the blocks (none in creative mode). */
+    private val recipes: Int = 0,
+    private val onOpenChanged: (Boolean) -> Unit = {},
+) {
     val open = mutableStateOf(false)
 
-    /** Index into [BuildBlock.entries]. */
+    /** A block index into [BuildBlock.entries], or [BLOCKS] plus a recipe index. */
     val cursor = mutableIntStateOf(0)
 
     fun toggle() = if (open.value) close() else show()
@@ -54,17 +64,37 @@ class Inventory(private val onOpenChanged: (Boolean) -> Unit = {}) {
         onOpenChanged(false)
     }
 
-    /** Moves the cursor through the grid, [COLUMNS] blocks a row, wrapping around. */
+    /**
+     * Moves the cursor: through the grid of blocks ([COLUMNS] a row, wrapping
+     * around), and right from its last column into the recipe list, which up
+     * and down walk through.
+     */
     fun move(dx: Int, dy: Int) {
-        val count = BuildBlock.entries.size
-        cursor.intValue = ((cursor.intValue + dx + dy * COLUMNS) % count + count) % count
+        val c = cursor.intValue
+        if (c >= BLOCKS) {
+            val recipe = c - BLOCKS
+            cursor.intValue = when {
+                dx < 0 -> minOf(recipe, BLOCKS / COLUMNS - 1) * COLUMNS + COLUMNS - 1
+                else -> BLOCKS + ((recipe + dy) % recipes + recipes) % recipes
+            }
+            return
+        }
+        if (dx > 0 && c % COLUMNS == COLUMNS - 1 && recipes > 0) {
+            cursor.intValue = BLOCKS + minOf(c / COLUMNS, recipes - 1)
+            return
+        }
+        cursor.intValue = ((c + dx + dy * COLUMNS) % BLOCKS + BLOCKS) % BLOCKS
     }
 
-    /** Puts the block under the cursor in the hotbar's chosen place. */
-    fun confirm(selection: BlockSelection) = selection.assign(cursor.intValue)
+    /** Puts the block under the cursor in the hotbar, or makes the recipe under it. */
+    fun confirm(selection: BlockSelection, craft: (Int) -> Unit) {
+        val c = cursor.intValue
+        if (c < BLOCKS) selection.assign(c) else craft(c - BLOCKS)
+    }
 
     companion object {
         const val COLUMNS = 6
+        val BLOCKS = BuildBlock.entries.size
     }
 }
 
@@ -73,7 +103,13 @@ class Inventory(private val onOpenChanged: (Boolean) -> Unit = {}) {
  * hotbar. Choose a place in the hotbar, then the block to put there.
  */
 @Composable
-fun InventoryPanel(inventory: Inventory, selection: BlockSelection, counts: List<Int>, creative: Boolean) {
+fun InventoryPanel(
+    inventory: Inventory,
+    selection: BlockSelection,
+    counts: List<Int>,
+    creative: Boolean,
+    onCraft: (Recipe) -> Unit,
+) {
     // Covers the game: touches here never turn the camera or break blocks.
     Box(
         Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)).pointerInput(Unit) {
@@ -97,6 +133,8 @@ fun InventoryPanel(inventory: Inventory, selection: BlockSelection, counts: List
                     Text(stringResource(R.string.blocks_close), color = Color.White)
                 }
             }
+            Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
             BuildBlock.entries.chunked(Inventory.COLUMNS).forEachIndexed { row, blocks ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     blocks.forEachIndexed { column, block ->
@@ -127,12 +165,56 @@ fun InventoryPanel(inventory: Inventory, selection: BlockSelection, counts: List
                 }
             }
             HotbarRow(selection, counts, creative)
+            }
+            if (!creative) RecipeList(inventory, counts, onCraft)
+            }
             Text(
-                stringResource(R.string.blocks_inventory_hint),
+                stringResource(if (creative) R.string.blocks_inventory_hint else R.string.blocks_inventory_hint_recipes),
                 color = Color.White.copy(alpha = 0.7f),
                 style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center,
             )
+        }
+    }
+}
+
+/** The recipes, each with what it uses and makes; tap one (or press A or Enter on it) to make it once. */
+@Composable
+private fun RecipeList(inventory: Inventory, counts: List<Int>, onCraft: (Recipe) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(stringResource(R.string.blocks_recipes), color = Color.White, style = MaterialTheme.typography.labelLarge)
+        Column(
+            Modifier.heightIn(max = 230.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            BlocksRecipes.ALL.forEachIndexed { i, recipe ->
+                val possible = recipe.canMake(counts)
+                val pointed = inventory.cursor.intValue == Inventory.BLOCKS + i
+                Row(
+                    Modifier
+                        .border(if (pointed) 2.dp else 1.dp, if (pointed) Color.White else Color.White.copy(alpha = 0.2f), RoundedCornerShape(6.dp))
+                        .clickable {
+                            inventory.cursor.intValue = Inventory.BLOCKS + i
+                            if (possible) onCraft(recipe)
+                        }
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    recipe.inputs.forEach { (block, n) ->
+                        BlockTile(block, size = 24.dp, highlighted = false, count = n)
+                    }
+                    Text(stringResource(R.string.blocks_recipe_arrow), color = Color.White)
+                    BlockTile(recipe.output, size = 28.dp, highlighted = false, count = recipe.count)
+                    Text(
+                        stringResource(recipe.output.label),
+                        color = Color.White.copy(alpha = if (possible) 1f else 0.45f),
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.width(76.dp),
+                        maxLines = 1,
+                    )
+                }
+            }
         }
     }
 }

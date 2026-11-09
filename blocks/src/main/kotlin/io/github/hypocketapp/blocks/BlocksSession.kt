@@ -82,6 +82,20 @@ class BlocksSession(context: Context) : AutoCloseable {
     /** Places a block next to the one under the crosshair. */
     fun placeBlock() = synchronized(io) { io.putInt(OFF_PLACES, ++places) }
 
+    private var crafts = 0
+
+    /** Asks the game to make [recipe] once; it does if the player carries the inputs. */
+    fun craft(recipe: Recipe) = synchronized(io) {
+        for (k in 0 until 2) {
+            val input = recipe.inputs.getOrNull(k)
+            io.put(OFF_CRAFT + k * 2, (input?.first?.ordinal ?: NONE).toByte())
+            io.put(OFF_CRAFT + k * 2 + 1, (input?.second ?: 0).toByte())
+        }
+        io.put(OFF_CRAFT + 4, recipe.output.ordinal.toByte())
+        io.put(OFF_CRAFT + 5, recipe.count.toByte())
+        io.putInt(OFF_CRAFTS, ++crafts)
+    }
+
     /** Chooses the block [placeBlock] places: an index into the game's building palette. */
     fun selectBlock(index: Int) = synchronized(io) { io.putInt(OFF_SELECTED, index) }
 
@@ -215,6 +229,9 @@ class BlocksSession(context: Context) : AutoCloseable {
         const val OFF_LOOK_RATE_YAW = 40
         const val OFF_LOOK_RATE_PITCH = 44
         const val OFF_SELECTED = 48
+        const val OFF_CRAFTS = 52
+        const val OFF_CRAFT = 56
+        const val NONE = 255
         const val OFF_READY = 64
         const val OFF_FRAMES = 68
         const val OFF_FPS = 72

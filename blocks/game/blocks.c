@@ -45,7 +45,9 @@
  *
  * Breaking a block puts it in the player's inventory (grass gives dirt) and
  * placing one uses it up; the inventory is kept in the save. With
- * HYPOCKET_BLOCKS_CREATIVE=1 blocks are unlimited and nothing is collected. */
+ * HYPOCKET_BLOCKS_CREATIVE=1 blocks are unlimited and nothing is collected.
+ * The app sends recipes (its table is BlocksRecipes.kt); the game checks that
+ * the inputs are carried and makes the blocks. */
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GL/glcorearb.h>
@@ -81,7 +83,8 @@ typedef struct {
     float look_rate_yaw;   /* radians per second, from a controller stick */
     float look_rate_pitch; /* radians per second */
     int32_t selected;  /* index into the building palette (palette[] below) */
-    int32_t reserved_in[3];
+    int32_t crafts;    /* incremented on each request to make blocks with craft[] */
+    uint8_t craft[8];  /* palette index and amount of up to two inputs (255: none), then of the output */
     /* Written by the game. */
     int32_t ready;     /* 1 once the world is built and frames are shown */
     int32_t frames;
@@ -828,6 +831,28 @@ static int world_changed; /* since the last save */
 static uint16_t inventory[BLOCK_TYPES]; /* blocks carried, by block id */
 static int creative;                    /* unlimited blocks, nothing collected */
 
+/* Makes blocks from others if the inputs are carried: c holds the palette
+ * index and amount of up to two inputs (255 for none), then of the output. */
+static int craft(const uint8_t* c) {
+    int in[2] = {-1, -1}, need[2] = {0, 0};
+    for (int k = 0; k < 2; k++) {
+        if (c[k * 2] == 255) continue;
+        if (c[k * 2] >= PALETTE_SIZE || c[k * 2 + 1] == 0) return 0;
+        in[k] = palette[c[k * 2]];
+        need[k] = c[k * 2 + 1];
+    }
+    if (in[0] < 0 || c[4] >= PALETTE_SIZE || c[5] == 0) return 0;
+    int out = palette[c[4]];
+    if (out == in[0] || out == in[1] || in[0] == in[1]) return 0;
+    for (int k = 0; k < 2; k++)
+        if (in[k] >= 0 && inventory[in[k]] < need[k]) return 0;
+    if (inventory[out] + c[5] > MAX_CARRIED) return 0;
+    for (int k = 0; k < 2; k++)
+        if (in[k] >= 0) inventory[in[k]] -= (uint16_t)need[k];
+    inventory[out] += c[5];
+    return 1;
+}
+
 /* What breaking a block gives: the block itself, except grass gives dirt. */
 static int drop_for(int block) {
     if (block == GRASS) return DIRT;
@@ -1521,6 +1546,8 @@ int main(int argc, char** argv) {
     _Static_assert(sizeof(SharedIo) <= IO_SIZE, "shared file too small");
     _Static_assert(sizeof(SaveHeader) == 64, "the save header must keep its size");
     _Static_assert(__builtin_offsetof(SharedIo, counts) == 128, "must match BlocksSession.kt");
+    _Static_assert(__builtin_offsetof(SharedIo, crafts) == 52 && __builtin_offsetof(SharedIo, craft) == 56,
+                   "must match BlocksSession.kt");
     int w = argc > 1 ? atoi(argv[1]) : 1200;
     int h = argc > 2 ? atoi(argv[2]) : 540;
     int fps_limit = argc > 3 ? atoi(argv[3]) : 0;
@@ -1719,7 +1746,7 @@ int main(int argc, char** argv) {
     /* A loaded world keeps the direction the player faced (not the pitch,
      * which the app clamps from the default). */
     float base_yaw = io->look_yaw - player.yaw, base_pitch = io->look_pitch;
-    int seen_breaks = io->breaks, seen_places = io->places;
+    int seen_breaks = io->breaks, seen_places = io->places, seen_crafts = io->crafts;
 
     /* Time of day: the save's, or HYPOCKET_BLOCKS_TIME, or the morning. */
     const char* time_env = getenv("HYPOCKET_BLOCKS_TIME");
@@ -1865,6 +1892,20 @@ int main(int argc, char** argv) {
         }
         const Sky sk = sky_at(shown_time());
         const float* sky = sk.sky;
+        /* ---- Recipes ---- */
+        int crafts = io->crafts;
+        if (crafts != seen_crafts) {
+            uint8_t recipe[8];
+            memcpy(recipe, io->craft, sizeof recipe);
+            int times = crafts - seen_crafts, made = 0;
+            if (times < 1 || times > 64) times = 1;
+            for (int t = 0; t < times && !creative; t++) made += craft(recipe);
+            if (made) {
+                play_sound(SND_PLACE, 0.35f, 0, 1.4f);
+                world_changed = 1; /* the inventory is in the save */
+            }
+            seen_crafts = crafts;
+        }
         update_creatures(dt, (uint32_t)frames);
         update_particles(dt);
         /* Chunks whose blocks changed are meshed now; those where only lamp

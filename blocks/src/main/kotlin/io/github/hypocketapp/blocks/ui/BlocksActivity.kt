@@ -58,6 +58,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import io.github.hypocketapp.blocks.BlocksBenchmark
 import io.github.hypocketapp.blocks.BlocksConfig
 import io.github.hypocketapp.blocks.BlocksOptions
+import io.github.hypocketapp.blocks.BlocksRecipes
 import io.github.hypocketapp.blocks.BlocksReport
 import io.github.hypocketapp.blocks.BlocksSession
 import io.github.hypocketapp.blocks.BlocksStats
@@ -119,12 +120,16 @@ class BlocksActivity : ComponentActivity() {
             send = { session.selectBlock(it) },
             onArranged = { slots -> world?.let { store.saveHotbar(it.id, slots) } },
         )
-        inventory = Inventory { open ->
+        inventory = Inventory(recipes = if (creative) 0 else BlocksRecipes.ALL.size) { open ->
             // Stop walking and free the pointer while the inventory is up.
             controller.reset()
             if (open) mouse.release()
         }
-        controller = ControllerInput(session, sensitivity, selection, inventory, onExit = { session.stop() })
+        controller = ControllerInput(
+            session, sensitivity, selection, inventory,
+            craft = { i -> BlocksRecipes.ALL.getOrNull(i)?.let { session.craft(it) } },
+            onExit = { session.stop() },
+        )
         mouse = MouseInput(session, sensitivity, selection, paused = { inventory.open.value })
         if (intent.getBooleanExtra(EXTRA_BENCHMARK, false)) {
             val run = BlocksBenchmark(this).also { benchmark = it }
@@ -284,7 +289,7 @@ private fun BlocksScreen(
         )
         val finished = report
         if (finished == null && inventory.open.value) {
-            InventoryPanel(inventory, selection, stats.counts, options.creative)
+            InventoryPanel(inventory, selection, stats.counts, options.creative, onCraft = { session.craft(it) })
         } else if (finished == null) {
             TouchControls(session, lookSensitivity)
             Hud(stats, session, controller.used.value, mouse.captured.value, onExit = { session.stop() })

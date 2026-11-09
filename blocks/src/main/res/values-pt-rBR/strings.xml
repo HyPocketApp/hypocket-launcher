@@ -80,6 +80,8 @@
     <string name="blocks_day_always_day">Sempre dia</string>
     <string name="blocks_day_always_night">Sempre noite</string>
     <string name="blocks_day_mode_hint">Fixar a hora não muda a hora guardada no mundo: de volta aos dias de 15 min, ela continua de onde estava.</string>
+    <string name="blocks_recipes">Receitas</string>
+    <string name="blocks_inventory_hint_recipes">Escolha um lugar na barra e depois o bloco para pôr nele, ou toque numa receita para fabricar. Controle: direcional e A, B fecha. Teclado: setas e Enter, I fecha.</string>
     <string name="blocks_close">Fechar</string>
     <string name="blocks_copy_report">Copiar relatório</string>
     <string name="blocks_status_server_failed">Falhou: o servidor de gráficos não iniciou.</string>

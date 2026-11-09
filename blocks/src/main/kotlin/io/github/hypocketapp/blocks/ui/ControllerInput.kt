@@ -18,7 +18,7 @@ import kotlin.math.sign
  * Keyboard: WASD walks, arrow keys look, Space jumps, Q breaks, E places,
  * 1-9 pick a place in the hotbar, I or Tab opens the inventory, Esc exits.
  * In the inventory the d-pad or arrow keys move, A or Enter puts the block in
- * the hotbar, and B, Select, I, Tab or Esc close it.
+ * the hotbar or makes the recipe, and B, Select, I, Tab or Esc close it.
  */
 class ControllerInput(
     private val session: BlocksSession,
@@ -26,6 +26,8 @@ class ControllerInput(
     private val sensitivity: Float,
     private val selection: BlockSelection,
     private val inventory: Inventory,
+    /** Makes the recipe at this index of BlocksRecipes.ALL once. */
+    private val craft: (Int) -> Unit,
     private val onExit: () -> Unit,
 ) {
 
@@ -173,7 +175,7 @@ class ControllerInput(
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_W -> inventory.move(0, -1)
             KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_S -> inventory.move(0, 1)
             KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_SPACE, KeyEvent.KEYCODE_E ->
-                inventory.confirm(selection)
+                inventory.confirm(selection, craft)
             KeyEvent.KEYCODE_BUTTON_L1 -> selection.previous()
             KeyEvent.KEYCODE_BUTTON_R1, KeyEvent.KEYCODE_BUTTON_Y -> selection.next()
             KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_ESCAPE, KeyEvent.KEYCODE_BUTTON_START -> inventory.close()
