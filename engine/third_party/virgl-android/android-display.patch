@@ -719,7 +719,7 @@ index ba4feb1..13d28ab 100644
        ret = virgl_renderer_transfer_read_iov(res->res_id,
                                               ctx->ctx_id,
 diff --git a/vtest/vtest_server.c b/vtest/vtest_server.c
-index 64a29e1..dea8066 100644
+index 64a29e1..8017d08 100644
 --- a/vtest/vtest_server.c
 +++ b/vtest/vtest_server.c
 @@ -27,6 +27,7 @@
@@ -730,7 +730,7 @@ index 64a29e1..dea8066 100644
  #include <signal.h>
  #include <stdbool.h>
  #include <unistd.h>
-@@ -129,6 +130,74 @@ static void vtest_server_open_read_file(void);
+@@ -129,6 +130,81 @@ static void vtest_server_open_read_file(void);
  static void vtest_server_open_socket(void);
  static void vtest_server_run(void);
  static void vtest_server_close_socket(void);
@@ -790,9 +790,16 @@ index 64a29e1..dea8066 100644
 +   hypocket_stats.submits = hypocket_stats.presents = hypocket_stats.others = hypocket_stats.fences = 0;
 +}
 +
-+/* The client left: a summary of the whole session. */
++/* The client left: a summary of the whole session, the last (shorter)
++ * window included, so that sessions under 5 seconds have one too. */
 +static void hypocket_stats_finish(void)
 +{
++   if (hypocket_stats.window_start > 0) {
++      hypocket_stats.total_submit_ms += hypocket_stats.submit_ms;
++      hypocket_stats.total_present_ms += hypocket_stats.present_ms;
++      hypocket_stats.total_ms += hypocket_stats_now_ms() - hypocket_stats.window_start;
++      hypocket_stats.total_presents += hypocket_stats.presents;
++   }
 +   double total = hypocket_stats.total_ms;
 +   if (total <= 0)
 +      return;
@@ -805,7 +812,7 @@ index 64a29e1..dea8066 100644
  static int vtest_client_dispatch_commands(struct vtest_client *client);
  
  
-@@ -452,6 +521,15 @@ static void vtest_server_wait_clients(void)
+@@ -452,6 +528,15 @@ static void vtest_server_wait_clients(void)
        }
     }
  
@@ -821,7 +828,7 @@ index 64a29e1..dea8066 100644
     /* accept new clients when there is none or when multi_clients is set */
     if (server.socket >= 0 && (max_fd < 0 || server.multi_clients)) {
        FD_SET(server.socket, &read_fds);
-@@ -473,6 +551,9 @@ static void vtest_server_wait_clients(void)
+@@ -473,6 +558,9 @@ static void vtest_server_wait_clients(void)
        exit(1);
     }
  
@@ -831,7 +838,7 @@ index 64a29e1..dea8066 100644
     LIST_FOR_EACH_ENTRY(client, &server.active_clients, head) {
        if (FD_ISSET(client->in_fd, &read_fds)) {
           client->in_fd_ready = true;
-@@ -535,6 +616,7 @@ static void vtest_server_dispatch_clients(void)
+@@ -535,6 +623,7 @@ static void vtest_server_dispatch_clients(void)
  
        ret = vtest_client_dispatch_commands(client);
        if (ret) {
@@ -839,7 +846,7 @@ index 64a29e1..dea8066 100644
           fprintf(ret == VTEST_CLIENT_DISCONNECTED ? stdout : stderr, "client: %s\n",
                   vtest_client_result_string(ret));
           list_del(&client->head);
-@@ -730,6 +812,9 @@ static const struct vtest_command {
+@@ -730,6 +819,9 @@ static const struct vtest_command {
     HANDLER(DRM_SYNC_TRANSFER,           drm_sync_transfer,         true   ),
  #endif /* ENABLE_DRM */
     HANDLER(RESOURCE_EXPORT_FD,          resource_export_fd,        true   ),
@@ -849,7 +856,7 @@ index 64a29e1..dea8066 100644
  };
  
  static int vtest_client_dispatch_commands(struct vtest_client *client)
-@@ -784,7 +869,9 @@ static int vtest_client_dispatch_commands(struct vtest_client *client)
+@@ -784,7 +876,9 @@ static int vtest_client_dispatch_commands(struct vtest_client *client)
     vtest_set_current_context(client->context);
  
     void *trace_scope = TRACE_SCOPE_BEGIN(cmd->name);
