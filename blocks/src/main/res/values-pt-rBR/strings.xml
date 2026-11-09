@@ -74,6 +74,12 @@
     <string name="blocks_mode_creative">criativo</string>
     <string name="blocks_mode_survival">sobrevivência</string>
     <string name="blocks_world_info_mode">%1$s · %2$s · %3$s</string>
+    <string name="blocks_day_mode">Hora do dia (para testes)</string>
+    <string name="blocks_day_cycle">Dias de 15 min</string>
+    <string name="blocks_day_fast">Dias de 2 min</string>
+    <string name="blocks_day_always_day">Sempre dia</string>
+    <string name="blocks_day_always_night">Sempre noite</string>
+    <string name="blocks_day_mode_hint">Fixar a hora não muda a hora guardada no mundo: de volta aos dias de 15 min, ela continua de onde estava.</string>
     <string name="blocks_close">Fechar</string>
     <string name="blocks_copy_report">Copiar relatório</string>
     <string name="blocks_status_server_failed">Falhou: o servidor de gráficos não iniciou.</string>

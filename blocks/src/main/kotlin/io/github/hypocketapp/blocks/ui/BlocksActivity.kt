@@ -63,6 +63,7 @@ import io.github.hypocketapp.blocks.BlocksSession
 import io.github.hypocketapp.blocks.BlocksStats
 import io.github.hypocketapp.blocks.BlocksWorld
 import io.github.hypocketapp.blocks.BlocksWorlds
+import io.github.hypocketapp.blocks.DayMode
 import io.github.hypocketapp.engine.DirectDisplay
 import io.github.hypocketapp.engine.DisplayStatus
 import io.github.hypocketapp.blocks.R
@@ -132,6 +133,7 @@ class BlocksActivity : ComponentActivity() {
             return
         }
         val heavy = intent.getBooleanExtra(EXTRA_HEAVY, false)
+        val dayMode = DayMode.fromName(intent.getStringExtra(EXTRA_DAY_MODE))
         setContent {
             BlocksTheme {
                 BlocksScreen(
@@ -150,6 +152,7 @@ class BlocksActivity : ComponentActivity() {
                         heavy = heavy,
                         world = world,
                         creative = creative,
+                        dayMode = dayMode,
                         creatures = if (heavy) 0 else NORMAL_CREATURES,
                     ),
                     onClose = { finish() },
@@ -199,6 +202,7 @@ class BlocksActivity : ComponentActivity() {
 
     companion object {
         private const val EXTRA_HEAVY = "heavy"
+        private const val EXTRA_DAY_MODE = "day_mode"
         private const val EXTRA_WORLD = "world"
         private const val EXTRA_BENCHMARK = "benchmark"
 
@@ -209,8 +213,9 @@ class BlocksActivity : ComponentActivity() {
         fun worlds(context: Context) = BlocksWorlds(File(context.filesDir, "blocks-worlds"))
 
         /** Plays [world], loading and saving it, or a fresh unsaved world without one. */
-        fun start(context: Context, config: BlocksConfig, heavy: Boolean, world: BlocksWorld?) {
+        fun start(context: Context, config: BlocksConfig, heavy: Boolean, world: BlocksWorld?, dayMode: DayMode = DayMode.CYCLE) {
             val intent = Intent(context, BlocksActivity::class.java).putExtra(EXTRA_HEAVY, heavy).putExtra(EXTRA_WORLD, world?.id)
+                .putExtra(EXTRA_DAY_MODE, dayMode.name)
             context.startActivity(config.putInto(intent))
         }
 
@@ -602,7 +607,7 @@ private fun BlocksReport.toShareText(versionLine: String, inputLines: List<Strin
     appendLine("Renderer: ${renderer ?: "-"}")
     appendLine("Resolution: ${stats.width}x${stats.height}, 3D at ${stats.scalePercent}% at the end")
     appendLine("World built in: %.0f ms".format(stats.buildMillis))
-    appendLine("Heavy mode: ${options.heavy}, dynamic resolution: ${options.dynamicResolution}, creative: ${options.creative}")
+    appendLine("Heavy mode: ${options.heavy}, dynamic resolution: ${options.dynamicResolution}, creative: ${options.creative}, time: ${options.dayMode}")
     appendLine("Frames: ${stats.frames} in %.1f s".format(seconds))
     appendLine("Time in the game at the end: day ${stats.day}, %02d:%02d".format(stats.clockMinutes / 60, stats.clockMinutes % 60))
     appendLine("Exit code: ${exitCode ?: "-"}")

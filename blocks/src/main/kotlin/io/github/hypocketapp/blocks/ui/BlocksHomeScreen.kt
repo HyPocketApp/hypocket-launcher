@@ -1,6 +1,8 @@
 package io.github.hypocketapp.blocks.ui
 
 import android.text.format.DateUtils
+import androidx.compose.foundation.horizontalScroll
+import androidx.core.content.edit
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,6 +38,7 @@ import io.github.hypocketapp.blocks.BlocksWorld
 import io.github.hypocketapp.blocks.BlocksWorlds
 import io.github.hypocketapp.blocks.R
 import io.github.hypocketapp.blocks.BlocksConfig
+import io.github.hypocketapp.blocks.DayMode
 
 /**
  * HyPocket Blocks' home: the saved worlds, a quick unsaved game and the
@@ -47,6 +50,9 @@ fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) 
     val context = LocalContext.current
     val store = remember { BlocksActivity.worlds(context) }
     var heavy by rememberSaveable { mutableStateOf(false) }
+    // Kept between visits: testers set it once and play many games.
+    val prefs = remember { context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE) }
+    var dayMode by remember { mutableStateOf(DayMode.fromName(prefs.getString(KEY_DAY_MODE, null))) }
     var worlds by remember { mutableStateOf(store.list()) }
     var creating by rememberSaveable { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<BlocksWorld?>(null) }
@@ -71,13 +77,13 @@ fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) 
         worlds.forEach { world ->
             WorldCard(
                 world,
-                onPlay = { BlocksActivity.start(context, config(), heavy, world) },
+                onPlay = { BlocksActivity.start(context, config(), heavy, world, dayMode) },
                 onDelete = { deleting = world },
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { creating = true }) { Text(stringResource(R.string.blocks_new_world)) }
-            OutlinedButton(onClick = { BlocksActivity.start(context, config(), heavy, null) }) {
+            OutlinedButton(onClick = { BlocksActivity.start(context, config(), heavy, null, dayMode) }) {
                 Text(stringResource(R.string.blocks_open))
             }
         }
@@ -91,6 +97,20 @@ fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) 
             Text(stringResource(R.string.blocks_heavy), modifier = Modifier.weight(1f))
             Switch(checked = heavy, onCheckedChange = { heavy = it })
         }
+        Text(stringResource(R.string.blocks_day_mode), style = MaterialTheme.typography.labelLarge)
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DayMode.entries.forEach { mode ->
+                FilterChip(
+                    selected = dayMode == mode,
+                    onClick = {
+                        dayMode = mode
+                        prefs.edit { putString(KEY_DAY_MODE, mode.name) }
+                    },
+                    label = { Text(stringResource(dayModeLabel(mode))) },
+                )
+            }
+        }
+        Text(stringResource(R.string.blocks_day_mode_hint), style = MaterialTheme.typography.bodySmall)
         OutlinedButton(onClick = { BlocksActivity.startBenchmark(context, config()) }) {
             Text(stringResource(R.string.blocks_benchmark))
         }
@@ -103,7 +123,7 @@ fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) 
                 creating = false
                 val world = store.create(name, chunks, creative)
                 worlds = store.list()
-                BlocksActivity.start(context, config(), heavy, world)
+                BlocksActivity.start(context, config(), heavy, world, dayMode)
             },
             onDismiss = { creating = false },
         )
@@ -202,6 +222,16 @@ private fun NewWorldDialog(onCreate: (String, Int, Boolean) -> Unit, onDismiss: 
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.blocks_cancel)) } },
     )
+}
+
+private const val PREFS = "hypocket_blocks"
+private const val KEY_DAY_MODE = "day_mode"
+
+private fun dayModeLabel(mode: DayMode): Int = when (mode) {
+    DayMode.CYCLE -> R.string.blocks_day_cycle
+    DayMode.FAST -> R.string.blocks_day_fast
+    DayMode.ALWAYS_DAY -> R.string.blocks_day_always_day
+    DayMode.ALWAYS_NIGHT -> R.string.blocks_day_always_night
 }
 
 private fun sizeLabel(chunks: Int): Int = when (chunks) {

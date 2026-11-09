@@ -74,6 +74,12 @@
     <string name="blocks_mode_creative">creative</string>
     <string name="blocks_mode_survival">survival</string>
     <string name="blocks_world_info_mode">%1$s · %2$s · %3$s</string>
+    <string name="blocks_day_mode">Time of day (for testing)</string>
+    <string name="blocks_day_cycle">15-minute days</string>
+    <string name="blocks_day_fast">2-minute days</string>
+    <string name="blocks_day_always_day">Always day</string>
+    <string name="blocks_day_always_night">Always night</string>
+    <string name="blocks_day_mode_hint">Holding the time does not change the time kept in the world: back on 15-minute days, it continues where it was.</string>
     <string name="blocks_close">Close</string>
     <string name="blocks_copy_report">Copy report</string>
     <string name="blocks_status_server_failed">Failed: the graphics server did not start.</string>

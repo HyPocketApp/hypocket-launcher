@@ -121,6 +121,12 @@ class BlocksSession(context: Context) : AutoCloseable {
             if (options.heavy) put("HYPOCKET_BLOCKS_HEAVY", "1")
             if (options.benchmarkFrames > 0) put("HYPOCKET_BLOCKS_BENCH", "1")
             if (options.creative) put("HYPOCKET_BLOCKS_CREATIVE", "1")
+            when (options.dayMode) {
+                DayMode.CYCLE -> {}
+                DayMode.FAST -> put("HYPOCKET_BLOCKS_DAY_SECONDS", DayMode.FAST_DAY_SECONDS.toString())
+                DayMode.ALWAYS_DAY -> put("HYPOCKET_BLOCKS_TIME_LOCK", "0.5")
+                DayMode.ALWAYS_NIGHT -> put("HYPOCKET_BLOCKS_TIME_LOCK", "0.0")
+            }
             options.world?.let { world ->
                 put("HYPOCKET_BLOCKS_SAVE", world.saveFile.absolutePath)
                 put("HYPOCKET_BLOCKS_CHUNKS", world.chunks.toString())
@@ -269,6 +275,8 @@ data class BlocksOptions(
     val benchmarkFrames: Int = 0,
     /** A saved world to load and save; without one, a fresh world nobody keeps. */
     val world: BlocksWorld? = null,
+    /** How time passes: the normal day, a fast one, or held at noon or midnight (for testing). */
+    val dayMode: DayMode = DayMode.CYCLE,
     /** Unlimited blocks, nothing collected (quick games, and worlds made creative). */
     val creative: Boolean = true,
     /** Wandering creatures outside heavy mode (heavy mode always has 300). */
@@ -278,6 +286,28 @@ data class BlocksOptions(
     /** More environment for the VirGL server (its options under test). */
     val serverEnv: Map<String, String> = emptyMap(),
 )
+
+/** How time passes in a game. Holding the time never changes the time kept in the world's save. */
+enum class DayMode {
+    /** A full day every 15 minutes. */
+    CYCLE,
+
+    /** A full day every [FAST_DAY_SECONDS] seconds, to see a day pass quickly. */
+    FAST,
+
+    /** Held at noon. */
+    ALWAYS_DAY,
+
+    /** Held at midnight, to test lamps and the night. */
+    ALWAYS_NIGHT,
+    ;
+
+    companion object {
+        const val FAST_DAY_SECONDS = 120
+
+        fun fromName(name: String?): DayMode = entries.firstOrNull { it.name == name } ?: CYCLE
+    }
+}
 
 data class BlocksReport(
     val status: DisplayStatus,

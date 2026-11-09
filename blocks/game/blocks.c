@@ -39,7 +39,9 @@
  * the blocks around them; that light is worked out per block when a chunk is
  * meshed (see chunk_light), so it costs nothing per frame. The time of day is
  * kept in the save. HYPOCKET_BLOCKS_TIME (0-1, 0.5 is noon) sets the starting
- * time, which the benchmark keeps at noon.
+ * time, which the benchmark keeps at noon. HYPOCKET_BLOCKS_TIME_LOCK (0-1)
+ * holds the time where it is for testing (0 is midnight) without changing the
+ * time kept in the save.
  *
  * Breaking a block puts it in the player's inventory (grass gives dirt) and
  * placing one uses it up; the inventory is kept in the save. With
@@ -852,6 +854,10 @@ static void set_block(int x, int y, int z, int b) {
 
 /* 0 is midnight, 0.25 sunrise, 0.5 noon, 0.75 sunset. */
 static float day_time = 0.3f;
+static float time_lock = -1; /* >= 0: the time shown, held for testing */
+
+/* The time the world is shown at: the held time, or the real one. */
+static float shown_time(void) { return time_lock >= 0 ? time_lock : day_time; }
 static uint32_t day_count; /* full days passed */
 
 typedef struct {
@@ -1750,6 +1756,8 @@ int main(int argc, char** argv) {
     float step_timer = 0, rate_yaw = 0, rate_pitch = 0;
     int bench = max_frames > 0 && getenv("HYPOCKET_BLOCKS_BENCH") != NULL;
     if (bench && !time_env) day_time = 0.5f; /* the same light on every run */
+    const char* lock_env = getenv("HYPOCKET_BLOCKS_TIME_LOCK");
+    if (lock_env) time_lock = fmodf(fabsf((float)atof(lock_env)), 1.0f);
     const float bench_x = player.x, bench_y = player.y + 10, bench_z = player.z;
     double stats_wait = 0, bench_start = 0, bench_work = 0, bench_wait = 0;
     int bench_frames = 0;
@@ -1852,10 +1860,10 @@ int main(int argc, char** argv) {
             seen_places = places;
         }
         if (!bench) {
-            day_time += dt / day_seconds;
+            if (time_lock < 0) day_time += dt / day_seconds;
             if (day_time >= 1.0f) { day_time -= 1.0f; day_count++; }
         }
-        const Sky sk = sky_at(day_time);
+        const Sky sk = sky_at(shown_time());
         const float* sky = sk.sky;
         update_creatures(dt, (uint32_t)frames);
         update_particles(dt);
@@ -2136,7 +2144,7 @@ int main(int argc, char** argv) {
         }
         io->scale_percent = (int)(scale * 100.0f + 0.5f);
         io->creatures = creatures_drawn;
-        io->clock_minutes = (int)(day_time * 1440.0f) % 1440;
+        io->clock_minutes = (int)(shown_time() * 1440.0f) % 1440;
         for (int k = 0; k < PALETTE_SIZE && k < 16; k++) io->counts[k] = (int16_t)inventory[palette[k]];
         io->day = (int)day_count + 1;
         frames++;
