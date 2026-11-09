@@ -18,8 +18,8 @@ jogo estão em [goal-ideas.md](goal-ideas.md).
 
 ## Estado
 
-Panorama contado pelo autor (primeira rodada). Propostas de implantação
-escritas, à espera de debate. Nada novo foi programado ainda.
+Segunda rodada: o autor aprovou as propostas (ver "Decisões da segunda
+rodada") e pediu tudo de uma vez, um commit por parte, num APK só.
 
 ## A história, como foi contada
 
@@ -60,6 +60,63 @@ _(o texto do autor, sem edição, para consulta)_
 > entravel, da pra vc até sobreviver lá, mas a dificuldade é insana e não sei
 > o que fazer lá pra falar a verdade, não sei nem se vai ter desfecho com
 > bosses tbm. Bom creio que esse é o panorama geral, oq acha?
+
+## A segunda rodada, como foi contada
+
+> Gostei, a 6 mesmo ficou incrível, da pra colocar como cada casa preenche uma
+> parte do quebra cabeça, são pessoas com ideias diferentes supondo coisas
+> diferentes e tendo crenças diferentes, e o mais importante, são indivíduos,
+> alguns mesmo nem relato vai ficar, só a casa pra trás com móveis quebrados,
+> talvez os relatos não precisem ser só papéis, telefone cll, com um chat de
+> desespero para as pessoas próximas antes de sumir, e por aí vai.
+> Pode implementar os nocturnes puxando, mas oque eu recomendo pra ficar melhor
+> e eu testar só um apk, é fazer todos de uma vez, um por commit, ou mais de um
+> commit quando ficar melhor, pra organizar certinho.
+> A primeira ideia de o pq as pessoas são arrastadas é interessante, pq seguem
+> duas coisas diferentes, um, mundo normal fuja, mundo dos Nocturnes, tbm fuja,
+> mas correr já não é uma opção, até pq vc não sabe como voltar e se tem como.
+> O inventário de quem é arrastado pode ficar por enquanto.
+> Isso tudo que falou, pra fazer agasalhos roupas e utensílios improvisados pra
+> sobrevivência, banha pra fritar os alimentos e por aí vai. Dá pra fazer um
+> negócio bem maneiro aqui.
+> O nome Nocturne é um que me veio a cabeça do nada, não tem significado que eu
+> conheça, ent pode sugerir outros nomes. Na verdade eles podem ser conhecidos
+> por nomes diferentes dependendo do local ou da pessoa se pá, até nós relatos
+> pode conter isso, alguns chamando de coisas sombrias, demônios da névoa, que
+> assim reflete oq eu falei, são pessoas diferentes e individuais, que vão
+> tratar eles de jeitos diferentes.
+> O jogador não tem nome e passado, pelo menos não pré-definido, ou até pode
+> criar um md de past of the player pra deixar em aberto, agora o nome é
+> customizavel, pq pretendo colocar multiplayer,apesar de que multiplayer pra
+> brasileiro faz todo o terror sumir kkkkkkk.
+> Quanto a última coisa, eu pretendo fazer as animações em outra conta,
+> modelagens tbm usando ia, já tô vendo na outra conta qual é o melhor agente
+> pra isso e tals, isso vai deixar sua carga bem leve e direta.
+
+## Decisões da segunda rodada
+
+- **Tudo entra agora**, num APK: Nocturnes que perseguem e arrastam, abrigos,
+  ruínas com relatos, fendas nos faróis e a dimensão.
+- **Relatos são de indivíduos.** Cada casa é uma peça do quebra-cabeça: gente
+  diferente, com suposições e crenças diferentes. Há casas sem relato nenhum,
+  só os móveis quebrados. Os relatos podem ser papéis ou **celulares** com a
+  conversa de desespero mandada às pessoas próximas antes de sumir.
+- **Os nomes variam.** Cada pessoa chama as criaturas do seu jeito ("coisas
+  sombrias", "demônios da névoa", "os de lá"...). "Nocturnes" é só o nome de
+  trabalho; o jogo não dá nome oficial a elas. Sugestões para um nome de
+  trabalho: **Velados**, **Brumosos**, **Arrastadores**, **Os da Névoa**.
+- **Por que arrastam:** fica o mistério, e a dimensão é para onde levam. As
+  duas frentes: no nosso mundo, fuja; no mundo deles, também, mas correr já
+  não adianta, porque lá eles são mais rápidos e você não sabe como voltar.
+- **Inventário de quem é arrastado:** fica com o jogador, por enquanto.
+- **O que as criaturas do amanhecer dão:** couro, lã, carne e banha, para
+  agasalhos, roupas, utensílios improvisados e comida frita. Fica para a
+  próxima rodada, porque pede decidir antes fome e frio (ver "Em aberto").
+- **O jogador** não tem nome nem passado definidos; o nome será escolhido
+  pelo jogador (pensando no multiplayer). O passado fica em aberto em
+  [player-past.md](player-past.md).
+- **Animações e modelos** serão feitos em outra conta, com IA. Aqui o jogo
+  continua com caixas simples e deixa os pontos de troca claros.
 
 ## O mundo
 
