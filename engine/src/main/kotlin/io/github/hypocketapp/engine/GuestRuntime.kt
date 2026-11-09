@@ -32,6 +32,7 @@ internal class GuestRuntime(context: Context) {
         args: List<String> = emptyList(),
         timeoutSeconds: Long,
         onStart: (Process) -> Unit = {},
+        onLine: (String) -> Unit = {},
     ): RunResult {
         val guest = extractAsset(name)
         val libDir = prepareLibDir()
@@ -52,7 +53,7 @@ internal class GuestRuntime(context: Context) {
                 environment().putAll(HostCpu.box64Environment)
                 environment().putAll(extraEnv)
             }
-        return run(builder, timeoutSeconds, onStart)
+        return run(builder, timeoutSeconds, onStart, onLine)
     }
 
     /**
@@ -144,8 +145,16 @@ internal class GuestRuntime(context: Context) {
             "libz.so.1" to "libmesa_z.so",
         )
 
-        /** Starts a process and collects its output, killing it after the timeout. */
-        fun run(builder: ProcessBuilder, timeoutSeconds: Long, onStart: (Process) -> Unit = {}): RunResult {
+        /**
+         * Starts a process and collects its output, killing it after the
+         * timeout. [onLine] gets each line as it comes, on the reader thread.
+         */
+        fun run(
+            builder: ProcessBuilder,
+            timeoutSeconds: Long,
+            onStart: (Process) -> Unit = {},
+            onLine: (String) -> Unit = {},
+        ): RunResult {
             val startNanos = System.nanoTime()
             val process = builder.start()
             onStart(process)
@@ -156,6 +165,7 @@ internal class GuestRuntime(context: Context) {
                         synchronized(output) {
                             if (output.length < MAX_OUTPUT_CHARS) output.appendLine(line)
                         }
+                        onLine(line)
                     }
                 }
             }

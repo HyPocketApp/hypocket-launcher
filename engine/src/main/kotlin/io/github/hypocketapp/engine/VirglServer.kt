@@ -43,8 +43,15 @@ internal class VirglServer private constructor(
 
         fun binary(runtime: GuestRuntime) = File(runtime.nativeLibDir, "libvirgl_server.so")
 
-        /** Starts the server, or returns null and the server's log if it did not come up. */
-        fun start(runtime: GuestRuntime, extraEnv: Map<String, String> = emptyMap()): Pair<VirglServer?, String> {
+        /**
+         * Starts the server, or returns null and the server's log if it did
+         * not come up. [onLine] gets each line of its output as it comes.
+         */
+        fun start(
+            runtime: GuestRuntime,
+            extraEnv: Map<String, String> = emptyMap(),
+            onLine: (String) -> Unit = {},
+        ): Pair<VirglServer?, String> {
             val socket = File(runtime.cacheDir, "virgl.sock")
             socket.delete()
             val process = ProcessBuilder(
@@ -71,6 +78,7 @@ internal class VirglServer private constructor(
                         synchronized(output) {
                             if (output.length < MAX_OUTPUT_CHARS) output.appendLine(line)
                         }
+                        onLine(line)
                     }
                 }
             }
