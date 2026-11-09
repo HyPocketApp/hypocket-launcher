@@ -30,7 +30,9 @@
  * 30 seconds after a change and on exit. New worlds take their size from
  * HYPOCKET_BLOCKS_CHUNKS (8, 16 or 24 chunks a side) and their terrain from
  * HYPOCKET_BLOCKS_SEED. HYPOCKET_BLOCKS_CREATURES sets how many creatures
- * wander outside heavy mode. */
+ * wander outside heavy mode. Creatures are drawn with one instanced draw call;
+ * HYPOCKET_BLOCKS_SEPARATE_DRAWS=1 draws each box on its own instead, the
+ * load of a game with many separate objects (the benchmark uses it). */
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GL/glcorearb.h>
@@ -118,10 +120,13 @@ typedef struct {
     X(PFNGLGENBUFFERSPROC, glGenBuffers) \
     X(PFNGLBINDBUFFERPROC, glBindBuffer) \
     X(PFNGLBUFFERDATAPROC, glBufferData) \
+    X(PFNGLBUFFERSUBDATAPROC, glBufferSubData) \
     X(PFNGLVERTEXATTRIBPOINTERPROC, glVertexAttribPointer) \
     X(PFNGLENABLEVERTEXATTRIBARRAYPROC, glEnableVertexAttribArray) \
     X(PFNGLDRAWELEMENTSPROC, glDrawElements) \
     X(PFNGLDRAWARRAYSPROC, glDrawArrays) \
+    X(PFNGLDRAWARRAYSINSTANCEDPROC, glDrawArraysInstanced) \
+    X(PFNGLVERTEXATTRIBDIVISORPROC, glVertexAttribDivisor) \
     X(PFNGLGENTEXTURESPROC, glGenTextures) \
     X(PFNGLBINDTEXTUREPROC, glBindTexture) \
     X(PFNGLTEXIMAGE3DPROC, glTexImage3D) \
@@ -902,33 +907,40 @@ static void update_particles(float dt) {
     }
 }
 
-/* One box per draw call: center, half size, rotation and colour. */
+/* Boxes for creatures and particles. The corners come from gl_VertexID; the
+ * center, half size, rotation and colour come from uniforms (one draw call
+ * per box) or from per-instance attributes (one draw call for all). */
+#define BOX_BODY \
+    "out float light;\n" \
+    "out float dist;\n" \
+    "const vec3 normals[6] = vec3[](vec3(1,0,0), vec3(-1,0,0), vec3(0,1,0), vec3(0,-1,0), vec3(0,0,1), vec3(0,0,-1));\n" \
+    "const vec2 quad[6] = vec2[](vec2(0,0), vec2(1,0), vec2(1,1), vec2(0,0), vec2(1,1), vec2(0,1));\n" \
+    "void main() {\n" \
+    "    int face = gl_VertexID / 6;\n" \
+    "    vec2 q = quad[gl_VertexID % 6];\n" \
+    "    vec3 n = normals[face];\n" \
+    "    vec3 t = abs(n.y) > 0.5 ? vec3(1,0,0) : vec3(0,1,0);\n" \
+    "    vec3 b = cross(n, t);\n" \
+    "    vec3 p = (n + (q.x * 2.0 - 1.0) * t + (q.y * 2.0 - 1.0) * b) * half_size;\n" \
+    "    float c = cos(yaw), s = sin(yaw);\n" \
+    "    p = vec3(c * p.x - s * p.z, p.y, s * p.x + c * p.z);\n" \
+    "    vec3 rn = vec3(c * n.x - s * n.z, n.y, s * n.x + c * n.z);\n" \
+    "    vec3 world = center + p;\n" \
+    "    gl_Position = view_proj * vec4(world, 1.0);\n" \
+    "    light = 0.45 + 0.55 * max(dot(rn, normalize(vec3(0.4, 0.8, 0.3))), 0.0);\n" \
+    "    dist = length(world - eye);\n" \
+    "    BOX_COLOR\n" \
+    "}\n"
+
 static const char* box_vs =
     "#version 330 core\n"
+    "#define BOX_COLOR\n"
     "uniform mat4 view_proj;\n"
     "uniform vec3 center;\n"
     "uniform vec3 half_size;\n"
     "uniform float yaw;\n"
     "uniform vec3 eye;\n"
-    "out float light;\n"
-    "out float dist;\n"
-    "const vec3 normals[6] = vec3[](vec3(1,0,0), vec3(-1,0,0), vec3(0,1,0), vec3(0,-1,0), vec3(0,0,1), vec3(0,0,-1));\n"
-    "const vec2 quad[6] = vec2[](vec2(0,0), vec2(1,0), vec2(1,1), vec2(0,0), vec2(1,1), vec2(0,1));\n"
-    "void main() {\n"
-    "    int face = gl_VertexID / 6;\n"
-    "    vec2 q = quad[gl_VertexID % 6];\n"
-    "    vec3 n = normals[face];\n"
-    "    vec3 t = abs(n.y) > 0.5 ? vec3(1,0,0) : vec3(0,1,0);\n"
-    "    vec3 b = cross(n, t);\n"
-    "    vec3 p = (n + (q.x * 2.0 - 1.0) * t + (q.y * 2.0 - 1.0) * b) * half_size;\n"
-    "    float c = cos(yaw), s = sin(yaw);\n"
-    "    p = vec3(c * p.x - s * p.z, p.y, s * p.x + c * p.z);\n"
-    "    vec3 rn = vec3(c * n.x - s * n.z, n.y, s * n.x + c * n.z);\n"
-    "    vec3 world = center + p;\n"
-    "    gl_Position = view_proj * vec4(world, 1.0);\n"
-    "    light = 0.45 + 0.55 * max(dot(rn, normalize(vec3(0.4, 0.8, 0.3))), 0.0);\n"
-    "    dist = length(world - eye);\n"
-    "}\n";
+    BOX_BODY;
 
 static const char* box_fs =
     "#version 330 core\n"
@@ -941,6 +953,33 @@ static const char* box_fs =
     "void main() {\n"
     "    float fog = clamp((dist - fog_end * 0.6) / (fog_end * 0.4), 0.0, 1.0);\n"
     "    frag = vec4(mix(color * light, fog_color, fog), 1.0);\n"
+    "}\n";
+
+/* Per instance: center (3 floats), half size (3), yaw (1), colour (3). */
+#define INSTANCE_FLOATS 10
+static const char* instanced_vs =
+    "#version 330 core\n"
+    "#define BOX_COLOR v_color = color;\n"
+    "uniform mat4 view_proj;\n"
+    "uniform vec3 eye;\n"
+    "layout(location = 0) in vec3 center;\n"
+    "layout(location = 1) in vec3 half_size;\n"
+    "layout(location = 2) in float yaw;\n"
+    "layout(location = 3) in vec3 color;\n"
+    "out vec3 v_color;\n"
+    BOX_BODY;
+
+static const char* instanced_fs =
+    "#version 330 core\n"
+    "uniform vec3 fog_color;\n"
+    "uniform float fog_end;\n"
+    "in vec3 v_color;\n"
+    "in float light;\n"
+    "in float dist;\n"
+    "out vec4 frag;\n"
+    "void main() {\n"
+    "    float fog = clamp((dist - fog_end * 0.6) / (fog_end * 0.4), 0.0, 1.0);\n"
+    "    frag = vec4(mix(v_color * light, fog_color, fog), 1.0);\n"
     "}\n";
 
 /* ---- Matrices --------------------------------------------------------- */
@@ -1316,6 +1355,7 @@ int main(int argc, char** argv) {
     const char* seed_env = getenv("HYPOCKET_BLOCKS_SEED");
     if (seed_env) world_seed = abs(atoi(seed_env) % 1000000);
     const char* save_path = getenv("HYPOCKET_BLOCKS_SAVE");
+    int separate_draws = getenv("HYPOCKET_BLOCKS_SEPARATE_DRAWS") != NULL;
     GLuint box_program = link_program(box_vs, box_fs);
     GLint ub_view_proj = p_glGetUniformLocation(box_program, "view_proj");
     GLint ub_center = p_glGetUniformLocation(box_program, "center");
@@ -1325,6 +1365,30 @@ int main(int argc, char** argv) {
     GLint ub_color = p_glGetUniformLocation(box_program, "color");
     GLint ub_fog_color = p_glGetUniformLocation(box_program, "fog_color");
     GLint ub_fog_end = p_glGetUniformLocation(box_program, "fog_end");
+    GLuint inst_program = link_program(instanced_vs, instanced_fs);
+    GLint ui_view_proj = p_glGetUniformLocation(inst_program, "view_proj");
+    GLint ui_eye = p_glGetUniformLocation(inst_program, "eye");
+    GLint ui_fog_color = p_glGetUniformLocation(inst_program, "fog_color");
+    GLint ui_fog_end = p_glGetUniformLocation(inst_program, "fog_end");
+    /* Instances: two boxes per creature, one per particle. */
+    enum { MAX_INSTANCES = MAX_CREATURES * 2 + MAX_PARTICLES };
+    static float instances[MAX_INSTANCES][INSTANCE_FLOATS];
+    GLuint inst_vao, inst_vbo;
+    p_glGenVertexArrays(1, &inst_vao);
+    p_glBindVertexArray(inst_vao);
+    p_glGenBuffers(1, &inst_vbo);
+    p_glBindBuffer(GL_ARRAY_BUFFER, inst_vbo);
+    p_glBufferData(GL_ARRAY_BUFFER, sizeof instances, NULL, GL_STREAM_DRAW);
+    {
+        const int sizes[4] = {3, 3, 1, 3}, offsets[4] = {0, 3, 6, 7};
+        for (int a = 0; a < 4; a++) {
+            p_glVertexAttribPointer(a, sizes[a], GL_FLOAT, GL_FALSE, INSTANCE_FLOATS * sizeof(float),
+                                    (void*)(offsets[a] * sizeof(float)));
+            p_glVertexAttribDivisor(a, 1);
+            p_glEnableVertexAttribArray(a);
+        }
+    }
+
     double build_start = now_ms();
     Player player = {0};
     int loaded = save_path && load_world(save_path, &player);
@@ -1545,42 +1609,83 @@ int main(int argc, char** argv) {
             p_glDrawElements(GL_TRIANGLES, ch->quads * 6, GL_UNSIGNED_INT, 0);
             triangles += ch->quads * 2;
         }
-        /* Creatures and particles: one draw call per box. */
+        /* Creatures and particles: one draw call per box, or one for all. */
         int creatures_drawn = 0;
-        p_glUseProgram(box_program);
-        p_glUniformMatrix4fv(ub_view_proj, 1, GL_FALSE, vp);
-        p_glUniform3f(ub_eye, player.x, player.y + EYE_HEIGHT, player.z);
-        p_glUniform3f(ub_fog_color, sky[0], sky[1], sky[2]);
-        p_glUniform1f(ub_fog_end, far);
-        p_glBindVertexArray(hud_vao); /* no attributes: corners come from gl_VertexID */
-        for (int i = 0; i < creature_count; i++) {
-            const Creature* c = &creatures[i];
-            float dx = c->x - player.x, dz = c->z - player.z, d = sqrtf(dx * dx + dz * dz);
-            if (d > far || (d > 4 && dx * fx + dz * fz < -2)) continue;
-            const float* col = creature_colors[c->color];
-            float bob = c->on_ground ? fabsf(sinf(c->phase)) * 0.06f : 0;
-            p_glUniform1f(ub_yaw, c->yaw);
-            p_glUniform3f(ub_center, c->x, c->y + 0.38f + bob, c->z);
-            p_glUniform3f(ub_half, 0.32f, 0.26f, 0.42f);
-            p_glUniform3f(ub_color, col[0], col[1], col[2]);
-            p_glDrawArrays(GL_TRIANGLES, 0, 36);
-            /* The head, a little in front and above. */
-            p_glUniform3f(ub_center, c->x + sinf(c->yaw) * 0.45f, c->y + 0.62f + bob, c->z - cosf(c->yaw) * 0.45f);
-            p_glUniform3f(ub_half, 0.2f, 0.2f, 0.2f);
-            p_glUniform3f(ub_color, col[0] * 0.8f, col[1] * 0.8f, col[2] * 0.8f);
-            p_glDrawArrays(GL_TRIANGLES, 0, 36);
-            creatures_drawn++;
-            triangles += 24;
-        }
-        p_glUniform1f(ub_yaw, 0);
-        p_glUniform3f(ub_half, 0.06f, 0.06f, 0.06f);
-        for (int i = 0; i < MAX_PARTICLES; i++) {
-            const Particle* pt = &particles[i];
-            if (pt->life <= 0) continue;
-            p_glUniform3f(ub_center, pt->x, pt->y, pt->z);
-            p_glUniform3f(ub_color, pt->color[0], pt->color[1], pt->color[2]);
-            p_glDrawArrays(GL_TRIANGLES, 0, 36);
-            triangles += 12;
+        if (separate_draws) {
+            p_glUseProgram(box_program);
+            p_glUniformMatrix4fv(ub_view_proj, 1, GL_FALSE, vp);
+            p_glUniform3f(ub_eye, player.x, player.y + EYE_HEIGHT, player.z);
+            p_glUniform3f(ub_fog_color, sky[0], sky[1], sky[2]);
+            p_glUniform1f(ub_fog_end, far);
+            p_glBindVertexArray(hud_vao); /* no attributes: corners come from gl_VertexID */
+            for (int i = 0; i < creature_count; i++) {
+                const Creature* c = &creatures[i];
+                float dx = c->x - player.x, dz = c->z - player.z, d = sqrtf(dx * dx + dz * dz);
+                if (d > far || (d > 4 && dx * fx + dz * fz < -2)) continue;
+                const float* col = creature_colors[c->color];
+                float bob = c->on_ground ? fabsf(sinf(c->phase)) * 0.06f : 0;
+                p_glUniform1f(ub_yaw, c->yaw);
+                p_glUniform3f(ub_center, c->x, c->y + 0.38f + bob, c->z);
+                p_glUniform3f(ub_half, 0.32f, 0.26f, 0.42f);
+                p_glUniform3f(ub_color, col[0], col[1], col[2]);
+                p_glDrawArrays(GL_TRIANGLES, 0, 36);
+                /* The head, a little in front and above. */
+                p_glUniform3f(ub_center, c->x + sinf(c->yaw) * 0.45f, c->y + 0.62f + bob, c->z - cosf(c->yaw) * 0.45f);
+                p_glUniform3f(ub_half, 0.2f, 0.2f, 0.2f);
+                p_glUniform3f(ub_color, col[0] * 0.8f, col[1] * 0.8f, col[2] * 0.8f);
+                p_glDrawArrays(GL_TRIANGLES, 0, 36);
+                creatures_drawn++;
+                triangles += 24;
+            }
+            p_glUniform1f(ub_yaw, 0);
+            p_glUniform3f(ub_half, 0.06f, 0.06f, 0.06f);
+            for (int i = 0; i < MAX_PARTICLES; i++) {
+                const Particle* pt = &particles[i];
+                if (pt->life <= 0) continue;
+                p_glUniform3f(ub_center, pt->x, pt->y, pt->z);
+                p_glUniform3f(ub_color, pt->color[0], pt->color[1], pt->color[2]);
+                p_glDrawArrays(GL_TRIANGLES, 0, 36);
+                triangles += 12;
+            }
+        } else {
+            int n = 0;
+            for (int i = 0; i < creature_count; i++) {
+                const Creature* c = &creatures[i];
+                float dx = c->x - player.x, dz = c->z - player.z, d = sqrtf(dx * dx + dz * dz);
+                if (d > far || (d > 4 && dx * fx + dz * fz < -2)) continue;
+                const float* col = creature_colors[c->color];
+                float bob = c->on_ground ? fabsf(sinf(c->phase)) * 0.06f : 0;
+                float body[INSTANCE_FLOATS] = {c->x, c->y + 0.38f + bob, c->z, 0.32f, 0.26f, 0.42f, c->yaw,
+                                               col[0], col[1], col[2]};
+                float head[INSTANCE_FLOATS] = {c->x + sinf(c->yaw) * 0.45f, c->y + 0.62f + bob,
+                                               c->z - cosf(c->yaw) * 0.45f, 0.2f, 0.2f, 0.2f, c->yaw,
+                                               col[0] * 0.8f, col[1] * 0.8f, col[2] * 0.8f};
+                memcpy(instances[n++], body, sizeof body);
+                memcpy(instances[n++], head, sizeof head);
+                creatures_drawn++;
+                triangles += 24;
+            }
+            for (int i = 0; i < MAX_PARTICLES; i++) {
+                const Particle* pt = &particles[i];
+                if (pt->life <= 0) continue;
+                float box[INSTANCE_FLOATS] = {pt->x, pt->y, pt->z, 0.06f, 0.06f, 0.06f, 0,
+                                              pt->color[0], pt->color[1], pt->color[2]};
+                memcpy(instances[n++], box, sizeof box);
+                triangles += 12;
+            }
+            if (n > 0) {
+                p_glUseProgram(inst_program);
+                p_glUniformMatrix4fv(ui_view_proj, 1, GL_FALSE, vp);
+                p_glUniform3f(ui_eye, player.x, player.y + EYE_HEIGHT, player.z);
+                p_glUniform3f(ui_fog_color, sky[0], sky[1], sky[2]);
+                p_glUniform1f(ui_fog_end, far);
+                p_glBindVertexArray(inst_vao);
+                p_glBindBuffer(GL_ARRAY_BUFFER, inst_vbo);
+                /* A fresh buffer each frame, so the GPU never waits for the last one. */
+                p_glBufferData(GL_ARRAY_BUFFER, sizeof instances, NULL, GL_STREAM_DRAW);
+                p_glBufferSubData(GL_ARRAY_BUFFER, 0, (GLsizeiptr)n * sizeof instances[0], instances);
+                p_glDrawArraysInstanced(GL_TRIANGLES, 0, 36, n);
+            }
         }
         p_glUseProgram(world_program);
 

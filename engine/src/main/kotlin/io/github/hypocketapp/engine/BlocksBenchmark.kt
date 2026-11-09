@@ -30,6 +30,12 @@ class BlocksBenchmark(private val context: Context) {
         val scalePercent: Int = 100,
         /** Runs [WARM_UP_FRAMES] frames and is left out of the results. */
         val warmUp: Boolean = false,
+        /**
+         * Creatures and particles in one instanced draw call, as the game
+         * draws them. The other phases draw each box separately: the load of
+         * a game with many separate objects, the same in every version.
+         */
+        val instanced: Boolean = false,
     )
 
     data class PhaseResult(
@@ -58,7 +64,8 @@ class BlocksBenchmark(private val context: Context) {
                     width, height, fpsLimit = 0, display = display,
                     options = BlocksOptions(
                         heavy = true, benchmarkFrames = if (phase.warmUp) WARM_UP_FRAMES else FRAMES,
-                        extraEnv = phase.env, serverEnv = phase.serverEnv,
+                        extraEnv = phase.env + if (phase.instanced) emptyMap() else mapOf(SEPARATE_DRAWS),
+                        serverEnv = phase.serverEnv,
                     ),
                 )
             }
@@ -84,6 +91,7 @@ class BlocksBenchmark(private val context: Context) {
         // Server options under test (declared before PHASES, which uses them).
         private val EARLY_FENCES_OFF = "HYPOCKET_FENCES_ON_MAIN_THREAD" to "1"
         private val ERROR_CHECK_EACH = "HYPOCKET_ERROR_CHECK_EACH" to "1"
+        private val SEPARATE_DRAWS = "HYPOCKET_BLOCKS_SEPARATE_DRAWS" to "1"
 
         val PHASES = listOf(
             // The first run on a cold phone is slower (CPU and GPU clocks
@@ -102,6 +110,8 @@ class BlocksBenchmark(private val context: Context) {
             Phase("default"),
             // A quarter of the pixels: tells pixel work from geometry and draw calls.
             Phase("half resolution", scalePercent = 50),
+            // About 250 fewer draw calls per frame: what fewer draws save.
+            Phase("instanced creatures", instanced = true),
         )
 
         private val BENCH_LINE =
