@@ -1128,6 +1128,13 @@ static int load_world(const char* path, Player* p) {
 #define BEACON_LAMPS 2
 #define BEACON_GLASS 3
 static int beacon_x[BEACONS], beacon_y[BEACONS], beacon_z[BEACONS]; /* beacon_y: -1 when missing */
+/* Beside each unlit beacon, a rift: a tear in the air where the mist of the
+ * other side leaks through. Lighting the beacon seals it. Drawn as boxes. */
+static float rift_x[BEACONS], rift_y[BEACONS], rift_z[BEACONS];
+/* The portal they came through, which no beacon closes: the way to the other
+ * side. portal_here: shown in this world. */
+static float portal_x, portal_y, portal_z, portal_yaw;
+static int portal_here;
 
 static void beacon_spot(int k, int* x, int* z) {
     float a = k * 1.2566371f + rand01(world_seed, 5, 77) * 6.2831853f;
@@ -1165,7 +1172,46 @@ static void find_beacons(void) {
             int b = world[beacon_x[k]][y][beacon_z[k]];
             if (b == BEACON_OFF || b == BEACON_ON) beacon_y[k] = y;
         }
+        int rx = beacon_x[k] + 2, rz = beacon_z[k];
+        int y = 0;
+        while (y < WY - 1 && world[rx][y][rz] != AIR) y++;
+        rift_x[k] = rx + 0.5f;
+        rift_y[k] = (float)y;
+        rift_z[k] = rz + 0.5f;
     }
+}
+
+/* The portal: between two beacons, nearer the start, where the seed puts it. */
+static float portal_spot(int* x, int* z) {
+    float a = 2.5f * 1.2566371f + rand01(world_seed, 5, 77) * 6.2831853f, r = WX * 0.28f;
+    *x = (int)(WX / 2 + cosf(a) * r);
+    *z = (int)(WZ / 2 + sinf(a) * r);
+    *x = *x < 4 ? 4 : *x > WX - 5 ? WX - 5 : *x;
+    *z = *z < 4 ? 4 : *z > WZ - 5 ? WZ - 5 : *z;
+    return a;
+}
+
+/* Clears trees around x, z, so what stands there can be seen. */
+static void clear_trees(int x, int z, int r) {
+    for (int dx = -r; dx <= r; dx++)
+        for (int dz = -r; dz <= r; dz++)
+            for (int y = 1; y < WY; y++) {
+                int cx = x + dx, cz = z + dz;
+                if (cx < 0 || cz < 0 || cx >= WX || cz >= WZ) continue;
+                if (world[cx][y][cz] == LEAVES || world[cx][y][cz] == WOOD) world[cx][y][cz] = AIR;
+            }
+}
+
+static void find_portal(void) {
+    int x, z;
+    float a = portal_spot(&x, &z);
+    int y = WY - 1;
+    while (y > 0 && (world[x][y][z] == AIR || world[x][y][z] == LEAVES || world[x][y][z] == WOOD)) y--;
+    portal_x = x + 0.5f;
+    portal_y = y + 1.0f;
+    portal_z = z + 0.5f;
+    portal_yaw = a;
+    portal_here = 1;
 }
 
 static int beacon_lit(int k) {
@@ -1320,6 +1366,15 @@ static void build_house(int h) {
 
 static void place_ruins(void) {
     for (int h = 0; h < villages() * HOUSES_PER_VILLAGE; h++) build_house(h);
+    /* Clearings around the rifts and the portal (they came with the ruins). */
+    for (int k = 0; k < BEACONS; k++) {
+        int x, z;
+        beacon_spot(k, &x, &z);
+        clear_trees(x + 2, z, 4);
+    }
+    int px, pz;
+    portal_spot(&px, &pz);
+    clear_trees(px, pz, 5);
 }
 
 /* Where the notes of this world lie: one near the start, five in houses
@@ -2483,6 +2538,7 @@ int main(int argc, char** argv) {
     if (!loaded) player = (Player){spawn_x, spawn_y, spawn_z, 0, 0, -0.25f, 0};
     if (goal_flags & GOAL_RUINS) {
         find_notes(spawn_x, spawn_z);
+        find_portal();
         printf("blocks: start at %.1f %.1f %.1f, first note at %.1f %.1f %.1f\n", spawn_x, spawn_y, spawn_z, note_x[0],
                note_y[0], note_z[0]);
     }
@@ -2715,6 +2771,11 @@ int main(int argc, char** argv) {
                     spawn_puff(hit[0] + 0.5f, hit[1] + 0.8f, hit[2] + 0.5f, beam, 24, (uint32_t)frames);
                     play_at(SND_PLACE, &player, hit[0] + 0.5f, hit[1] + 0.5f, hit[2] + 0.5f, 0.6f);
                     play_sound(SND_CHIRP, 0.5f, 0, 1.2f);
+                    for (int k = 0; k < BEACONS; k++) /* its rift seals */
+                        if (beacon_x[k] == hit[0] && beacon_z[k] == hit[2]) {
+                            static const float seal[3] = {0.7f, 0.6f, 0.9f};
+                            spawn_puff(rift_x[k], rift_y[k] + 1.1f, rift_z[k], seal, 20, (uint32_t)frames + 5);
+                        }
                     for (int i = 0; i < MAX_NIGHT; i++) /* the ones nearby flee into smoke */
                         if (night[i].alive && calm_at(night[i].x, night[i].z)) night[i].check = 0;
                     printf("blocks: beacon lit, %d of %d\n", beacons_lit(), beacons_present());
@@ -3008,6 +3069,49 @@ int main(int argc, char** argv) {
                     triangles += 48;
                 }
                 creatures_drawn++;
+            }
+        }
+        /* Rifts beside unlit beacons: a dark tear with glowing edges, leaking mist. */
+        static const float rift_glow[3] = {2.62f, 2.42f, 2.95f}, rift_core[3] = {0.04f, 0.02f, 0.07f};
+        static float rift_timer;
+        int rift_puff = !paused && (rift_timer -= dt) <= 0;
+        if (rift_puff) rift_timer = 0.35f;
+        for (int k = 0; k < BEACONS; k++) {
+            if (beacon_y[k] < 0 || beacon_lit(k)) continue;
+            float dx = rift_x[k] - player.x, dz = rift_z[k] - player.z;
+            if (dx * dx + dz * dz > far * far) continue;
+            float yaw = k * 1.3f, sy = sinf(yaw), cy = cosf(yaw), wob = 0.06f * sinf(frames * 0.07f + k);
+            float core[INSTANCE_FLOATS] = {rift_x[k], rift_y[k] + 1.15f, rift_z[k], 0.32f + wob, 0.85f, 0.04f, yaw,
+                                           rift_core[0], rift_core[1], rift_core[2]};
+            memcpy(instances[n++], core, sizeof core);
+            for (int e = -1; e <= 1; e += 2) {
+                float edge[INSTANCE_FLOATS] = {rift_x[k] + cy * (0.34f + wob) * e, rift_y[k] + 1.15f, rift_z[k] + sy * (0.34f + wob) * e,
+                                               0.035f, 0.8f, 0.05f, yaw, rift_glow[0], rift_glow[1], rift_glow[2]};
+                memcpy(instances[n++], edge, sizeof edge);
+            }
+            triangles += 36;
+            if (rift_puff && dx * dx + dz * dz < 40 * 40) {
+                static const float haze[3] = {0.62f, 0.52f, 0.8f};
+                spawn_puff(rift_x[k], rift_y[k] + 0.6f + rand01(frames, k, 3) * 1.2f, rift_z[k], haze, 1, (uint32_t)(frames + k));
+            }
+        }
+        /* The portal: a broken stone frame around a tall, dim violet light. */
+        if (portal_here) {
+            float dx = portal_x - player.x, dz = portal_z - player.z;
+            if (dx * dx + dz * dz < far * far) {
+                float yaw = portal_yaw, sy = sinf(yaw), cy = cosf(yaw), pulse = 0.15f * sinf(frames * 0.05f);
+                for (int e = -1; e <= 1; e += 2) {
+                    float pillar[INSTANCE_FLOATS] = {portal_x + cy * 1.1f * e, portal_y + 1.5f, portal_z + sy * 1.1f * e,
+                                                     0.25f, 1.5f, 0.3f, yaw, 0.24f, 0.22f, 0.27f};
+                    memcpy(instances[n++], pillar, sizeof pillar);
+                }
+                float lintel[INSTANCE_FLOATS] = {portal_x - cy * 0.2f, portal_y + 3.15f, portal_z - sy * 0.2f, 1.2f, 0.2f, 0.3f, yaw,
+                                                 0.24f, 0.22f, 0.27f};
+                float light[INSTANCE_FLOATS] = {portal_x, portal_y + 1.45f, portal_z, 0.85f, 1.45f, 0.06f, yaw,
+                                                2.3f + pulse, 2.12f + pulse, 2.55f + pulse};
+                memcpy(instances[n++], lintel, sizeof lintel);
+                memcpy(instances[n++], light, sizeof light);
+                triangles += 48;
             }
         }
         /* Notes: a sheet of paper, or a phone whose screen still glows. */
