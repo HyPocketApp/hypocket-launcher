@@ -103,6 +103,7 @@ class BlocksSession(context: Context) : AutoCloseable {
                 saves = io.getInt(OFF_SAVES),
                 clockMinutes = io.getInt(OFF_CLOCK),
                 day = io.getInt(OFF_DAY),
+                counts = List(COUNTS) { io.getShort(OFF_COUNTS + it * 2).toInt() },
             )
         }
 
@@ -118,6 +119,7 @@ class BlocksSession(context: Context) : AutoCloseable {
             if (options.dynamicResolution) put("HYPOCKET_BLOCKS_DYNAMIC", "1")
             if (options.heavy) put("HYPOCKET_BLOCKS_HEAVY", "1")
             if (options.benchmarkFrames > 0) put("HYPOCKET_BLOCKS_BENCH", "1")
+            if (options.creative) put("HYPOCKET_BLOCKS_CREATIVE", "1")
             options.world?.let { world ->
                 put("HYPOCKET_BLOCKS_SAVE", world.saveFile.absolutePath)
                 put("HYPOCKET_BLOCKS_CHUNKS", world.chunks.toString())
@@ -186,7 +188,7 @@ class BlocksSession(context: Context) : AutoCloseable {
         const val STOP_GRACE_MILLIS = 3000L
 
         // Must match SharedIo in blocks/game/blocks.c.
-        const val IO_SIZE = 128
+        const val IO_SIZE = 256
         const val MAGIC = 0x49425048
         const val OFF_MAGIC = 0
         const val OFF_VERSION = 4
@@ -215,6 +217,8 @@ class BlocksSession(context: Context) : AutoCloseable {
         const val OFF_SAVES = 108
         const val OFF_CLOCK = 112
         const val OFF_DAY = 116
+        const val OFF_COUNTS = 128
+        const val COUNTS = 16
     }
 }
 
@@ -242,6 +246,8 @@ data class BlocksStats(
     val clockMinutes: Int = 0,
     /** Days passed in the world, from 1 (0 until the game reports it). */
     val day: Int = 0,
+    /** Blocks the player carries, by index into the building palette. */
+    val counts: List<Int> = emptyList(),
 )
 
 /** What the game does beyond the defaults. */
@@ -254,6 +260,8 @@ data class BlocksOptions(
     val benchmarkFrames: Int = 0,
     /** A saved world to load and save; without one, a fresh world nobody keeps. */
     val world: BlocksWorld? = null,
+    /** Unlimited blocks, nothing collected (quick games, and worlds made creative). */
+    val creative: Boolean = true,
     /** Wandering creatures outside heavy mode (heavy mode always has 300). */
     val creatures: Int = 0,
     /** More environment for the game (Mesa and Box64 options under test). */

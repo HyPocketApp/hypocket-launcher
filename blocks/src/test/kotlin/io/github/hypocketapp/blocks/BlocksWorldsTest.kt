@@ -15,7 +15,7 @@ class BlocksWorldsTest {
     @Test
     fun createdWorldIsListedWithItsSettings() {
         val worlds = BlocksWorlds(folder.root)
-        val world = worlds.create("  Base do Heitor  ", 16, Random(1))
+        val world = worlds.create("  Base do Heitor  ", 16, random = Random(1))
         assertEquals("Base do Heitor", world.name)
         assertEquals(16, world.chunks)
         assertTrue(world.seed in 0 until 1_000_000)
@@ -56,6 +56,32 @@ class BlocksWorldsTest {
     @Test(expected = IllegalArgumentException::class)
     fun unsupportedSizeIsRefused() {
         BlocksWorlds(folder.root).create("A", 12)
+    }
+
+    @Test
+    fun creativeIsChosenWhenCreated() {
+        val worlds = BlocksWorlds(folder.root)
+        assertFalse(worlds.create("A", 8).creative)
+        assertTrue(worlds.create("B", 8, creative = true).creative)
+    }
+
+    @Test
+    fun worldsFromBeforeTheChoiceAreCreative() {
+        val worlds = BlocksWorlds(folder.root)
+        java.io.File(folder.root, "w1.properties").writeText("name=Old\nchunks=8\nseed=3\ncreated=1\n")
+        assertTrue(checkNotNull(worlds.get("w1")).creative)
+    }
+
+    @Test
+    fun hotbarIsKept() {
+        val worlds = BlocksWorlds(folder.root)
+        val world = worlds.create("A", 8)
+        assertEquals(emptyList<Int>(), world.hotbar)
+        worlds.saveHotbar(world.id, listOf(9, 7, 8, 10, 11, 0, 1, 3, 6))
+        val again = checkNotNull(worlds.get(world.id))
+        assertEquals(listOf(9, 7, 8, 10, 11, 0, 1, 3, 6), again.hotbar)
+        assertEquals(world.name, again.name)
+        assertFalse(again.creative)
     }
 
     @Test

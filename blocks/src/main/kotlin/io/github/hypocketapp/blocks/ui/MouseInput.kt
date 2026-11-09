@@ -20,6 +20,8 @@ class MouseInput(
     /** 1 is the default camera speed (the launcher's sensitivity setting). */
     private val sensitivity: Float,
     private val selection: BlockSelection,
+    /** True while a screen over the game (the inventory) wants a normal pointer. */
+    private val paused: () -> Boolean = { false },
 ) {
 
     /** True while the pointer is captured, to show the mouse hint. */
@@ -50,7 +52,7 @@ class MouseInput(
      * when the event was a mouse's and was used.
      */
     fun onUncaptured(event: MotionEvent): Boolean {
-        if (!enabled || !event.isFromSource(InputDevice.SOURCE_MOUSE) || captured.value) return false
+        if (!enabled || paused() || !event.isFromSource(InputDevice.SOURCE_MOUSE) || captured.value) return false
         val press = event.actionMasked == MotionEvent.ACTION_DOWN ||
             event.actionMasked == MotionEvent.ACTION_BUTTON_PRESS
         if (press) capture()

@@ -11,7 +11,6 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -91,6 +90,7 @@ class BlocksActivity : ComponentActivity() {
     private lateinit var controller: ControllerInput
     private lateinit var mouse: MouseInput
     private lateinit var selection: BlockSelection
+    private lateinit var inventory: Inventory
     private var benchmark: BlocksBenchmark? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -108,9 +108,23 @@ class BlocksActivity : ComponentActivity() {
         session = BlocksSession(this)
         val config = BlocksConfig.from(intent)
         val sensitivity = config.lookSensitivityPercent / 100f
-        selection = BlockSelection(session)
-        controller = ControllerInput(session, sensitivity, selection, onExit = { session.stop() })
-        mouse = MouseInput(session, sensitivity, selection)
+        val store = worlds(this)
+        val world = intent.getStringExtra(EXTRA_WORLD)?.let { store.get(it) }
+        // Quick games are creative, like before worlds could be survival ones.
+        val creative = world?.creative ?: true
+        selection = BlockSelection(
+            initial = world?.hotbar.orEmpty(),
+            creative = creative,
+            send = { session.selectBlock(it) },
+            onArranged = { slots -> world?.let { store.saveHotbar(it.id, slots) } },
+        )
+        inventory = Inventory { open ->
+            // Stop walking and free the pointer while the inventory is up.
+            controller.reset()
+            if (open) mouse.release()
+        }
+        controller = ControllerInput(session, sensitivity, selection, inventory, onExit = { session.stop() })
+        mouse = MouseInput(session, sensitivity, selection, paused = { inventory.open.value })
         if (intent.getBooleanExtra(EXTRA_BENCHMARK, false)) {
             val run = BlocksBenchmark(this).also { benchmark = it }
             val (width, height) = landscapeScreen(this)
@@ -118,7 +132,6 @@ class BlocksActivity : ComponentActivity() {
             return
         }
         val heavy = intent.getBooleanExtra(EXTRA_HEAVY, false)
-        val world = intent.getStringExtra(EXTRA_WORLD)?.let { worlds(this).get(it) }
         setContent {
             BlocksTheme {
                 BlocksScreen(
@@ -126,6 +139,7 @@ class BlocksActivity : ComponentActivity() {
                     controller = controller,
                     mouse = mouse,
                     selection = selection,
+                    inventory = inventory,
                     world = world,
                     lookSensitivity = sensitivity,
                     renderScalePercent = config.renderScalePercent,
@@ -135,6 +149,7 @@ class BlocksActivity : ComponentActivity() {
                         dynamicResolution = config.dynamicResolution,
                         heavy = heavy,
                         world = world,
+                        creative = creative,
                         creatures = if (heavy) 0 else NORMAL_CREATURES,
                     ),
                     onClose = { finish() },
@@ -223,6 +238,7 @@ private fun BlocksScreen(
     controller: ControllerInput,
     mouse: MouseInput,
     selection: BlockSelection,
+    inventory: Inventory,
     world: BlocksWorld?,
     lookSensitivity: Float,
     renderScalePercent: Int,
@@ -247,9 +263,11 @@ private fun BlocksScreen(
     LaunchedEffect(Unit) {
         while (report == null) {
             stats = session.stats
-            delay(500)
+            delay(250)
         }
     }
+    // Survival: blocks just collected get a place in the hotbar.
+    LaunchedEffect(stats.counts) { if (stats.ready) selection.fill(stats.counts) }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
@@ -260,10 +278,18 @@ private fun BlocksScreen(
             modifier = Modifier.fillMaxSize(),
         )
         val finished = report
-        if (finished == null) {
+        if (finished == null && inventory.open.value) {
+            InventoryPanel(inventory, selection, stats.counts, options.creative)
+        } else if (finished == null) {
             TouchControls(session, lookSensitivity)
             Hud(stats, session, controller.used.value, mouse.captured.value, onExit = { session.stop() })
-            Hotbar(selection, Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp))
+            Hotbar(
+                selection,
+                stats.counts,
+                options.creative,
+                onInventory = { inventory.show() },
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
+            )
             Column(
                 Modifier.align(Alignment.TopCenter).padding(top = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -272,7 +298,8 @@ private fun BlocksScreen(
                 if (stats.ready && stats.day > 0) Clock(stats)
                 if (world != null) SavedNotice(stats.saves, Modifier)
             }
-        } else {
+        }
+        if (finished != null) {
             // The pointer works normally again on the report.
             LaunchedEffect(Unit) { mouse.stop() }
             ReportPanel(
@@ -280,6 +307,10 @@ private fun BlocksScreen(
                 versionLine,
                 listOfNotNull(
                     world?.let { "World: ${it.chunks}x${it.chunks} chunks, saved ${finished.stats.saves} times" },
+                    "Mode: ${if (options.creative) "creative" else "survival"}, carrying " +
+                        BuildBlock.entries.mapIndexedNotNull { i, block ->
+                            finished.stats.counts.getOrElse(i) { 0 }.takeIf { it > 0 }?.let { "${block.name.lowercase()} $it" }
+                        }.ifEmpty { listOf("nothing") }.joinToString(),
                     "Input devices used: " +
                         (controller.deviceNames + mouse.deviceNames).ifEmpty { setOf("touch only") }.joinToString(),
                     "Input devices connected: " +
@@ -436,33 +467,35 @@ private fun Hud(
     }
 }
 
-/** The blocks to build with; tap one to choose it. */
+/** The hotbar, the chosen block's name and count, and the inventory button. */
 @Composable
-private fun Hotbar(selection: BlockSelection, modifier: Modifier) {
-    val selected = selection.index.intValue
+private fun Hotbar(
+    selection: BlockSelection,
+    counts: List<Int>,
+    creative: Boolean,
+    onInventory: () -> Unit,
+    modifier: Modifier,
+) {
+    val block = selection.block
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        val name = stringResource(block.label)
         Text(
-            stringResource(BuildBlock.entries[selected].label),
+            if (creative) name else stringResource(R.string.blocks_block_count, name, counts.getOrElse(block.ordinal) { 0 }),
             color = Color.White,
             style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
                 .padding(horizontal = 6.dp, vertical = 2.dp),
         )
-        Row(
-            Modifier.padding(top = 4.dp).background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
-                .padding(3.dp),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
-            BuildBlock.entries.forEachIndexed { i, block ->
-                val shape = RoundedCornerShape(3.dp)
-                Box(
-                    Modifier.size(if (i == selected) 32.dp else 28.dp)
-                        .align(Alignment.CenterVertically)
-                        .border(if (i == selected) 2.dp else 1.dp, if (i == selected) Color.White else block.accent, shape)
-                        .padding(3.dp)
-                        .background(block.color, shape)
-                        .clickable { selection.select(i) },
-                )
+        Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            HotbarRow(selection, counts, creative)
+            // Above the touch layer, so pressing it does not turn the camera.
+            Box(
+                Modifier.padding(start = 6.dp).size(width = 44.dp, height = 36.dp)
+                    .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                    .clickable(onClick = onInventory),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(stringResource(R.string.blocks_inventory_short), color = Color.White, style = MaterialTheme.typography.labelMedium)
             }
         }
     }
@@ -569,7 +602,7 @@ private fun BlocksReport.toShareText(versionLine: String, inputLines: List<Strin
     appendLine("Renderer: ${renderer ?: "-"}")
     appendLine("Resolution: ${stats.width}x${stats.height}, 3D at ${stats.scalePercent}% at the end")
     appendLine("World built in: %.0f ms".format(stats.buildMillis))
-    appendLine("Heavy mode: ${options.heavy}, dynamic resolution: ${options.dynamicResolution}")
+    appendLine("Heavy mode: ${options.heavy}, dynamic resolution: ${options.dynamicResolution}, creative: ${options.creative}")
     appendLine("Frames: ${stats.frames} in %.1f s".format(seconds))
     appendLine("Time in the game at the end: day ${stats.day}, %02d:%02d".format(stats.clockMinutes / 60, stats.clockMinutes % 60))
     appendLine("Exit code: ${exitCode ?: "-"}")

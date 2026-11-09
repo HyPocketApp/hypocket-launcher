@@ -99,9 +99,9 @@ fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) 
 
     if (creating) {
         NewWorldDialog(
-            onCreate = { name, chunks ->
+            onCreate = { name, chunks, creative ->
                 creating = false
-                val world = store.create(name, chunks)
+                val world = store.create(name, chunks, creative)
                 worlds = store.list()
                 BlocksActivity.start(context, config(), heavy, world)
             },
@@ -144,7 +144,12 @@ private fun WorldCard(world: BlocksWorld, onPlay: () -> Unit, onDelete: () -> Un
                     stringResource(R.string.blocks_world_new)
                 }
                 Text(
-                    stringResource(R.string.blocks_world_info, stringResource(sizeLabel(world.chunks)), played),
+                    stringResource(
+                        R.string.blocks_world_info_mode,
+                        stringResource(sizeLabel(world.chunks)),
+                        stringResource(if (world.creative) R.string.blocks_mode_creative else R.string.blocks_mode_survival),
+                        played,
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -155,10 +160,11 @@ private fun WorldCard(world: BlocksWorld, onPlay: () -> Unit, onDelete: () -> Un
 }
 
 @Composable
-private fun NewWorldDialog(onCreate: (String, Int) -> Unit, onDismiss: () -> Unit) {
+private fun NewWorldDialog(onCreate: (String, Int, Boolean) -> Unit, onDismiss: () -> Unit) {
     val defaultName = stringResource(R.string.blocks_default_world_name)
     var name by rememberSaveable { mutableStateOf(defaultName) }
     var chunks by rememberSaveable { mutableIntStateOf(BlocksWorlds.SIZES[1]) }
+    var creative by rememberSaveable { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.blocks_new_world)) },
@@ -181,9 +187,19 @@ private fun NewWorldDialog(onCreate: (String, Int) -> Unit, onDismiss: () -> Uni
                     }
                 }
                 Text(stringResource(R.string.blocks_world_size_hint), style = MaterialTheme.typography.bodySmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.blocks_creative), modifier = Modifier.weight(1f))
+                    Switch(checked = creative, onCheckedChange = { creative = it })
+                }
+                Text(
+                    stringResource(if (creative) R.string.blocks_creative_on else R.string.blocks_creative_off),
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         },
-        confirmButton = { TextButton(onClick = { onCreate(name, chunks) }) { Text(stringResource(R.string.blocks_create)) } },
+        confirmButton = {
+            TextButton(onClick = { onCreate(name, chunks, creative) }) { Text(stringResource(R.string.blocks_create)) }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.blocks_cancel)) } },
     )
 }

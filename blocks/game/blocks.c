@@ -39,7 +39,11 @@
  * the blocks around them; that light is worked out per block when a chunk is
  * meshed (see chunk_light), so it costs nothing per frame. The time of day is
  * kept in the save. HYPOCKET_BLOCKS_TIME (0-1, 0.5 is noon) sets the starting
- * time, which the benchmark keeps at noon. */
+ * time, which the benchmark keeps at noon.
+ *
+ * Breaking a block puts it in the player's inventory (grass gives dirt) and
+ * placing one uses it up; the inventory is kept in the save. With
+ * HYPOCKET_BLOCKS_CREATIVE=1 blocks are unlimited and nothing is collected. */
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GL/glcorearb.h>
@@ -58,7 +62,7 @@
 /* ---- Shared input/statistics file ------------------------------------- */
 
 #define IO_MAGIC 0x49425048u /* "HPBI" */
-#define IO_SIZE 128
+#define IO_SIZE 256
 
 typedef struct {
     uint32_t magic;
@@ -91,6 +95,8 @@ typedef struct {
     int32_t saves;         /* times the world was written to its save file */
     int32_t clock_minutes; /* time of day in the game, minutes after midnight */
     int32_t day;           /* days passed in this world, from 1 */
+    int32_t reserved_out[2];
+    int16_t counts[16];    /* blocks carried, in palette order (unlimited in creative mode) */
 } SharedIo;
 
 /* ---- OpenGL entry points ---------------------------------------------- */
@@ -813,6 +819,19 @@ static void mark_dirty(int x, int z) {
 
 static int world_changed; /* since the last save */
 
+/* ---- Inventory -------------------------------------------------------- */
+
+#define MAX_CARRIED 9999
+static uint16_t inventory[BLOCK_TYPES]; /* blocks carried, by block id */
+static int creative;                    /* unlimited blocks, nothing collected */
+
+/* What breaking a block gives: the block itself, except grass gives dirt. */
+static int drop_for(int block) {
+    if (block == GRASS) return DIRT;
+    if (block == AIR || block == WATER) return AIR;
+    return block;
+}
+
 static void set_block(int x, int y, int z, int b) {
     if (x < 0 || z < 0 || x >= WX || z >= WZ || y < 0 || y >= WY) return;
     int old = world[x][y][z], ci = x / CHUNK, cj = z / CHUNK;
@@ -879,9 +898,12 @@ static Sky sky_at(float t) {
  * encoded as (count 1-255, block id) byte pairs, x outermost, then y, then z.
  * Must match BlocksWorlds.kt, which reads the header. */
 #define SAVE_MAGIC 0x57425048u /* "HPBW" */
-#define SAVE_VERSION 2
-/* Version 1 had no time of day (those fields were reserved and zero); it is
- * still read, starting in the morning. */
+#define SAVE_VERSION 3
+/* Version 1 had no time of day (those fields were reserved and zero) and
+ * starts in the morning; versions 1 and 2 had no inventory and start with an
+ * empty one. Version 3 adds the inventory after the block data: one 16-bit
+ * count per block id, inventory_size bytes in all (block ids only ever grow,
+ * so a longer list comes from a newer game and its extra counts are dropped). */
 typedef struct {
     uint32_t magic;
     uint32_t version;
@@ -891,7 +913,8 @@ typedef struct {
     uint32_t data_size;        /* bytes of block data after the header */
     float time_of_day;         /* version 2: 0-1, 0.5 is noon */
     uint32_t days;             /* version 2: full days passed */
-    uint32_t reserved[4];
+    uint32_t inventory_size;   /* version 3: bytes of inventory after the block data */
+    uint32_t reserved[3];
 } SaveHeader;
 
 /* Writes to a temporary file and renames it over the old save, so a save
@@ -913,11 +936,12 @@ static int save_world(const char* path, const Player* p) {
             }
     if (run) { data[size++] = (uint8_t)run; data[size++] = (uint8_t)run_block; }
     SaveHeader h = {SAVE_MAGIC, SAVE_VERSION, world_chunks, world_seed, p->x, p->y, p->z, p->yaw, p->pitch,
-                    (uint32_t)size, day_time, day_count, {0}};
+                    (uint32_t)size, day_time, day_count, (uint32_t)sizeof inventory, {0}};
     char tmp[4096];
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
     FILE* f = fopen(tmp, "wb");
-    int ok = f && fwrite(&h, sizeof h, 1, f) == 1 && fwrite(data, 1, size, f) == size;
+    int ok = f && fwrite(&h, sizeof h, 1, f) == 1 && fwrite(data, 1, size, f) == size &&
+             fwrite(inventory, sizeof inventory, 1, f) == 1;
     if (f) {
         ok = fflush(f) == 0 && ok;
         ok = fsync(fileno(f)) == 0 && ok;
@@ -938,10 +962,13 @@ static int load_world(const char* path, Player* p) {
     FILE* f = fopen(path, "rb");
     if (!f) return 0;
     SaveHeader h;
-    int ok = fread(&h, sizeof h, 1, f) == 1 && h.magic == SAVE_MAGIC && (h.version == 1 || h.version == 2) &&
+    int ok = fread(&h, sizeof h, 1, f) == 1 && h.magic == SAVE_MAGIC && h.version >= 1 && h.version <= SAVE_VERSION &&
              h.chunks >= 4 && h.chunks <= MAX_CHUNKS && h.data_size <= (uint32_t)MAX_W * WY * MAX_W * 2;
     uint8_t* data = ok ? malloc(h.data_size ? h.data_size : 1) : NULL;
     ok = ok && data && fread(data, 1, h.data_size, f) == h.data_size;
+    uint16_t carried[256] = {0};
+    if (ok && h.version >= 3)
+        ok = h.inventory_size <= sizeof carried && fread(carried, 1, h.inventory_size, f) == h.inventory_size;
     fclose(f);
     if (ok) {
         /* Decode into a copy first: a bad file must not leave half a world. */
@@ -966,6 +993,9 @@ static int load_world(const char* path, Player* p) {
             p->x = h.x; p->y = h.y; p->z = h.z;
             p->yaw = h.yaw; p->pitch = h.pitch;
             p->vy = 0;
+            memset(inventory, 0, sizeof inventory);
+            if (h.version >= 3)
+                for (int b = 0; b < BLOCK_TYPES; b++) inventory[b] = carried[b] > MAX_CARRIED ? MAX_CARRIED : carried[b];
             if (h.version >= 2 && h.time_of_day >= 0 && h.time_of_day < 1) {
                 day_time = h.time_of_day;
                 day_count = h.days;
@@ -1482,6 +1512,8 @@ static SharedIo* open_io(void) {
 
 int main(int argc, char** argv) {
     _Static_assert(sizeof(SharedIo) <= IO_SIZE, "shared file too small");
+    _Static_assert(sizeof(SaveHeader) == 64, "the save header must keep its size");
+    _Static_assert(__builtin_offsetof(SharedIo, counts) == 128, "must match BlocksSession.kt");
     int w = argc > 1 ? atoi(argv[1]) : 1200;
     int h = argc > 2 ? atoi(argv[2]) : 540;
     int fps_limit = argc > 3 ? atoi(argv[3]) : 0;
@@ -1583,6 +1615,7 @@ int main(int argc, char** argv) {
     const char* seed_env = getenv("HYPOCKET_BLOCKS_SEED");
     if (seed_env) world_seed = abs(atoi(seed_env) % 1000000);
     const char* save_path = getenv("HYPOCKET_BLOCKS_SAVE");
+    creative = getenv("HYPOCKET_BLOCKS_CREATIVE") != NULL;
     int separate_draws = getenv("HYPOCKET_BLOCKS_SEPARATE_DRAWS") != NULL;
     GLuint box_program = link_program(box_vs, box_fs);
     GLint ub_view_proj = p_glGetUniformLocation(box_program, "view_proj");
@@ -1790,16 +1823,25 @@ int main(int argc, char** argv) {
             int hit[3], before[3];
             if (raycast(&player, hit, before)) {
                 if (breaks != seen_breaks) {
-                    spawn_particles(hit[0], hit[1], hit[2], block_at(hit[0], hit[1], hit[2]), (uint32_t)frames);
+                    int broken = block_at(hit[0], hit[1], hit[2]), drop = drop_for(broken);
+                    if (!creative && drop != AIR && inventory[drop] < MAX_CARRIED) inventory[drop]++;
+                    spawn_particles(hit[0], hit[1], hit[2], broken, (uint32_t)frames);
                     play_at(SND_BREAK, &player, hit[0] + 0.5f, hit[1] + 0.5f, hit[2] + 0.5f,
                             0.9f + 0.2f * rand01(hit[0], hit[1], hit[2]));
                     set_block(hit[0], hit[1], hit[2], hit[1] < WATER_LEVEL + 1 && block_at(hit[0], hit[1] + 1, hit[2]) == WATER ? WATER : AIR);
                 } else if (block_at(before[0], before[1], before[2]) == AIR || block_at(before[0], before[1], before[2]) == WATER) {
                     int selected = io->selected;
                     if (selected < 0 || selected >= PALETTE_SIZE) selected = 0;
-                    set_block(before[0], before[1], before[2], palette[selected]);
-                    if (collides(player.x, player.y, player.z)) set_block(before[0], before[1], before[2], AIR);
-                    else play_at(SND_PLACE, &player, before[0] + 0.5f, before[1] + 0.5f, before[2] + 0.5f, 1.0f);
+                    int block = palette[selected], was = block_at(before[0], before[1], before[2]);
+                    if (creative || inventory[block] > 0) {
+                        set_block(before[0], before[1], before[2], block);
+                        if (collides(player.x, player.y, player.z)) {
+                            set_block(before[0], before[1], before[2], was); /* would trap the player */
+                        } else {
+                            if (!creative) inventory[block]--;
+                            play_at(SND_PLACE, &player, before[0] + 0.5f, before[1] + 0.5f, before[2] + 0.5f, 1.0f);
+                        }
+                    }
                 }
             }
             seen_breaks = breaks;
@@ -2091,6 +2133,7 @@ int main(int argc, char** argv) {
         io->scale_percent = (int)(scale * 100.0f + 0.5f);
         io->creatures = creatures_drawn;
         io->clock_minutes = (int)(day_time * 1440.0f) % 1440;
+        for (int k = 0; k < PALETTE_SIZE && k < 16; k++) io->counts[k] = (int16_t)inventory[palette[k]];
         io->day = (int)day_count + 1;
         frames++;
         stats_frames++;

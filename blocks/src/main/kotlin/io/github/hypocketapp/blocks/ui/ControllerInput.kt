@@ -6,6 +6,7 @@ import android.view.MotionEvent
 import androidx.compose.runtime.mutableStateOf
 import io.github.hypocketapp.blocks.BlocksSession
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlin.math.sign
 
 /**
@@ -13,15 +14,18 @@ import kotlin.math.sign
  *
  * Controller: left stick or d-pad walks, right stick looks, A jumps, X / R1 /
  * right trigger breaks, B / L1 / left trigger places, Y picks the next
- * block, Start exits.
+ * block, Select opens the inventory, Start exits.
  * Keyboard: WASD walks, arrow keys look, Space jumps, Q breaks, E places,
- * 1-9 and 0 pick a block, Esc exits.
+ * 1-9 pick a place in the hotbar, I or Tab opens the inventory, Esc exits.
+ * In the inventory the d-pad or arrow keys move, A or Enter puts the block in
+ * the hotbar, and B, Select, I, Tab or Esc close it.
  */
 class ControllerInput(
     private val session: BlocksSession,
     /** 1 is the default camera speed (the launcher's sensitivity setting). */
     private val sensitivity: Float,
     private val selection: BlockSelection,
+    private val inventory: Inventory,
     private val onExit: () -> Unit,
 ) {
 
@@ -49,6 +53,22 @@ class ControllerInput(
     /** The last d-pad keys came from a controller (walk) rather than a keyboard (look). */
     private var dpadWalks = true
 
+    /** The d-pad as a hat, last seen, so the inventory moves once per press. */
+    private var hat = 0 to 0
+
+    /** Forget held keys and sticks: the inventory opened or closed in between. */
+    fun reset() {
+        keysDown.clear()
+        stickMove = 0f to 0f
+        keyMove = 0f to 0f
+        stickLook = 0f to 0f
+        keyLook = 0f to 0f
+        lastMove = 0f to 0f
+        session.setMove(0f, 0f)
+        session.setLookRate(0f, 0f)
+        session.setJump(false)
+    }
+
     /** Joystick motion (sticks, d-pad as a hat, analog triggers). */
     fun onMotion(event: MotionEvent): Boolean {
         if (event.source and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK ||
@@ -58,6 +78,14 @@ class ControllerInput(
         }
         noteDevice(event.device)
         motionEvents++
+        if (inventory.open.value) {
+            // Only the d-pad, when the controller reports it as a hat, moves the cursor.
+            val now = event.getAxisValue(MotionEvent.AXIS_HAT_X).roundToInt() to
+                event.getAxisValue(MotionEvent.AXIS_HAT_Y).roundToInt()
+            if (now != hat && (now.first != 0 || now.second != 0)) inventory.move(now.first, now.second)
+            hat = now
+            return true
+        }
         val device = event.device
         var x = axis(event, device, MotionEvent.AXIS_X)
         var y = axis(event, device, MotionEvent.AXIS_Y)
@@ -93,6 +121,10 @@ class ControllerInput(
         keyEvents++
         val down = event.action == KeyEvent.ACTION_DOWN
         if (down && event.repeatCount > 0) return true
+        if (inventory.open.value) {
+            if (down) onInventoryKey(code)
+            return true
+        }
         if (down) keysDown += code else keysDown -= code
         if (code in DPAD_KEYS) dpadWalks = !event.isFromKeyboard()
         if (down) {
@@ -104,6 +136,10 @@ class ControllerInput(
                 KeyEvent.KEYCODE_E,
                 -> session.placeBlock()
                 KeyEvent.KEYCODE_BUTTON_Y -> selection.next()
+                in INVENTORY_KEYS -> {
+                    inventory.show()
+                    return true
+                }
                 KeyEvent.KEYCODE_BUTTON_START, KeyEvent.KEYCODE_ESCAPE -> onExit()
                 in NUMBER_KEYS -> selection.select(NUMBER_KEYS.indexOf(code))
             }
@@ -128,6 +164,22 @@ class ControllerInput(
         }
         update()
         return true
+    }
+
+    private fun onInventoryKey(code: Int) {
+        when (code) {
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_A -> inventory.move(-1, 0)
+            KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_D -> inventory.move(1, 0)
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_W -> inventory.move(0, -1)
+            KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_S -> inventory.move(0, 1)
+            KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_SPACE, KeyEvent.KEYCODE_E ->
+                inventory.confirm(selection)
+            KeyEvent.KEYCODE_BUTTON_L1 -> selection.previous()
+            KeyEvent.KEYCODE_BUTTON_R1, KeyEvent.KEYCODE_BUTTON_Y -> selection.next()
+            KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_ESCAPE, KeyEvent.KEYCODE_BUTTON_START -> inventory.close()
+            in INVENTORY_KEYS -> inventory.close()
+            in NUMBER_KEYS -> selection.select(NUMBER_KEYS.indexOf(code))
+        }
     }
 
     private fun update() {
@@ -197,14 +249,16 @@ class ControllerInput(
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT,
             KeyEvent.KEYCODE_DPAD_RIGHT,
         )
-        /** 1 to 9, then 0: the first ten blocks of the palette. */
+        /** 1 to 9: the places of the hotbar. */
         private val NUMBER_KEYS = listOf(
             KeyEvent.KEYCODE_1, KeyEvent.KEYCODE_2, KeyEvent.KEYCODE_3, KeyEvent.KEYCODE_4, KeyEvent.KEYCODE_5,
-            KeyEvent.KEYCODE_6, KeyEvent.KEYCODE_7, KeyEvent.KEYCODE_8, KeyEvent.KEYCODE_9, KeyEvent.KEYCODE_0,
+            KeyEvent.KEYCODE_6, KeyEvent.KEYCODE_7, KeyEvent.KEYCODE_8, KeyEvent.KEYCODE_9,
         )
+        private val INVENTORY_KEYS = setOf(KeyEvent.KEYCODE_BUTTON_SELECT, KeyEvent.KEYCODE_I, KeyEvent.KEYCODE_TAB)
         private val KEYBOARD_KEYS = setOf(
             KeyEvent.KEYCODE_W, KeyEvent.KEYCODE_A, KeyEvent.KEYCODE_S, KeyEvent.KEYCODE_D, KeyEvent.KEYCODE_SPACE,
-            KeyEvent.KEYCODE_Q, KeyEvent.KEYCODE_E, KeyEvent.KEYCODE_ESCAPE,
+            KeyEvent.KEYCODE_Q, KeyEvent.KEYCODE_E, KeyEvent.KEYCODE_ESCAPE, KeyEvent.KEYCODE_I, KeyEvent.KEYCODE_TAB,
+            KeyEvent.KEYCODE_ENTER,
         ) + NUMBER_KEYS
         private val FORWARD_KEYS = setOf(KeyEvent.KEYCODE_W)
         private val BACK_KEYS = setOf(KeyEvent.KEYCODE_S)

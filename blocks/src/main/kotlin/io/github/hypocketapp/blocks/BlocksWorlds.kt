@@ -15,6 +15,10 @@ data class BlocksWorld(
     val createdMillis: Long,
     /** The game's save file; missing until the world is first played. */
     val saveFile: File,
+    /** Unlimited blocks and nothing to collect. Worlds made before this choice existed are creative. */
+    val creative: Boolean = true,
+    /** The hotbar's blocks, as indices into the building palette; empty for the default. */
+    val hotbar: List<Int> = emptyList(),
 ) {
     val lastPlayedMillis: Long get() = if (saveFile.exists()) saveFile.lastModified() else createdMillis
     val sizeBytes: Long get() = if (saveFile.exists()) saveFile.length() else 0L
@@ -37,7 +41,7 @@ class BlocksWorlds(private val directory: File) {
         if (ID.matches(id)) File(directory, id + META).takeIf { it.exists() }?.let { read(it) } else null
 
     /** A new world; the game generates its terrain the first time it is played. */
-    fun create(name: String, chunks: Int, random: Random = Random.Default): BlocksWorld {
+    fun create(name: String, chunks: Int, creative: Boolean = false, random: Random = Random.Default): BlocksWorld {
         require(chunks in SIZES) { "unsupported world size $chunks" }
         directory.mkdirs()
         val created = System.currentTimeMillis()
@@ -48,9 +52,24 @@ class BlocksWorlds(private val directory: File) {
             setProperty(KEY_CHUNKS, chunks.toString())
             setProperty(KEY_SEED, random.nextInt(0, 1_000_000).toString())
             setProperty(KEY_CREATED, created.toString())
+            setProperty(KEY_CREATIVE, creative.toString())
         }
         File(directory, id + META).outputStream().use { properties.store(it, "HyPocket Blocks world") }
         return checkNotNull(get(id))
+    }
+
+    /** Remembers how the player arranged the hotbar of world [id]. */
+    fun saveHotbar(id: String, hotbar: List<Int>) {
+        if (!ID.matches(id)) return
+        val meta = File(directory, id + META)
+        if (!meta.exists()) return
+        val properties = Properties()
+        runCatching { meta.inputStream().use { properties.load(it) } }.getOrElse { return }
+        properties.setProperty(KEY_HOTBAR, hotbar.joinToString(","))
+        // Write next to it and rename, so a crash never leaves half a file.
+        val tmp = File(directory, "$id$META.tmp")
+        tmp.outputStream().use { properties.store(it, "HyPocket Blocks world") }
+        if (!tmp.renameTo(meta)) tmp.delete()
     }
 
     /** Deletes a world and its save for good. */
@@ -74,6 +93,8 @@ class BlocksWorlds(private val directory: File) {
             seed = properties.getProperty(KEY_SEED)?.toIntOrNull() ?: 0,
             createdMillis = properties.getProperty(KEY_CREATED)?.toLongOrNull() ?: meta.lastModified(),
             saveFile = File(directory, id + SAVE),
+            creative = properties.getProperty(KEY_CREATIVE)?.toBooleanStrictOrNull() ?: true,
+            hotbar = properties.getProperty(KEY_HOTBAR).orEmpty().split(",").mapNotNull { it.trim().toIntOrNull() },
         )
     }
 
@@ -88,6 +109,8 @@ class BlocksWorlds(private val directory: File) {
         private const val KEY_CHUNKS = "chunks"
         private const val KEY_SEED = "seed"
         private const val KEY_CREATED = "created"
+        private const val KEY_CREATIVE = "creative"
+        private const val KEY_HOTBAR = "hotbar"
         private val ID = Regex("w[0-9]+x*")
     }
 }
