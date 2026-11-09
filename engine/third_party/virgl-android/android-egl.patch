@@ -1,0 +1,51 @@
+diff --git a/meson.build b/meson.build
+index 69c1bb8..8555d83 100644
+--- a/meson.build
++++ b/meson.build
+@@ -295,7 +295,7 @@ have_glx = false
+ 
+ if with_egl
+    if cc.has_header('epoxy/egl.h', dependencies: epoxy_dep) and epoxy_dep.get_variable(pkgconfig: 'epoxy_has_egl') == '1'
+-      if with_host_windows or with_host_darwin
++      if with_host_windows or with_host_darwin or host_machine.system() == 'android'
+          have_egl = true
+       else
+          if libdrm_dep.found()
+diff --git a/src/vrend/vrend_winsys.c b/src/vrend/vrend_winsys.c
+index d4c9b9e..e996a9a 100644
+--- a/src/vrend/vrend_winsys.c
++++ b/src/vrend/vrend_winsys.c
+@@ -75,6 +75,16 @@ int vrend_winsys_init(uint32_t flags, int preferred_fd)
+          return -1;
+       }
+ 
++      use_context = CONTEXT_EGL;
++#elif defined(HAVE_EPOXY_EGL_H) && defined(__ANDROID__)
++      /* HyPocket: Android has no GBM; use the default EGL display, which is
++       * the phone's own driver. */
++      (void)preferred_fd;
++      egl = virgl_egl_init(EGL_DEFAULT_DISPLAY, flags & VIRGL_RENDERER_USE_SURFACELESS,
++                           flags & VIRGL_RENDERER_USE_GLES);
++      if (!egl)
++         return -1;
++
+       use_context = CONTEXT_EGL;
+ #else
+       (void)preferred_fd;
+@@ -112,6 +122,16 @@ void vrend_winsys_cleanup(void)
+       egl = NULL;
+       use_context = CONTEXT_NONE;
+    }
++#elif defined(HAVE_EPOXY_EGL_H) && defined(__ANDROID__)
++   if (use_context == CONTEXT_EGL) {
++      virgl_egl_destroy(egl);
++      egl = NULL;
++      use_context = CONTEXT_NONE;
++   } else if (use_context == CONTEXT_EGL_EXTERNAL) {
++      free(egl);
++      egl = NULL;
++      use_context = CONTEXT_NONE;
++   }
+ #endif
+ #ifdef HAVE_EPOXY_GLX_H
+    if (use_context == CONTEXT_GLX) {

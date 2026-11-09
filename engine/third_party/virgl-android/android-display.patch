@@ -1,0 +1,1408 @@
+diff --git a/src/vrend/vrend_decode.c b/src/vrend/vrend_decode.c
+index 7774a25..87cb130 100644
+--- a/src/vrend/vrend_decode.c
++++ b/src/vrend/vrend_decode.c
+@@ -21,6 +21,7 @@
+  * OTHER DEALINGS IN THE SOFTWARE.
+  *
+  **************************************************************************/
++#include <time.h>
+ #include <stdint.h>
+ #include <string.h>
+ #include <stdio.h>
+@@ -2046,6 +2047,60 @@ static void dump_command_stream_to_file(const void *buffer, size_t size)
+    }
+ }
+ 
++/* HyPocket: with HYPOCKET_PROFILE set, where command processing time goes,
++ * logged every 600 command buffers. GL errors are checked once per command
++ * buffer instead of after every command (each check is a glGetError call
++ * into the driver); HYPOCKET_ERROR_CHECK_EACH brings back the check after
++ * every command, to find which one fails. */
++static struct {
++   int enabled, one_error_check;
++   unsigned submits;
++   double cmd_ms[VIRGL_MAX_COMMANDS], error_check_ms, switch_ms;
++   unsigned cmd_count[VIRGL_MAX_COMMANDS];
++} hypocket_profile = { .enabled = -1 };
++
++static double hypocket_profile_now(void)
++{
++   struct timespec ts;
++   clock_gettime(CLOCK_MONOTONIC, &ts);
++   return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
++}
++
++static void hypocket_profile_log(void)
++{
++   double total = hypocket_profile.error_check_ms + hypocket_profile.switch_ms;
++   for (int i = 0; i < VIRGL_MAX_COMMANDS; i++)
++      total += hypocket_profile.cmd_ms[i];
++   fprintf(stderr, "hypocket-profile: %u command buffers, %.1f ms: context switches %.1f ms, error checks %.1f ms\n",
++           hypocket_profile.submits, total, hypocket_profile.switch_ms, hypocket_profile.error_check_ms);
++   /* The six commands that took longest. */
++   for (int n = 0; n < 6; n++) {
++      int best = -1;
++      for (int i = 0; i < VIRGL_MAX_COMMANDS; i++)
++         if (hypocket_profile.cmd_count[i] && (best < 0 || hypocket_profile.cmd_ms[i] > hypocket_profile.cmd_ms[best]))
++            best = i;
++      if (best < 0)
++         break;
++      fprintf(stderr, "hypocket-profile:   %-24s %7u calls %8.1f ms (%.2f us each)\n", vrend_get_comand_name(best),
++              hypocket_profile.cmd_count[best], hypocket_profile.cmd_ms[best],
++              1000.0 * hypocket_profile.cmd_ms[best] / hypocket_profile.cmd_count[best]);
++      hypocket_profile.cmd_count[best] = 0; /* left out of the next round */
++   }
++   static const char *const step_names[HYPOCKET_DRAW_STEPS] = {
++      "state", "select", "use program", "objects", "vertices", "misc", "draw call", "after",
++   };
++   /* Scaled up from the sampled draws to all of them. */
++   fprintf(stderr, "hypocket-profile:   draw steps (ms):");
++   for (int i = 0; i < HYPOCKET_DRAW_STEPS; i++)
++      fprintf(stderr, " %s %.1f%s", step_names[i], hypocket_draw_ms[i] * HYPOCKET_DRAW_SAMPLE,
++              i + 1 < HYPOCKET_DRAW_STEPS ? "," : "\n");
++   memset(hypocket_draw_ms, 0, sizeof(hypocket_draw_ms));
++   memset(hypocket_profile.cmd_ms, 0, sizeof(hypocket_profile.cmd_ms));
++   memset(hypocket_profile.cmd_count, 0, sizeof(hypocket_profile.cmd_count));
++   hypocket_profile.error_check_ms = hypocket_profile.switch_ms = 0;
++   hypocket_profile.submits = 0;
++}
++
+ static int vrend_decode_ctx_submit_cmd(struct virgl_context *ctx,
+                                        const void *buffer,
+                                        size_t size)
+@@ -2055,11 +2110,21 @@ static int vrend_decode_ctx_submit_cmd(struct virgl_context *ctx,
+    bool bret;
+    int ret;
+ 
++   if (hypocket_profile.enabled < 0) {
++      hypocket_profile.enabled = getenv("HYPOCKET_PROFILE") != NULL;
++      hypocket_profile.one_error_check = getenv("HYPOCKET_ERROR_CHECK_EACH") == NULL;
++      hypocket_draw_profile = hypocket_profile.enabled;
++   }
++   const bool profile = hypocket_profile.enabled;
++   double t_start = profile ? hypocket_profile_now() : 0;
++
+ #define TRANSFER_HEADER_SIZE 4096
+ 
+    bret = vrend_hw_switch_context(gdctx->grctx, true);
+    if (bret == false)
+       return EINVAL;
++   if (profile)
++      hypocket_profile.switch_ms += hypocket_profile_now() - t_start;
+ 
+    if (VREND_DEBUG_ENABLED &&
+        vrend_debug(gdctx->grctx, dbg_dump_cmd_streams) &&
+@@ -2095,9 +2160,17 @@ static int vrend_decode_ctx_submit_cmd(struct virgl_context *ctx,
+ 
+       TRACE_SCOPE_SLOW(vrend_get_comand_name(cmd));
+ 
++      double t0 = profile ? hypocket_profile_now() : 0;
+       ret = decode_table[cmd](gdctx->grctx, buf, len);
+-      if (!vrend_check_no_error(gdctx->grctx) && !ret)
++      double t1 = profile ? hypocket_profile_now() : 0;
++      if (!hypocket_profile.one_error_check && !vrend_check_no_error(gdctx->grctx) && !ret)
+          ret = EINVAL;
++      if (profile) {
++         double t2 = hypocket_profile_now();
++         hypocket_profile.cmd_ms[cmd] += t1 - t0;
++         hypocket_profile.cmd_count[cmd]++;
++         hypocket_profile.error_check_ms += t2 - t1;
++      }
+       if (ret) {
+          virgl_error("context %d failed to dispatch %s: %d\n",
+                gdctx->base.ctx_id, vrend_get_comand_name(cmd), ret);
+@@ -2106,6 +2179,18 @@ static int vrend_decode_ctx_submit_cmd(struct virgl_context *ctx,
+          return ret;
+       }
+    }
++   if (hypocket_profile.one_error_check) {
++      double t0 = profile ? hypocket_profile_now() : 0;
++      bool ok = vrend_check_no_error(gdctx->grctx);
++      if (profile)
++         hypocket_profile.error_check_ms += hypocket_profile_now() - t0;
++      if (!ok) {
++         virgl_error("context %d: GL error in a command buffer\n", gdctx->base.ctx_id);
++         return EINVAL;
++      }
++   }
++   if (profile && ++hypocket_profile.submits >= 600)
++      hypocket_profile_log();
+    return 0;
+ }
+ 
+@@ -2155,3 +2240,16 @@ static void vrend_decode_ctx_init_base(struct vrend_decode_ctx *dctx,
+    ctx->retire_fences = vrend_decode_ctx_retire_fences;
+    ctx->submit_fence = vrend_decode_ctx_submit_fence;
+ }
++
++/* HyPocket: makes a client's GL context current (without waiting for the GPU)
++ * so the direct display can sync with its rendering. */
++VIRGL_EXPORT bool hypocket_renderer_switch_context(uint32_t ctx_id);
++VIRGL_EXPORT bool hypocket_renderer_switch_context(uint32_t ctx_id)
++{
++   struct virgl_context *ctx = virgl_context_lookup(ctx_id);
++   /* Only virgl (vrend) contexts, not venus ones. */
++   if (!ctx || ctx->destroy != vrend_decode_ctx_destroy)
++      return false;
++   struct vrend_decode_ctx *dctx = (struct vrend_decode_ctx *)ctx;
++   return vrend_hw_switch_context(dctx->grctx, true);
++}
+diff --git a/src/vrend/vrend_renderer.c b/src/vrend/vrend_renderer.c
+index 4bf88e0..783fa9b 100644
+--- a/src/vrend/vrend_renderer.c
++++ b/src/vrend/vrend_renderer.c
+@@ -26,6 +26,7 @@
+ #endif
+ 
+ #include <unistd.h>
++#include <time.h>
+ #include <stdatomic.h>
+ #include <stdio.h>
+ #include <errno.h>
+@@ -476,6 +477,9 @@ struct vrend_linked_shader_program {
+    uint32_t sysvalue_data_cookie;
+    GLuint ubo_sysval_buffer_id;
+ 
++   /* HyPocket: tex_levels_uniform_id is filled in (it never changes). */
++   bool hypocket_texlod_done;
++
+    uint32_t images_used_mask[PIPE_SHADER_TYPES];
+    GLint *img_locs[PIPE_SHADER_TYPES];
+ 
+@@ -699,6 +703,21 @@ struct vrend_sub_context {
+ 
+    virgl_gl_context gl_context;
+ 
++   /* HyPocket: GL state this context's draws last set, to skip setting it
++    * again (each call costs CPU time in the phone's driver). 0 is unknown. */
++   int hypocket_front_face;
++   const struct vrend_linked_shader_program *hypocket_program;
++   GLuint hypocket_program_id;
++   unsigned hypocket_program_epoch;
++   /* The vertex array object and uniform buffer ranges last bound, valid
++    * while hypocket_bind_epoch and hypocket_buffer_epoch have not moved. */
++   GLuint hypocket_vao;
++   unsigned hypocket_vao_epoch, hypocket_ubo_epoch;
++   struct { GLuint buffer; GLintptr offset; GLsizeiptr size; } hypocket_ubo[HYPOCKET_UBO_SLOTS];
++   /* The vertex element masks the shader variants were last selected with. */
++   bool hypocket_ve_known;
++   uint32_t hypocket_ve_signed, hypocket_ve_unsigned, hypocket_ve_zyxw;
++
+    int sub_ctx_id;
+ 
+    GLuint vaoid;
+@@ -1384,6 +1403,27 @@ static inline int conv_shader_type(int type)
+    };
+ }
+ 
++/* HyPocket: how many shaders and programs the driver compiled and linked,
++ * and the time it took, for the server's memory lines: the driver's shader
++ * compiler is the main suspect for the memory peak while a world loads. */
++static unsigned hypocket_shaders_compiled, hypocket_programs_linked;
++static double hypocket_compile_ms;
++
++static double hypocket_now_ms(void)
++{
++   struct timespec ts;
++   clock_gettime(CLOCK_MONOTONIC, &ts);
++   return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
++}
++
++VIRGL_EXPORT void hypocket_vrend_compile_stats(unsigned *shaders, unsigned *programs, double *ms);
++VIRGL_EXPORT void hypocket_vrend_compile_stats(unsigned *shaders, unsigned *programs, double *ms)
++{
++   *shaders = hypocket_shaders_compiled;
++   *programs = hypocket_programs_linked;
++   *ms = hypocket_compile_ms;
++}
++
+ static bool vrend_compile_shader(struct vrend_sub_context *sub_ctx,
+                                  struct vrend_shader *shader)
+ {
+@@ -1395,8 +1435,11 @@ static bool vrend_compile_shader(struct vrend_sub_context *sub_ctx,
+ 
+    shader->id = glCreateShader(conv_shader_type(shader->sel->type));
+    glShaderSource(shader->id, shader->glsl_strings.num_strings, shader_parts, NULL);
++   double hypocket_start = hypocket_now_ms();
+    glCompileShader(shader->id);
+    glGetShaderiv(shader->id, GL_COMPILE_STATUS, &param);
++   hypocket_compile_ms += hypocket_now_ms() - hypocket_start;
++   hypocket_shaders_compiled++;
+    if (param == GL_FALSE) {
+       char infolog[65536];
+       int len;
+@@ -1450,8 +1493,96 @@ static bool vrend_is_timer_query(GLenum gltype)
+       gltype == GL_TIME_ELAPSED;
+ }
+ 
++/* HyPocket: counts vrend_use_program calls, so that a draw knows whether
++ * the program it bound last is still the one in use. */
++static unsigned hypocket_use_program_epoch;
++
++/* HyPocket: draws skip GL calls that would set what is already set (each
++ * one costs CPU time in the phone's driver, and a changed binding can make
++ * the driver check its state again in the next glDraw). The caches below
++ * are per sub context (each has its own GL context). The vertex array one
++ * is thrown away whenever anything else binds or deletes a vertex array
++ * object, the uniform buffer one whenever a buffer is deleted: either could
++ * leave a stale name bound.
++ * HYPOCKET_NO_DRAW_CACHE turns them off, to compare or to rule them out. */
++static unsigned hypocket_bind_epoch = 1, hypocket_buffer_epoch = 1;
++static int hypocket_draw_cache = -1;
++
++/* A vertex array object was bound elsewhere or deleted. */
++static inline void hypocket_bind_changed(void)
++{
++   hypocket_bind_epoch++;
++}
++
++/* A buffer was deleted: only the uniform buffer bindings can name it. A game
++ * that makes its stream buffers anew every frame deletes one per frame, and
++ * the vertex array object stays bound. */
++static inline void hypocket_buffer_deleted(void)
++{
++   hypocket_buffer_epoch++;
++}
++
++static inline bool hypocket_cache_on(void)
++{
++   if (hypocket_draw_cache < 0)
++      hypocket_draw_cache = getenv("HYPOCKET_NO_DRAW_CACHE") == NULL;
++   return hypocket_draw_cache;
++}
++
++static void hypocket_bind_vao(struct vrend_sub_context *sub_ctx, GLuint vao)
++{
++   if (hypocket_cache_on() && sub_ctx->hypocket_vao == vao && sub_ctx->hypocket_vao_epoch == hypocket_bind_epoch)
++      return;
++   glBindVertexArray(vao);
++   sub_ctx->hypocket_vao = vao;
++   sub_ctx->hypocket_vao_epoch = hypocket_bind_epoch;
++}
++
++static void hypocket_bind_ubo_range(struct vrend_sub_context *sub_ctx, GLuint index, GLuint buffer,
++                                    GLintptr offset, GLsizeiptr size)
++{
++   if (hypocket_cache_on() && index < HYPOCKET_UBO_SLOTS) {
++      if (sub_ctx->hypocket_ubo_epoch != hypocket_buffer_epoch) {
++         memset(sub_ctx->hypocket_ubo, 0, sizeof(sub_ctx->hypocket_ubo));
++         sub_ctx->hypocket_ubo_epoch = hypocket_buffer_epoch;
++      }
++      __typeof__(sub_ctx->hypocket_ubo[0]) *slot = &sub_ctx->hypocket_ubo[index];
++      if (buffer && slot->buffer == buffer && slot->offset == offset && slot->size == size)
++         return;
++      slot->buffer = buffer;
++      slot->offset = offset;
++      slot->size = size;
++   }
++   glBindBufferRange(GL_UNIFORM_BUFFER, index, buffer, offset, size);
++}
++
++/* Whether the vertex elements changed in a way the vertex shader's variant
++ * depends on (integer and BGRA attributes, see vrend_fill_shader_key).
++ * Upstream selects the program again whenever any vertex buffer changes,
++ * which is on nearly every draw of a game and finds the same program. */
++static bool hypocket_ve_changed(struct vrend_sub_context *sub_ctx)
++{
++   if (!hypocket_cache_on())
++      return sub_ctx->vbo_dirty;
++   const struct vrend_vertex_element_array *ve = sub_ctx->ve;
++   uint32_t s = ve ? ve->signed_int_bitmask : 0, u = ve ? ve->unsigned_int_bitmask : 0,
++            z = ve ? ve->zyxw_bitmask : 0;
++   return !sub_ctx->hypocket_ve_known || s != sub_ctx->hypocket_ve_signed ||
++          u != sub_ctx->hypocket_ve_unsigned || z != sub_ctx->hypocket_ve_zyxw;
++}
++
++static void hypocket_ve_selected(struct vrend_sub_context *sub_ctx)
++{
++   const struct vrend_vertex_element_array *ve = sub_ctx->ve;
++   sub_ctx->hypocket_ve_known = true;
++   sub_ctx->hypocket_ve_signed = ve ? ve->signed_int_bitmask : 0;
++   sub_ctx->hypocket_ve_unsigned = ve ? ve->unsigned_int_bitmask : 0;
++   sub_ctx->hypocket_ve_zyxw = ve ? ve->zyxw_bitmask : 0;
++}
++
+ static void vrend_use_program(struct vrend_linked_shader_program *program)
+ {
++   hypocket_use_program_epoch++;
+    GLuint id = !program ? 0 :
+                           program->is_pipeline ? program->id.pipeline :
+                                                  program->id.program;
+@@ -1877,8 +2008,11 @@ static void bind_image_locs(struct vrend_linked_shader_program *sprog,
+ static bool vrend_link(GLuint id)
+ {
+    GLint lret;
++   double hypocket_start = hypocket_now_ms();
+    glLinkProgram(id);
+    glGetProgramiv(id, GL_LINK_STATUS, &lret);
++   hypocket_compile_ms += hypocket_now_ms() - hypocket_start;
++   hypocket_programs_linked++;
+    if (lret == GL_FALSE) {
+       char infolog[65536];
+       int len;
+@@ -2248,6 +2382,7 @@ static void vrend_destroy_program(struct vrend_linked_shader_program *ent)
+ 
+    if (ent->ubo_sysval_buffer_id != GL_INVALID_INDEX) {
+        glDeleteBuffers(1, &ent->ubo_sysval_buffer_id);
++       hypocket_buffer_deleted();
+    }
+ 
+    if (ent->is_pipeline)
+@@ -2465,6 +2600,7 @@ static void vrend_destroy_vertex_elements_object(void *obj_ptr)
+ 
+    if (has_feature(feat_gles31_vertex_attrib_binding)) {
+       glDeleteVertexArrays(1, &v->id);
++      hypocket_bind_changed();
+    }
+    FREE(v);
+ }
+@@ -3458,6 +3594,7 @@ void vrend_bind_vertex_elements_state(struct vrend_context *ctx,
+    if (has_feature(feat_gles31_vertex_attrib_binding) && v->id == 0) {
+       glGenVertexArrays(1, &v->id);
+       glBindVertexArray(v->id);
++      hypocket_bind_changed();
+       for (uint32_t i = 0; i < v->count; i++) {
+          struct vrend_vertex_element *ve = &v->elements[i];
+          GLint size = !vrend_state.use_gles && (v->zyxw_bitmask & (1 << i)) ? GL_BGRA : ve->nr_chan;
+@@ -3485,6 +3622,11 @@ void vrend_set_constants(struct vrend_context *ctx,
+    struct vrend_constants *consts;
+ 
+    consts = &ctx->sub->consts[shader];
++   /* HyPocket: the same values again need no upload (the program keeps
++    * them; a new program uploads them anyway). */
++   if (hypocket_cache_on() && consts->consts && num_constant > 0 && consts->num_consts == num_constant &&
++       memcmp(consts->consts, data, num_constant * sizeof(unsigned int)) == 0)
++      return;
+    ctx->sub->const_dirty[shader] = true;
+ 
+    /* avoid reallocations by only growing the buffer */
+@@ -5183,7 +5325,7 @@ static void vrend_draw_bind_vertex_binding(struct vrend_context *ctx,
+ {
+    int i;
+ 
+-   glBindVertexArray(va->id);
++   hypocket_bind_vao(ctx->sub, va->id);
+ 
+    if (ctx->sub->vbo_dirty) {
+       struct vrend_vertex_buffer *vbo = &ctx->sub->vbo[0];
+@@ -5241,6 +5383,7 @@ static GLuint vrend_draw_bind_samplers_shader(struct vrend_sub_context *sub_ctx,
+    int sampler_index = 0;
+    uint32_t dirty = shader_view->dirty_mask;
+    uint32_t mask = sprog->samplers_used_mask[shader_type];
++   bool changed_unit = false;
+ 
+    while (mask) {
+       int i = u_bit_scan(&mask);
+@@ -5248,6 +5391,7 @@ static GLuint vrend_draw_bind_samplers_shader(struct vrend_sub_context *sub_ctx,
+ 
+       if ((dirty & (1 << i)) && tview) {
+          glActiveTexture(GL_TEXTURE0 + next_sampler_id);
++         changed_unit = true;
+          glUniform1i(sprog->sampler_locs[shader_type][sampler_index], next_sampler_id);
+ 
+          if (sprog->shadow_samp_mask[shader_type] & (1 << i)) {
+@@ -5313,7 +5457,10 @@ static GLuint vrend_draw_bind_samplers_shader(struct vrend_sub_context *sub_ctx,
+    // Since we use a dirty mask to elide some unnecessary state update API
+    // calls, we must ensure that a later glBindTexture() used for another reason
+    // (such as texture allocation) doesn't affect our fragile sampler bindings.
+-   glActiveTexture(GL_TEXTURE0 + vrend_state.max_texture_units - 1);
++   // HyPocket: only this function changes the unit, so when it did not, the
++   // last unit is still active.
++   if (changed_unit)
++      glActiveTexture(GL_TEXTURE0 + vrend_state.max_texture_units - 1);
+ 
+    return next_sampler_id;
+ }
+@@ -5341,8 +5488,8 @@ static GLuint vrend_draw_bind_ubo_shader(struct vrend_sub_context *sub_ctx,
+          cb = &sub_ctx->cbs[shader_type][i];
+          res = (struct vrend_resource *)cb->buffer;
+ 
+-         glBindBufferRange(GL_UNIFORM_BUFFER, next_ubo_id, res->gl_id,
+-                           cb->buffer_offset, cb->buffer_size);
++         hypocket_bind_ubo_range(sub_ctx, next_ubo_id, res->gl_id,
++                                 cb->buffer_offset, cb->buffer_size);
+          dirty &= ~(1 << i);
+       }
+       next_ubo_id++;
+@@ -5589,9 +5736,9 @@ static void vrend_draw_bind_objects(struct vrend_sub_context *sub_ctx, bool new_
+    }
+ 
+    if (sub_ctx->prog->virgl_block_bind != GL_INVALID_INDEX)
+-      glBindBufferRange(GL_UNIFORM_BUFFER, sub_ctx->prog->virgl_block_bind,
+-                        sub_ctx->prog->ubo_sysval_buffer_id,
+-                        0, sizeof(struct sysval_uniform_block));
++      hypocket_bind_ubo_range(sub_ctx, sub_ctx->prog->virgl_block_bind,
++                              sub_ctx->prog->ubo_sysval_buffer_id,
++                              0, sizeof(struct sysval_uniform_block));
+ 
+    vrend_draw_bind_abo_shader(sub_ctx);
+ 
+@@ -5886,6 +6033,30 @@ void vrend_link_program_hook(struct vrend_context *ctx, uint32_t *handles)
+    ctx->sub->prog = prev_prog;
+ }
+ 
++/* HyPocket: with HYPOCKET_PROFILE set, where the time inside DRAW_VBO goes
++ * (vrend_decode.c logs it with the command profile). Only one draw in
++ * HYPOCKET_DRAW_SAMPLE is timed: reading the clock is a system call on some
++ * phones, and timing every step of every draw slowed them down. */
++static unsigned hypocket_draw_count;
++bool hypocket_draw_profile;
++double hypocket_draw_ms[HYPOCKET_DRAW_STEPS];
++
++static inline double hypocket_draw_now(void)
++{
++   struct timespec ts;
++   clock_gettime(CLOCK_MONOTONIC, &ts);
++   return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
++}
++
++/* Adds the time since the last mark to a step. */
++#define HYPOCKET_DRAW_MARK(step) do { \
++      if (hp_sampled) { \
++         double hp_now = hypocket_draw_now(); \
++         hypocket_draw_ms[step] += hp_now - hp_last; \
++         hp_last = hp_now; \
++      } \
++   } while (0)
++
+ int vrend_draw_vbo(struct vrend_context *ctx,
+                    const struct pipe_draw_info *info,
+                    uint32_t cso, uint32_t indirect_handle,
+@@ -5895,6 +6066,8 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+    struct vrend_resource *indirect_res = NULL;
+    struct vrend_resource *indirect_params_res = NULL;
+    struct vrend_sub_context *sub_ctx = ctx->sub;
++   const bool hp_sampled = hypocket_draw_profile && ++hypocket_draw_count % HYPOCKET_DRAW_SAMPLE == 0;
++   double hp_last = hp_sampled ? hypocket_draw_now() : 0;
+ 
+    if (ctx->in_error)
+       return ENOTRECOVERABLE;
+@@ -5945,6 +6118,8 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+    if (ctx->sub->blend_state_dirty)
+       vrend_patch_blend_state(sub_ctx);
+ 
++   HYPOCKET_DRAW_MARK(HYPOCKET_DRAW_STATE);
++
+    // enable primitive-mode-dependent shader variants
+    if (sub_ctx->prim_mode != (int)info->mode) {
+       // Only refresh shader program when switching in/out of GL_POINTS primitive mode
+@@ -5956,15 +6131,27 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+    }
+ 
+    if (sub_ctx->shader_dirty || sub_ctx->swizzle_output_rgb_to_bgr ||
+-       sub_ctx->needs_manual_srgb_encode_bitmask || sub_ctx->vbo_dirty)
++       sub_ctx->needs_manual_srgb_encode_bitmask || hypocket_ve_changed(sub_ctx)) {
+       program_select_result = vrend_select_program(sub_ctx, info->vertices_per_patch);
++      hypocket_ve_selected(sub_ctx);
++   }
+ 
+    if (!sub_ctx->prog || program_select_result == PROGRAMM_ERROR) {
+       virgl_error("Dropping rendering due to missing shaders: %s\n", ctx->debug_name);
+       return 0;
+    }
+ 
+-   vrend_use_program(sub_ctx->prog);
++   HYPOCKET_DRAW_MARK(HYPOCKET_DRAW_SELECT);
++   /* Skipped when this context's last draw bound the same program and no
++    * other code bound one since. */
++   GLuint program_id = sub_ctx->prog->is_pipeline ? sub_ctx->prog->id.pipeline : sub_ctx->prog->id.program;
++   if (sub_ctx->hypocket_program != sub_ctx->prog || sub_ctx->hypocket_program_id != program_id ||
++       sub_ctx->hypocket_program_epoch != hypocket_use_program_epoch) {
++      vrend_use_program(sub_ctx->prog);
++      sub_ctx->hypocket_program = sub_ctx->prog;
++      sub_ctx->hypocket_program_id = program_id;
++      sub_ctx->hypocket_program_epoch = hypocket_use_program_epoch;
++   }
+ 
+    if (has_feature(feat_draw_parameters) &&
+        sub_ctx->prog->reads_drawid &&
+@@ -5973,7 +6160,10 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+          sub_ctx->sysvalue_data_cookie++;
+    }
+ 
+-   if (vrend_state.use_gles) {
++   /* HyPocket: once per program, not on every draw (a string format and a
++    * uniform lookup in the driver for each stage). */
++   if (vrend_state.use_gles && !sub_ctx->prog->hypocket_texlod_done) {
++      sub_ctx->prog->hypocket_texlod_done = true;
+       /* PIPE_SHADER and TGSI_SHADER have different ordering, so use two
+        * different prefix arrays */
+       for (enum pipe_shader_type i = PIPE_SHADER_VERTEX; i < PIPE_SHADER_COMPUTE; ++i) {
+@@ -5989,14 +6179,16 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+       }
+    }
+ 
++   HYPOCKET_DRAW_MARK(HYPOCKET_DRAW_USE);
+    vrend_draw_bind_objects(sub_ctx, program_select_result == PROGRAMM_NEW);
++   HYPOCKET_DRAW_MARK(HYPOCKET_DRAW_OBJECTS);
+    vrend_fill_sysval_uniform_block(sub_ctx);
+ 
+    if (has_feature(feat_gles31_vertex_attrib_binding)) {
+       if (sub_ctx->ve) {
+          vrend_draw_bind_vertex_binding(ctx, sub_ctx->ve);
+       } else {
+-         glBindVertexArray(sub_ctx->vaoid);
++         hypocket_bind_vao(sub_ctx, sub_ctx->vaoid);
+       }
+    } else {
+       if (sub_ctx->ve) {
+@@ -6008,6 +6200,8 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+       }
+    }
+ 
++   HYPOCKET_DRAW_MARK(HYPOCKET_DRAW_VERTICES);
++
+    if (info->indexed) {
+       struct vrend_resource *res = (struct vrend_resource *)sub_ctx->ib.buffer;
+       if (!res) {
+@@ -6088,6 +6282,8 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+       glEnable(GL_BLEND);
+    }
+ 
++   HYPOCKET_DRAW_MARK(HYPOCKET_DRAW_MISC);
++
+    /* set the vertex state up now on a delay */
+    if (!info->indexed) {
+       GLenum mode = info->mode;
+@@ -6157,6 +6353,8 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+          glDrawElements(mode, info->count, elsz, (void *)(uintptr_t)sub_ctx->ib.offset);
+    }
+ 
++   HYPOCKET_DRAW_MARK(HYPOCKET_DRAW_CALL);
++
+    if (info->primitive_restart) {
+       if (vrend_state.use_gles) {
+          glDisable(GL_PRIMITIVE_RESTART_FIXED_INDEX);
+@@ -6176,6 +6374,7 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+ 
+    if (use_advanced_blending)
+       glDisable(GL_BLEND);
++   HYPOCKET_DRAW_MARK(HYPOCKET_DRAW_AFTER);
+    return 0;
+ }
+ 
+@@ -6676,6 +6875,10 @@ static void vrend_update_frontface_state(struct vrend_sub_context *sub_ctx)
+    int front_ccw = state->front_ccw;
+ 
+    front_ccw ^= (sub_ctx->fbo_origin_upper_left ? 0 : 1);
++   int face = front_ccw ? 2 : 1;
++   if (sub_ctx->hypocket_front_face == face)
++      return;
++   sub_ctx->hypocket_front_face = face;
+    if (front_ccw)
+       glFrontFace(GL_CCW);
+    else
+@@ -7308,12 +7511,26 @@ void vrend_renderer_poll(void) {
+    }
+ }
+ 
++/* HyPocket: told on the sync thread as soon as a global fence signals. The
++ * main thread only retires fences between command buffers, so without this
++ * the guest would hear that frame N is done only after the server has also
++ * processed all of frame N+1, and would not prepare frame N+2 meanwhile. */
++static void (*hypocket_fence_hook)(uint32_t fence_id);
++
++VIRGL_EXPORT void hypocket_vrend_set_fence_hook(void (*hook)(uint32_t fence_id));
++VIRGL_EXPORT void hypocket_vrend_set_fence_hook(void (*hook)(uint32_t fence_id))
++{
++   hypocket_fence_hook = hook;
++}
++
+ static void wait_sync(struct vrend_fence *fence)
+ {
+    struct vrend_context *ctx = fence->ctx;
+ 
+    bool signal_poll = atomic_load(&vrend_state.has_waiting_queries);
+    do_wait(fence, /* can_block */ true);
++   if (hypocket_fence_hook && ctx && ctx == vrend_state.ctx0)
++      hypocket_fence_hook((uint32_t)fence->fence_id);
+ 
+    mtx_lock(&vrend_state.fence_mutex);
+    if (vrend_state.use_async_fence_cb) {
+@@ -7859,6 +8076,7 @@ static void vrend_destroy_sub_context(struct vrend_sub_context *sub)
+       }
+    }
+    glDeleteVertexArrays(1, &sub->vaoid);
++   hypocket_bind_changed();
+    glBindVertexArray(0);
+ 
+    if (sub->current_so)
+@@ -8905,6 +9123,7 @@ void vrend_renderer_resource_destroy(struct vrend_resource *res)
+       glDeleteTextures(1, &res->gl_id);
+    } else if (has_bit(res->storage_bits, VREND_STORAGE_GL_BUFFER)) {
+       glDeleteBuffers(1, &res->gl_id);
++      hypocket_buffer_deleted();
+       if (res->tbo_tex_id)
+          glDeleteTextures(1, &res->tbo_tex_id);
+    } else if (has_bit(res->storage_bits, VREND_STORAGE_HOST_SYSTEM_MEMORY)) {
+@@ -11332,6 +11551,20 @@ void vrend_renderer_set_fence_retire(struct vrend_context *ctx,
+    ctx->fence_retire_data = retire_data;
+ }
+ 
++/* HyPocket: every fence is also exported as a sync file (a dup of the
++ * driver's native fence fd, kept in virgl_fence.c's table) for clients that
++ * ask for fence fds. Our Mesa never does, and the export cost system calls on
++ * every command buffer and failed now and then on the Mali driver ("failed to
++ * export fence sync object", EBADF), while the sync thread waited on the same
++ * fence. vtest turns it off unless a client asks for a fence fd. */
++static bool hypocket_export_fences = true;
++
++VIRGL_EXPORT void hypocket_vrend_set_fence_export(bool on);
++VIRGL_EXPORT void hypocket_vrend_set_fence_export(bool on)
++{
++   hypocket_export_fences = on;
++}
++
+ int vrend_renderer_create_fence(struct vrend_context *ctx,
+                                 uint32_t flags,
+                                 uint64_t fence_id)
+@@ -11370,7 +11603,7 @@ int vrend_renderer_create_fence(struct vrend_context *ctx,
+ 
+ #ifdef HAVE_EPOXY_EGL_H
+    int fence_fd = -1;
+-   if (vrend_renderer_export_ctx0_fence(fence_id, &fence_fd) == 0 &&
++   if (hypocket_export_fences && vrend_renderer_export_ctx0_fence(fence_id, &fence_fd) == 0 &&
+        virgl_fence_set_fd(fence_id, fence_fd))
+       virgl_error("failed to export fence sync object\n");
+    if (fence_fd != -1)
+@@ -13194,6 +13427,7 @@ void vrend_renderer_create_sub_ctx(struct vrend_context *ctx, int sub_ctx_id)
+    glGenVertexArrays(1, &sub->vaoid);
+    if (!has_feature(feat_gles31_vertex_attrib_binding)) {
+       glBindVertexArray(sub->vaoid);
++      hypocket_bind_changed();
+    }
+ 
+    glGenFramebuffers(1, &sub->fb_id);
+@@ -13789,3 +14023,30 @@ vrend_renderer_pipe_resource_get_layout(UNUSED struct vrend_context *ctx,
+    return EINVAL;
+ }
+ #endif
++
++/* HyPocket: backs a new 2D texture resource with an EGL image (an Android
++ * hardware buffer the phone's screen shows directly), so the guest draws
++ * straight into it. Only for resources nothing has used yet: the guest
++ * asks right after creating them. Returns the new texture name, or 0. */
++VIRGL_EXPORT GLuint hypocket_vrend_back_with_image(uint32_t res_id, void *image);
++VIRGL_EXPORT GLuint hypocket_vrend_back_with_image(uint32_t res_id, void *image)
++{
++   struct virgl_resource *res = virgl_resource_lookup(res_id);
++   if (!res || !res->pipe_resource || !image)
++      return 0;
++   struct vrend_resource *gr = (struct vrend_resource *)res->pipe_resource;
++   if (gr->target != GL_TEXTURE_2D || gr->base.last_level != 0 || gr->base.nr_samples > 1 ||
++       gr->base.array_size > 1 || !has_bit(gr->storage_bits, VREND_STORAGE_GL_TEXTURE) ||
++       has_bit(gr->storage_bits, VREND_STORAGE_EGL_IMAGE))
++      return 0;
++   GLuint old_id = gr->gl_id;
++   uint32_t old_bits = gr->storage_bits;
++   gr->storage_bits &= ~(VREND_STORAGE_GL_TEXTURE | VREND_STORAGE_GL_IMMUTABLE);
++   if (vrend_resource_alloc_texture(gr, gr->base.format, image) != 0) {
++      gr->gl_id = old_id;
++      gr->storage_bits = old_bits;
++      return 0;
++   }
++   glDeleteTextures(1, &old_id);
++   return gr->gl_id;
++}
+diff --git a/src/vrend/vrend_renderer.h b/src/vrend/vrend_renderer.h
+index adb1213..c60a88b 100644
+--- a/src/vrend/vrend_renderer.h
++++ b/src/vrend/vrend_renderer.h
+@@ -246,6 +246,23 @@ void vrend_clear_surface(struct vrend_context *ctx,
+                          unsigned width, unsigned height,
+                          bool render_condition_enabled);
+ 
++/* HyPocket: steps of vrend_draw_vbo, timed with HYPOCKET_PROFILE. */
++enum hypocket_draw_step {
++   HYPOCKET_DRAW_STATE,    /* checks, front face, stencil, scissor, viewport, blend */
++   HYPOCKET_DRAW_SELECT,   /* shader program selection */
++   HYPOCKET_DRAW_USE,      /* glUseProgram and texture-level uniforms */
++   HYPOCKET_DRAW_OBJECTS,  /* uniform buffers, constants, samplers, images */
++   HYPOCKET_DRAW_VERTICES, /* system values and vertex buffers */
++   HYPOCKET_DRAW_MISC,     /* index buffer, transform feedback, indirect buffers */
++   HYPOCKET_DRAW_CALL,     /* the glDraw* call itself */
++   HYPOCKET_DRAW_AFTER,
++   HYPOCKET_DRAW_STEPS
++};
++#define HYPOCKET_DRAW_SAMPLE 16 /* one draw in this many is timed */
++#define HYPOCKET_UBO_SLOTS 64 /* uniform buffer bindings whose ranges a draw remembers */
++extern bool hypocket_draw_profile;
++extern double hypocket_draw_ms[HYPOCKET_DRAW_STEPS];
++
+ int vrend_draw_vbo(struct vrend_context *ctx,
+                    const struct pipe_draw_info *info,
+                    uint32_t cso, uint32_t indirect_handle, uint32_t indirect_draw_count_handle);
+diff --git a/src/vrend/vrend_winsys_egl.c b/src/vrend/vrend_winsys_egl.c
+index 4ddcd0d..0b196c3 100644
+--- a/src/vrend/vrend_winsys_egl.c
++++ b/src/vrend/vrend_winsys_egl.c
+@@ -1020,3 +1020,15 @@ const char *virgl_egl_error_string(EGLint error)
+     default: return "Unknown error";
+     }
+ }
++
++/* HyPocket: lets the server's direct display share textures with the renderer. */
++VIRGL_EXPORT bool hypocket_egl_get(EGLDisplay *display, EGLConfig *config, EGLContext *context);
++VIRGL_EXPORT bool hypocket_egl_get(EGLDisplay *display, EGLConfig *config, EGLContext *context)
++{
++   if (!egl || !egl->egl_ctx)
++      return false;
++   *display = egl->egl_display;
++   *config = egl->egl_conf;
++   *context = egl->egl_ctx;
++   return true;
++}
+diff --git a/vtest/meson.build b/vtest/meson.build
+index c2bd278..6bcfe12 100644
+--- a/vtest/meson.build
++++ b/vtest/meson.build
+@@ -30,7 +30,9 @@ vtest_sources = [
+    'vtest_server.c',
+    'vtest_renderer.c',
+    'vtest_protocol.h',
+-   'vtest.h'
++   'vtest.h',
++   'hypocket_display.c',
++   'hypocket_display.h',
+ ]
+ 
+ vtest_depends = [
+@@ -40,6 +42,7 @@ vtest_depends = [
+    libdrm_dep,
+    drm_uapi_dep,
+    mesa_dep,
++   epoxy_dep,
+ ]
+ 
+ if with_tracing == 'percetto'
+diff --git a/vtest/vtest.h b/vtest/vtest.h
+index b2708a2..2a61054 100644
+--- a/vtest/vtest.h
++++ b/vtest/vtest.h
+@@ -62,6 +62,10 @@ int vtest_send_caps2(uint32_t length_dw);
+ int vtest_create_resource(uint32_t length_dw);
+ int vtest_create_resource2(uint32_t length_dw);
+ int vtest_resource_unref(uint32_t length_dw);
++int vtest_hypocket_present(uint32_t length_dw);
++int vtest_hypocket_adopt(uint32_t length_dw);
++int vtest_hypocket_fence_wait(uint32_t length_dw);
++int vtest_hypocket_fence_page(uint32_t length_dw);
+ int vtest_submit_cmd(uint32_t length_dw);
+ 
+ int vtest_transfer_get(uint32_t length_dw);
+diff --git a/vtest/vtest_protocol.h b/vtest/vtest_protocol.h
+index 1bd515c..f175a11 100644
+--- a/vtest/vtest_protocol.h
++++ b/vtest/vtest_protocol.h
+@@ -93,6 +93,18 @@
+ #define VCMD_DRM_SYNC_QUERY 36
+ #define VCMD_DRM_SYNC_TRANSFER 37
+ #define VCMD_RESOURCE_EXPORT_FD 38
++/* HyPocket: show a resource on the phone's screen (hypocket_display.c). */
++#define VCMD_HYPOCKET_PRESENT 64
++#define VCMD_HYPOCKET_PRESENT_SIZE 1
++/* HyPocket: back a new resource with a screen buffer (hypocket_display.c). */
++#define VCMD_HYPOCKET_ADOPT 65
++#define VCMD_HYPOCKET_ADOPT_SIZE 1
++/* HyPocket: wait for one command buffer, by number (vtest_renderer.c). */
++#define VCMD_HYPOCKET_FENCE_WAIT 66
++#define VCMD_HYPOCKET_FENCE_WAIT_SIZE 2
++/* HyPocket: get the shared fence page's fd (vtest_renderer.c). */
++#define VCMD_HYPOCKET_FENCE_PAGE 67
++#define VCMD_HYPOCKET_FENCE_PAGE_SIZE 0
+ 
+ #define VCMD_RES_CREATE_SIZE 10
+ #define VCMD_RES_CREATE_RES_HANDLE 0 /* must be 0 since protocol version 3 */
+diff --git a/vtest/vtest_renderer.c b/vtest/vtest_renderer.c
+index ba4feb1..9272762 100644
+--- a/vtest/vtest_renderer.c
++++ b/vtest/vtest_renderer.c
+@@ -54,6 +54,10 @@
+ #include "vtest.h"
+ #include "vtest_shm.h"
+ #include "vtest_protocol.h"
++#include "hypocket_display.h"
++#include <poll.h>
++#include <linux/futex.h>
++#include <sys/syscall.h>
+ #include "threadpool.h"
+ 
+ #include "util.h"
+@@ -206,10 +210,69 @@ static void vtest_create_implicit_fence(struct vtest_renderer *renderer)
+    virgl_renderer_create_fence(++renderer->implicit_fence_submitted, 0);
+ }
+ 
++/* HyPocket: the number of the last command buffer the GPU finished, in a page
++ * shared with our Mesa (VCMD_HYPOCKET_FENCE_PAGE), so the guest can check and wait
++ * for fences without a round trip that would queue behind its own commands.
++ * Must match virgl_vtest_winsys.c. */
++#define HYPOCKET_FENCE_MAGIC 0x43465048 /* "HPFC": the server keeps this page current */
++struct hypocket_fence_page {
++   int completed;
++   int waiters;
++   int magic;
++};
++static struct hypocket_fence_page *hypocket_fences;
++
++void hypocket_vrend_set_fence_hook(void (*hook)(uint32_t fence_id));
++void hypocket_vrend_set_fence_export(bool on);
++
++/* Fence numbers only move forward, though the sync thread and the main
++ * thread both report them. */
++static void hypocket_fence_page_complete(uint32_t fence_id)
++{
++   int completed = __atomic_load_n(&hypocket_fences->completed, __ATOMIC_SEQ_CST);
++   do {
++      if ((int)(fence_id - (uint32_t)completed) <= 0)
++         return;
++   } while (!__atomic_compare_exchange_n(&hypocket_fences->completed, &completed, (int)fence_id, false,
++                                         __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST));
++   if (__atomic_load_n(&hypocket_fences->waiters, __ATOMIC_SEQ_CST))
++      syscall(SYS_futex, &hypocket_fences->completed, FUTEX_WAKE, INT_MAX, NULL, NULL, 0);
++}
++
++/* The page lives in memory (a memfd the guest's Mesa gets over the socket
++ * with VCMD_HYPOCKET_FENCE_PAGE), not in a file: the sync thread writes it
++ * after every command buffer, and a shared mapping of a file on the phone's
++ * storage is written back now and then, and a write while that happens can
++ * wait for the storage (tens of milliseconds on eMMC). */
++static int hypocket_fence_fd = -1;
++
++static void hypocket_fence_page_init(void)
++{
++#ifdef __NR_memfd_create
++   int fd = syscall(__NR_memfd_create, "hypocket-fences", MFD_CLOEXEC);
++#else
++   int fd = -1;
++#endif
++   if (fd < 0)
++      return;
++   void *map = ftruncate(fd, 4096) == 0 ? mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0) : MAP_FAILED;
++   if (map == MAP_FAILED) {
++      close(fd);
++      return;
++   }
++   hypocket_fence_fd = fd;
++   hypocket_fences = map;
++   __atomic_store_n(&hypocket_fences->magic, HYPOCKET_FENCE_MAGIC, __ATOMIC_SEQ_CST);
++   if (!getenv("HYPOCKET_FENCES_ON_MAIN_THREAD"))
++      hypocket_vrend_set_fence_hook(hypocket_fence_page_complete);
++}
++
+ static void vtest_write_implicit_fence(UNUSED void *cookie, uint32_t fence_id_in)
+ {
+    struct vtest_renderer *renderer = (struct vtest_renderer*)cookie;
+    renderer->implicit_fence_completed = fence_id_in;
++   if (hypocket_fences)
++      hypocket_fence_page_complete(fence_id_in);
+ }
+ 
+ static void vtest_signal_timeline(struct vtest_timeline *timeline,
+@@ -281,6 +344,8 @@ static void vtest_unref_resource(struct vtest_resource *res)
+     * are implied
+     */
+    virgl_renderer_resource_unref(res->res_id);
++   /* HyPocket: free the screen buffer behind it, if any. */
++   hypocket_display_forget(res->res_id);
+ 
+    if (res->iov.iov_base)
+       munmap(res->iov.iov_base, res->iov.iov_len);
+@@ -621,6 +686,10 @@ int vtest_init_renderer(bool multi_clients,
+ 
+    renderer.multi_clients = multi_clients;
+    renderer.ctx_flags = ctx_flags;
++   hypocket_fence_page_init();
++   /* HyPocket: fence fds only for clients that ask for them (DRM syncs or
++    * out fences of SUBMIT_CMD2, see below). */
++   hypocket_vrend_set_fence_export((ctx_flags & VIRGL_RENDERER_DRM) != 0);
+ 
+    return 0;
+ }
+@@ -1447,6 +1516,123 @@ int vtest_resource_create_blob(UNUSED uint32_t length_dw)
+    return 0;
+ }
+ 
++/*
++ * HyPocket: precise fences. Upstream's VCMD_RESOURCE_BUSY_WAIT ignores which
++ * resource it is asked about and answers whether the GPU has finished
++ * everything submitted so far, so a client waiting for its previous frame
++ * also waits for the frame it just sent, and Mesa creates a resource (a round
++ * trip) for every fence. Each command buffer already gets an implicit fence
++ * numbered in submission order; our Mesa numbers them the same way and asks
++ * about one: busy until that command buffer is done, waiting up to
++ * timeout_us microseconds (0: just ask; ~0: forever).
++ */
++int vtest_hypocket_fence_wait(UNUSED uint32_t length_dw)
++{
++   struct vtest_context *ctx = vtest_get_current_context();
++   uint32_t buf[VCMD_HYPOCKET_FENCE_WAIT_SIZE];
++   if (ctx->input->read(ctx->input, buf, sizeof(buf)) != sizeof(buf))
++      return -1;
++   int seq = (int)buf[0];
++   uint32_t timeout_us = buf[1];
++   struct timespec start;
++   clock_gettime(CLOCK_MONOTONIC, &start);
++   virgl_renderer_poll();
++   bool busy;
++   for (;;) {
++      busy = renderer.implicit_fence_completed - seq < 0;
++      if (!busy || timeout_us == 0)
++         break;
++      int wait_ms = 100;
++      if (timeout_us != ~0u) {
++         struct timespec now;
++         clock_gettime(CLOCK_MONOTONIC, &now);
++         int64_t elapsed_us = (now.tv_sec - start.tv_sec) * 1000000ll + (now.tv_nsec - start.tv_nsec) / 1000;
++         int64_t left_us = (int64_t)timeout_us - elapsed_us;
++         if (left_us <= 0)
++            break;
++         wait_ms = left_us < 100000 ? (int)((left_us + 999) / 1000) : 100;
++      }
++      int fd = virgl_renderer_get_poll_fd();
++      if (fd >= 0) {
++         struct pollfd pfd = { fd, POLLIN, 0 };
++         poll(&pfd, 1, wait_ms);
++      } else {
++         usleep(200);
++      }
++      virgl_renderer_poll();
++   }
++   uint32_t reply[VTEST_HDR_SIZE + 1] = {
++      [VTEST_CMD_LEN] = 1,
++      [VTEST_CMD_ID] = VCMD_HYPOCKET_FENCE_WAIT,
++      [VTEST_CMD_DATA_START] = busy ? 1 : 0,
++   };
++   return vtest_block_write(ctx->out_fd, reply, sizeof(reply)) < 0 ? -1 : 0;
++}
++
++/* HyPocket: sends the fence page (see hypocket_fence_page_init): a reply
++ * with 1 and the page's fd, or 0 without an fd when there is none. */
++int vtest_hypocket_fence_page(UNUSED uint32_t length_dw)
++{
++   struct vtest_context *ctx = vtest_get_current_context();
++   uint32_t reply[VTEST_HDR_SIZE + 1] = {
++      [VTEST_CMD_LEN] = 1,
++      [VTEST_CMD_ID] = VCMD_HYPOCKET_FENCE_PAGE,
++      [VTEST_CMD_DATA_START] = hypocket_fence_fd >= 0 ? 1 : 0,
++   };
++   if (vtest_block_write(ctx->out_fd, reply, sizeof(reply)) < 0)
++      return -1;
++   return hypocket_fence_fd >= 0 && vtest_send_fd(ctx->out_fd, hypocket_fence_fd) < 0 ? -1 : 0;
++}
++
++/* HyPocket: the guest created a pbuffer image it will present (Mesa patch). */
++int vtest_hypocket_adopt(UNUSED uint32_t length_dw)
++{
++   struct vtest_context *ctx = vtest_get_current_context();
++   uint32_t buf[VCMD_HYPOCKET_ADOPT_SIZE];
++   if (ctx->input->read(ctx->input, buf, sizeof(buf)) != sizeof(buf))
++      return -1;
++   struct vtest_resource *res = util_hash_table_get(ctx->resource_table, intptr_to_pointer(buf[0]));
++   if (res && hypocket_display_enabled())
++      hypocket_display_adopt(res->res_id);
++   return 0;
++}
++
++/* HyPocket: the guest presented a frame with eglSwapBuffers (Mesa patch). */
++bool hypocket_renderer_switch_context(uint32_t ctx_id);
++
++int vtest_hypocket_present(UNUSED uint32_t length_dw)
++{
++   struct vtest_context *ctx = vtest_get_current_context();
++   uint32_t buf[VCMD_HYPOCKET_PRESENT_SIZE];
++   if (ctx->input->read(ctx->input, buf, sizeof(buf)) != sizeof(buf))
++      return -1;
++   struct vtest_resource *res = util_hash_table_get(ctx->resource_table, intptr_to_pointer(buf[0]));
++   struct virgl_renderer_resource_info info;
++   static bool logged;
++   if (!logged) {
++      logged = true;
++      fprintf(stderr, "hypocket-display: first present command, resource %u\n", buf[0]);
++   }
++   if (!res) {
++      static unsigned missing;
++      if (missing++ < 3)
++         fprintf(stderr, "hypocket-display: present of unknown resource %u\n", buf[0]);
++      return 0;
++   }
++   if (!hypocket_display_enabled())
++      return 0;
++   /* Switching makes the guest's GL context current without waiting for the GPU. */
++   if (!hypocket_renderer_switch_context(ctx->ctx_id)) {
++      static unsigned failed;
++      if (failed++ < 3)
++         fprintf(stderr, "hypocket-display: cannot switch to context %u\n", ctx->ctx_id);
++      return 0;
++   }
++   if (virgl_renderer_resource_get_info((int)res->res_id, &info) == 0)
++      hypocket_display_present(res->res_id, info.width, info.height, true);
++   return 0;
++}
++
+ int vtest_resource_unref(UNUSED uint32_t length_dw)
+ {
+    struct vtest_context *ctx = vtest_get_current_context();
+@@ -1592,6 +1778,22 @@ static int vtest_transfer_get_internal(struct vtest_context *ctx,
+       }
+    }
+ 
++   /* HyPocket: a full-size read of a 2D colour resource is a frame the guest
++    * wants to show. Show it directly, and skip the copy back when asked. */
++   if (do_transfer && hypocket_display_enabled() && args->level == 0 && args->box.x == 0 &&
++       args->box.y == 0 && args->box.d <= 1 && args->box.w > 0 && args->box.h > 0) {
++      /* Reading one pixel through the renderer switches to this client's GL
++       * context and waits for its rendering, which the display copy needs. */
++      uint32_t pixel;
++      struct iovec pixel_iov = { &pixel, sizeof(pixel) };
++      struct virgl_box one = { args->box.w / 2, args->box.h / 2, 0, 1, 1, 1 };
++      virgl_renderer_transfer_read_iov(res->res_id, ctx->ctx_id, 0, sizeof(pixel), 0, &one, 0,
++                                       &pixel_iov, 1);
++      if (hypocket_display_present(res->res_id, args->box.w, args->box.h, false) &&
++          hypocket_display_skip_readback())
++         do_transfer = false;
++   }
++
+    if (do_transfer) {
+       ret = virgl_renderer_transfer_read_iov(res->res_id,
+                                              ctx->ctx_id,
+@@ -2307,6 +2509,7 @@ static int vtest_submit_cmd2_batch(struct vtest_context *ctx,
+ 
+    if ((batch->flags & VCMD_SUBMIT_CMD2_FLAG_OUT_FENCE_FD) || batch->num_out_syncobj) {
+       assert(batch->flags & VCMD_SUBMIT_CMD2_FLAG_RING_IDX);
++      hypocket_vrend_set_fence_export(true); /* HyPocket: this client wants fence fds */
+    } else if (!batch->sync_count) {
+       goto out;
+    }
+diff --git a/vtest/vtest_server.c b/vtest/vtest_server.c
+index 64a29e1..69b186d 100644
+--- a/vtest/vtest_server.c
++++ b/vtest/vtest_server.c
+@@ -27,6 +27,11 @@
+ #endif
+ 
+ #include <stdio.h>
++#include <time.h>
++#include <sys/syscall.h>
++#ifdef __ANDROID__
++#include <malloc.h>
++#endif
+ #include <signal.h>
+ #include <stdbool.h>
+ #include <unistd.h>
+@@ -35,6 +40,7 @@
+ #include <sys/socket.h>
+ #include <netinet/in.h>
+ #include <sys/un.h>
++#include <errno.h>
+ #include <fcntl.h>
+ #include <getopt.h>
+ #include <string.h>
+@@ -129,8 +135,239 @@ static void vtest_server_open_read_file(void);
+ static void vtest_server_open_socket(void);
+ static void vtest_server_run(void);
+ static void vtest_server_close_socket(void);
++/* HyPocket: where the server's time goes, logged every 5 seconds: decoding
++ * and running the guest's GL commands (SUBMIT), showing frames (PRESENT,
++ * which includes waiting for the screen to give a buffer back) and the
++ * rest. The remainder of the time the server waits for the guest. */
++static struct {
++   double first_command, window_start, submit_ms, present_ms, other_ms, fence_ms;
++   unsigned submits, presents, others, fences, creates;
++   double total_submit_ms, total_present_ms, total_ms;
++   unsigned total_presents;
++} hypocket_stats;
++
++static double hypocket_stats_now_ms(void)
++{
++   struct timespec ts;
++   clock_gettime(CLOCK_MONOTONIC, &ts);
++   return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
++}
++
++static void hypocket_memory_log(const char *when);
++static void hypocket_memory_watch(double now);
++void hypocket_vrend_compile_stats(unsigned *shaders, unsigned *programs, double *ms);
++
++static void hypocket_stats_add(uint32_t id, double ms)
++{
++   double now = hypocket_stats_now_ms();
++   if (hypocket_stats.window_start == 0)
++      hypocket_stats.window_start = hypocket_stats.first_command = now;
++   if (id == VCMD_SUBMIT_CMD || id == VCMD_SUBMIT_CMD2) {
++      hypocket_stats.submit_ms += ms;
++      hypocket_stats.submits++;
++   } else if (id == VCMD_HYPOCKET_PRESENT) {
++      hypocket_stats.present_ms += ms;
++      hypocket_stats.presents++;
++   } else if (id == VCMD_RESOURCE_BUSY_WAIT || id == VCMD_HYPOCKET_FENCE_WAIT) {
++      /* Mostly waiting for the GPU on the guest's behalf, not work. */
++      hypocket_stats.fence_ms += ms;
++      hypocket_stats.fences++;
++   } else {
++      hypocket_stats.other_ms += ms;
++      hypocket_stats.others++;
++      if (id == VCMD_RESOURCE_CREATE || id == VCMD_RESOURCE_CREATE2)
++         hypocket_stats.creates++;
++   }
++   hypocket_memory_watch(now);
++   double window = now - hypocket_stats.window_start;
++   if (window < 5000)
++      return;
++   hypocket_stats.total_submit_ms += hypocket_stats.submit_ms;
++   hypocket_stats.total_present_ms += hypocket_stats.present_ms;
++   hypocket_stats.total_ms += window;
++   hypocket_stats.total_presents += hypocket_stats.presents;
++   static bool memory_logged;
++   if (!memory_logged && hypocket_stats.total_ms >= 20000) {
++      memory_logged = true;
++      hypocket_memory_log("after 20 s");
++   }
++   unsigned frames = hypocket_stats.presents ? hypocket_stats.presents : 1;
++   fprintf(stderr,
++           "hypocket-stats: %.1f s, %u frames: commands %.1f ms/frame (%.0f%% busy, %u submits), "
++           "present %.1f ms/frame, fence checks %u (%.1f ms), other %.1f ms (%u, %u resources made)\n",
++           window / 1000.0, hypocket_stats.presents, hypocket_stats.submit_ms / frames,
++           100.0 * hypocket_stats.submit_ms / window, hypocket_stats.submits, hypocket_stats.present_ms / frames,
++           hypocket_stats.fences, hypocket_stats.fence_ms, hypocket_stats.other_ms, hypocket_stats.others,
++           hypocket_stats.creates);
++   hypocket_stats.window_start = now;
++   hypocket_stats.submit_ms = hypocket_stats.present_ms = hypocket_stats.other_ms = hypocket_stats.fence_ms = 0;
++   hypocket_stats.submits = hypocket_stats.presents = hypocket_stats.others = hypocket_stats.fences = 0;
++   hypocket_stats.creates = 0;
++}
++
++/* HyPocket: where the server's resident memory is, from /proc/self/smaps:
++ * the GPU driver's mappings, the guest's resources (memfds the game maps
++ * too, so they also count in its own memory), malloc, other anonymous memory
++ * and code. Resident sizes count shared pages in full; PSS splits them. */
++static void hypocket_memory_log(const char *when)
++{
++   enum { GPU, GUEST, MALLOC, ANON, CODE, OTHER, KINDS };
++   static const char *const names[KINDS] = { "GPU driver", "guest resources", "malloc", "other anonymous",
++                                             "code", "other" };
++   unsigned long rss[KINDS] = { 0 }, pss[KINDS] = { 0 }, mappings = 0;
++   FILE *f = fopen("/proc/self/smaps", "re");
++   if (!f)
++      return;
++   char line[512];
++   int kind = OTHER;
++   while (fgets(line, sizeof(line), f)) {
++      unsigned long kb;
++      if (sscanf(line, "Rss: %lu kB", &kb) == 1) {
++         rss[kind] += kb;
++      } else if (sscanf(line, "Pss: %lu kB", &kb) == 1) {
++         pss[kind] += kb;
++      } else if (strchr(line, '-') && strchr(line, '-') < strchr(line, ' ')) {
++         /* A mapping: "start-end perms offset dev inode [path]". */
++         mappings++;
++         char *path = line;
++         for (int field = 0; field < 5 && path; field++) {
++            path = strchr(path, ' ');
++            while (path && *path == ' ')
++               path++;
++         }
++         if (!path || *path == '\n' || *path == 0)
++            kind = ANON;
++         else if (strstr(path, "/dev/mali") || strstr(path, "/dev/kgsl") || strstr(path, "dmabuf") ||
++                  strstr(path, "/dev/dri") || strstr(path, "gralloc") || strstr(path, "/dev/ion"))
++            kind = GPU;
++         else if (strstr(path, "vtest-res"))
++            kind = GUEST;
++         else if (strstr(path, "scudo") || strstr(path, "malloc") || strstr(path, "jemalloc") ||
++                  strstr(path, "[heap]"))
++            kind = MALLOC;
++         else if (path[0] == '[')
++            kind = ANON;
++         else if (strstr(path, ".so") || strstr(path, "/system/"))
++            kind = CODE;
++         else
++            kind = OTHER;
++      }
++   }
++   fclose(f);
++   unsigned long hwm = 0;
++   f = fopen("/proc/self/status", "re");
++   if (f) {
++      while (fgets(line, sizeof(line), f))
++         if (sscanf(line, "VmHWM: %lu kB", &hwm) == 1)
++            break;
++      fclose(f);
++   }
++   unsigned shaders, programs;
++   double compile_ms;
++   hypocket_vrend_compile_stats(&shaders, &programs, &compile_ms);
++   fprintf(stderr, "hypocket-memory: %s, peak %lu MB, %lu mappings, %u shaders and %u programs built (%.0f ms):",
++           when, hwm / 1024, mappings, shaders, programs, compile_ms);
++   for (int i = 0; i < KINDS; i++)
++      fprintf(stderr, " %s %.1f MB (pss %.1f)%s", names[i], rss[i] / 1024.0, pss[i] / 1024.0,
++              i + 1 < KINDS ? "," : "\n");
++}
++
++/* HyPocket: the peak comes while the world loads and is gone by the line
++ * after 20 s, so the resident size is checked every 100 ms (one read of
++ * /proc/self/statm) and the whole breakdown logged each time it has grown by
++ * HYPOCKET_MEMORY_STEP_MB since the last one, a few times at most. */
++#define HYPOCKET_MEMORY_STEP_MB 24
++#define HYPOCKET_MEMORY_RISES 8
++
++static void hypocket_memory_watch(double now)
++{
++   static double last_check;
++   static unsigned long logged_mb, rises;
++   if (rises >= HYPOCKET_MEMORY_RISES || now - last_check < 100)
++      return;
++   last_check = now;
++   FILE *f = fopen("/proc/self/statm", "re");
++   if (!f)
++      return;
++   unsigned long size_pages = 0, resident_pages = 0;
++   int read = fscanf(f, "%lu %lu", &size_pages, &resident_pages);
++   fclose(f);
++   if (read != 2)
++      return;
++   unsigned long mb = resident_pages * (unsigned long)sysconf(_SC_PAGESIZE) >> 20;
++   if (logged_mb == 0) {
++      logged_mb = mb; /* the starting point */
++      return;
++   }
++   if (mb < logged_mb + HYPOCKET_MEMORY_STEP_MB)
++      return;
++   logged_mb = mb;
++   rises++;
++   char when[64];
++   snprintf(when, sizeof(when), "rising at %.1f s (%lu MB resident)",
++            (now - hypocket_stats.first_command) / 1000.0, mb);
++   hypocket_memory_log(when);
++}
++
++/* The client left: a summary of the whole session, the last (shorter)
++ * window included, so that sessions under 5 seconds have one too. */
++static void hypocket_stats_finish(void)
++{
++   if (hypocket_stats.window_start > 0) {
++      hypocket_stats.total_submit_ms += hypocket_stats.submit_ms;
++      hypocket_stats.total_present_ms += hypocket_stats.present_ms;
++      hypocket_stats.total_ms += hypocket_stats_now_ms() - hypocket_stats.window_start;
++      hypocket_stats.total_presents += hypocket_stats.presents;
++   }
++   hypocket_memory_log("at the end");
++   double total = hypocket_stats.total_ms;
++   if (total <= 0)
++      return;
++   unsigned frames = hypocket_stats.total_presents ? hypocket_stats.total_presents : 1;
++   fprintf(stderr, "hypocket-stats: total %.1f s, %u frames: commands %.1f ms/frame (%.0f%% busy), present %.1f ms/frame\n",
++           total / 1000.0, hypocket_stats.total_presents, hypocket_stats.total_submit_ms / frames,
++           100.0 * hypocket_stats.total_submit_ms / total, hypocket_stats.total_present_ms / frames);
++}
++
+ static int vtest_client_dispatch_commands(struct vtest_client *client);
+ 
++/* HyPocket: memory the app and the game share (the audio ring), as memfds
++ * named in HYPOCKET_MEMFDS ("name:bytes,name:bytes"). A shared file in the
++ * app's storage is written back now and then, and writing to it meanwhile
++ * can stall for tens of milliseconds on a slow phone. Neither the app nor
++ * the game can hand the other an fd (Android starts them as separate
++ * processes and closes inherited fds), but both can open this process's
++ * /proc/<pid>/fd/<n>; each is printed before the socket exists, and stays
++ * open for as long as this process runs (mappings keep it alive after). */
++static void hypocket_memfds_create(void)
++{
++   const char *spec = getenv("HYPOCKET_MEMFDS");
++   while (spec && *spec) {
++      char name[32];
++      unsigned long size = 0;
++      int used = 0;
++      if (sscanf(spec, "%31[^:]:%lu%n", name, &size, &used) != 2 || size == 0 || size > (64u << 20))
++         break;
++      spec += used;
++      if (*spec == ',')
++         spec++;
++#ifdef __NR_memfd_create
++      int fd = syscall(__NR_memfd_create, name, 1u /* MFD_CLOEXEC */);
++#else
++      int fd = -1;
++#endif
++      if (fd < 0 || ftruncate(fd, (off_t)size) != 0) {
++         fprintf(stderr, "hypocket-memfd-failed: %s %s: %s (errno %d)\n", name,
++                 fd < 0 ? "memfd_create" : "ftruncate", strerror(errno), errno);
++         if (fd >= 0)
++            close(fd);
++         continue;
++      }
++      fprintf(stderr, "hypocket-memfd: %s /proc/%d/fd/%d\n", name, (int)getpid(), fd);
++   }
++   fflush(stderr);
++}
++
+ 
+ int vtest_main(int argc, char **argv)
+ {
+@@ -140,6 +377,12 @@ while (__AFL_LOOP(1000)) {
+ 
+    vtest_server_getenv();
+    vtest_server_parse_args(argc, argv);
++   hypocket_memfds_create();
++#if defined(__ANDROID__) && defined(M_DECAY_TIME)
++   /* HyPocket: give freed malloc memory back to the system after about a
++    * second instead of keeping it cached. */
++   mallopt(M_DECAY_TIME, 1);
++#endif
+ 
+    list_inithead(&server.new_clients);
+    list_inithead(&server.active_clients);
+@@ -452,6 +695,15 @@ static void vtest_server_wait_clients(void)
+       }
+    }
+ 
++   /* HyPocket: wake up when the GPU finishes a command buffer, not only on
++    * the next command, so the shared fence page (vtest_renderer.c) stays
++    * current while the guest sleeps on it. */
++   int fence_fd = list_is_empty(&server.active_clients) ? -1 : virgl_renderer_get_poll_fd();
++   if (fence_fd >= 0) {
++      FD_SET(fence_fd, &read_fds);
++      max_fd = MAX2(fence_fd, max_fd);
++   }
++
+    /* accept new clients when there is none or when multi_clients is set */
+    if (server.socket >= 0 && (max_fd < 0 || server.multi_clients)) {
+       FD_SET(server.socket, &read_fds);
+@@ -473,6 +725,9 @@ static void vtest_server_wait_clients(void)
+       exit(1);
+    }
+ 
++   if (fence_fd >= 0 && FD_ISSET(fence_fd, &read_fds))
++      virgl_renderer_poll();
++
+    LIST_FOR_EACH_ENTRY(client, &server.active_clients, head) {
+       if (FD_ISSET(client->in_fd, &read_fds)) {
+          client->in_fd_ready = true;
+@@ -535,6 +790,7 @@ static void vtest_server_dispatch_clients(void)
+ 
+       ret = vtest_client_dispatch_commands(client);
+       if (ret) {
++         hypocket_stats_finish();
+          fprintf(ret == VTEST_CLIENT_DISCONNECTED ? stdout : stderr, "client: %s\n",
+                  vtest_client_result_string(ret));
+          list_del(&client->head);
+@@ -730,6 +986,10 @@ static const struct vtest_command {
+    HANDLER(DRM_SYNC_TRANSFER,           drm_sync_transfer,         true   ),
+ #endif /* ENABLE_DRM */
+    HANDLER(RESOURCE_EXPORT_FD,          resource_export_fd,        true   ),
++   HANDLER(HYPOCKET_PRESENT,            hypocket_present,          true   ),
++   HANDLER(HYPOCKET_ADOPT,              hypocket_adopt,            true   ),
++   HANDLER(HYPOCKET_FENCE_WAIT,         hypocket_fence_wait,       true   ),
++   HANDLER(HYPOCKET_FENCE_PAGE,         hypocket_fence_page,       true   ),
+ };
+ 
+ static int vtest_client_dispatch_commands(struct vtest_client *client)
+@@ -784,7 +1044,9 @@ static int vtest_client_dispatch_commands(struct vtest_client *client)
+    vtest_set_current_context(client->context);
+ 
+    void *trace_scope = TRACE_SCOPE_BEGIN(cmd->name);
++   double hypocket_start = hypocket_stats_now_ms();
+    ret = cmd->dispatch(header[0]);
++   hypocket_stats_add(header[1], hypocket_stats_now_ms() - hypocket_start);
+    TRACE_SCOPE_END(trace_scope);
+ 
+    if (ret < 0) {

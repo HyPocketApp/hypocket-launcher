@@ -1,0 +1,97 @@
+diff -ruN a/sysdeps/nptl/_Fork.c b/sysdeps/nptl/_Fork.c
+--- a/sysdeps/nptl/_Fork.c
++++ b/sysdeps/nptl/_Fork.c
+@@ -41,8 +41,10 @@
+       self->robust_prev = &self->robust_head;
+ #endif
+       self->robust_head.list = &self->robust_head;
+-      INTERNAL_SYSCALL_CALL (set_robust_list, &self->robust_head,
+-			     sizeof (struct robust_list_head));
++      /* HyPocket: set_robust_list is blocked by Android's seccomp filter.  */
++      if (__nptl_set_robust_list_avail)
++	INTERNAL_SYSCALL_CALL (set_robust_list, &self->robust_head,
++			       sizeof (struct robust_list_head));
+     }
+   return pid;
+ }
+diff -ruN a/sysdeps/nptl/dl-tls_init_tp.c b/sysdeps/nptl/dl-tls_init_tp.c
+--- a/sysdeps/nptl/dl-tls_init_tp.c
++++ b/sysdeps/nptl/dl-tls_init_tp.c
+@@ -90,8 +90,10 @@
+     pd->robust_head.futex_offset = (offsetof (pthread_mutex_t, __data.__lock)
+                                     - offsetof (pthread_mutex_t,
+                                                 __data.__list.__next));
+-    int res = INTERNAL_SYSCALL_CALL (set_robust_list, &pd->robust_head,
+-                                     sizeof (struct robust_list_head));
++    /* HyPocket: Android's app seccomp filter kills the process on
++       set_robust_list, so never call it.  Robust mutexes are reported as
++       unsupported, as on kernels without the syscall.  */
++    int res = -ENOSYS;
+     if (!INTERNAL_SYSCALL_ERROR_P (res))
+       {
+ #ifndef __ASSUME_SET_ROBUST_LIST
+diff -ruN a/sysdeps/nptl/dl-tunables.list b/sysdeps/nptl/dl-tunables.list
+--- a/sysdeps/nptl/dl-tunables.list
++++ b/sysdeps/nptl/dl-tunables.list
+@@ -31,7 +31,8 @@
+       type: INT_32
+       minval: 0
+       maxval: 1
+-      default: 1
++      # HyPocket: rseq is blocked by Android's seccomp filter.
++      default: 0
+     }
+     stack_hugetlb {
+       type: INT_32
+diff -ruN a/sysdeps/unix/sysv/linux/aarch64/kernel-features.h b/sysdeps/unix/sysv/linux/aarch64/kernel-features.h
+--- a/sysdeps/unix/sysv/linux/aarch64/kernel-features.h
++++ b/sysdeps/unix/sysv/linux/aarch64/kernel-features.h
+@@ -21,3 +21,7 @@
+ 
+ #undef __ASSUME_CLONE_DEFAULT
+ #define __ASSUME_CLONE_BACKWARDS 1
++
++/* HyPocket: Android's app seccomp filter kills the process on
++   set_robust_list, so do not assume it exists.  */
++#undef __ASSUME_SET_ROBUST_LIST
+diff -ruN a/sysdeps/unix/sysv/linux/aarch64/sysdep.h b/sysdeps/unix/sysv/linux/aarch64/sysdep.h
+--- a/sysdeps/unix/sysv/linux/aarch64/sysdep.h
++++ b/sysdeps/unix/sysv/linux/aarch64/sysdep.h
+@@ -165,7 +165,9 @@
+ # define HAVE_CLOCK_GETTIME64_VSYSCALL	"__kernel_clock_gettime"
+ # define HAVE_GETTIMEOFDAY_VSYSCALL	"__kernel_gettimeofday"
+ 
+-# define HAVE_CLONE3_WRAPPER		1
++/* HyPocket: clone3 is blocked by Android's seccomp filter, so always use
++   clone.  */
++# undef HAVE_CLONE3_WRAPPER
+ 
+ # undef INTERNAL_SYSCALL_RAW
+ # define INTERNAL_SYSCALL_RAW(name, nr, args...)		\
+diff -ruN a/sysdeps/unix/sysv/linux/faccessat.c b/sysdeps/unix/sysv/linux/faccessat.c
+--- a/sysdeps/unix/sysv/linux/faccessat.c
++++ b/sysdeps/unix/sysv/linux/faccessat.c
+@@ -26,7 +26,9 @@
+ int
+ __faccessat (int fd, const char *file, int mode, int flag)
+ {
+-  int ret = INLINE_SYSCALL_CALL (faccessat2, fd, file, mode, flag);
++  /* HyPocket: faccessat2 is blocked by Android's seccomp filter; behave
++     as if the kernel did not have it.  */
++  int ret = INLINE_SYSCALL_ERROR_RETURN_VALUE (ENOSYS);
+ #if __ASSUME_FACCESSAT2
+   return ret;
+ #else
+diff -ruN a/sysdeps/unix/sysv/linux/fchmodat.c b/sysdeps/unix/sysv/linux/fchmodat.c
+--- a/sysdeps/unix/sysv/linux/fchmodat.c
++++ b/sysdeps/unix/sysv/linux/fchmodat.c
+@@ -96,7 +96,8 @@
+   if (flag == 0)
+     return INLINE_SYSCALL_CALL (fchmodat, fd, file, mode);
+ 
+-  int r = INLINE_SYSCALL_CALL (fchmodat2, fd, file, mode, flag);
++  /* HyPocket: fchmodat2 is blocked by Android's seccomp filter.  */
++  int r = INLINE_SYSCALL_ERROR_RETURN_VALUE (ENOSYS);
+   if (r != 0 && errno == ENOSYS)
+     return fchmodat_fallback (fd, file, mode, flag);
+   return r;

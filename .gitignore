@@ -1,0 +1,26 @@
+# Gradle
+.gradle/
+build/
+.kotlin/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Signing keys and secrets
+*.jks
+*.keystore
+keystore.properties
+# Shared key for debug/test builds only (see app/build.gradle.kts).
+!app/debug.keystore
+
+# OS
+.DS_Store
+
+# Never commit game files
+/game/
+*.hytale
