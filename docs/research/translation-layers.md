@@ -361,6 +361,20 @@ from 55.9 to 75.0 fps, the game's CPU time from 13.8 to 0.6 ms per frame,
 and the server from 70% to 92% busy. The server's command processing is
 now the part to speed up next.
 
+On the phones, with the precise fences (heavy benchmark):
+
+| Phone | old fences | HyPocket fences | game CPU ms (old → new) |
+|---|---|---|---|
+| Galaxy M12 (Mali-G52) | 28.1 fps | 59.9 fps | 19.3 → 4.3 |
+| Galaxy A24 (Mali-G57) | 59.9 fps | 60.1 fps | 13.3 → 3.9 |
+| Xiaomi SM7435 (Adreno 710) | 105.6 fps | 119.9 fps | 4.1 → 1.8 |
+
+Fence checks went from about 1000-1400 per second to none. Every phone
+then sat at its screen's refresh rate (60 or 120 Hz), so the benchmark now
+runs without that limit and profiles the server's commands. On the M12
+the server spends about 13 ms per frame on the heavy scene's commands,
+which caps it near 75 fps.
+
 An LDPlayer emulator (Android 9) could not run the server: it found no
 OpenGL ES driver. Emulators are not supported for now.
 
