@@ -25,6 +25,17 @@ data class BlocksWorld(
     val lastPlayedMillis: Long get() = if (saveFile.exists()) saveFile.lastModified() else createdMillis
     val sizeBytes: Long get() = if (saveFile.exists()) saveFile.length() else 0L
 
+    /**
+     * Seconds played when the last beacon was lit, read from the save's header
+     * (HPBW version 4, see SaveHeader in blocks.c); null until then.
+     */
+    val completedSeconds: Int?
+        get() = runCatching {
+            val header = ByteArray(64)
+            val read = saveFile.inputStream().use { it.read(header) }
+            BlocksWorlds.completedSeconds(header.copyOf(read.coerceAtLeast(0)))
+        }.getOrNull()
+
     /** A small picture of the world the game writes next to its save (see BlocksThumbnail). */
     val thumbnailFile: File get() = File(saveFile.path + ".thumb")
 }
@@ -152,6 +163,18 @@ class BlocksWorlds(private val directory: File) {
     }
 
     companion object {
+        private const val SAVE_MAGIC = 0x57425048
+        private const val GOAL_DONE = 2
+
+        /** The completion time in a save's [header], or null if the goal is not done. */
+        fun completedSeconds(header: ByteArray): Int? {
+            if (header.size < 64) return null
+            val b = java.nio.ByteBuffer.wrap(header).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            if (b.getInt(0) != SAVE_MAGIC || b.getInt(4) < 4) return null
+            if (b.getInt(56) and GOAL_DONE == 0) return null
+            return b.getFloat(60).toInt()
+        }
+
         /** Small, medium and large: 128, 256 and 384 blocks on each side. */
         val SIZES = listOf(8, 16, 24)
         const val MAX_NAME = 32

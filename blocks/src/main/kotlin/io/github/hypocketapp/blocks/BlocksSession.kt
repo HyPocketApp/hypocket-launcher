@@ -135,6 +135,15 @@ class BlocksSession(context: Context) : AutoCloseable {
                 deaths = io.getInt(OFF_DEATHS),
                 hurts = io.getInt(OFF_HURTS),
                 nightNear = io.getInt(OFF_NIGHT_NEAR),
+                beacons = io.getInt(OFF_BEACONS),
+                beaconsLit = io.getInt(OFF_BEACONS + 4),
+                beaconAngle = io.getInt(OFF_BEACONS + 8),
+                beaconDistance = io.getInt(OFF_BEACONS + 12),
+                goalDone = io.getInt(OFF_BEACONS + 16) != 0,
+                playSeconds = io.getInt(OFF_BEACONS + 20),
+                doneSeconds = io.getInt(OFF_BEACONS + 24),
+                mistPercent = io.getInt(OFF_BEACONS + 28),
+                aimingBeacon = io.getInt(OFF_BEACONS + 32) != 0,
             )
         }
 
@@ -275,6 +284,7 @@ class BlocksSession(context: Context) : AutoCloseable {
         const val OFF_VOLUME = 184
         const val OFF_FPS_SETTING = 188
         const val OFF_SCALE_MAX = 192
+        const val OFF_BEACONS = 196
     }
 }
 
@@ -314,6 +324,22 @@ data class BlocksStats(
     val hurts: Int = 0,
     /** Night creatures within 24 blocks. */
     val nightNear: Int = 0,
+    /** Beacons in the world (the goal) and how many are lit. */
+    val beacons: Int = 0,
+    val beaconsLit: Int = 0,
+    /** Degrees from where the player looks to the nearest unlit beacon, right positive. */
+    val beaconAngle: Int = 0,
+    /** Blocks to the nearest unlit beacon. */
+    val beaconDistance: Int = 0,
+    /** Every beacon is lit. */
+    val goalDone: Boolean = false,
+    /** Time played in this world, and when the last beacon was lit. */
+    val playSeconds: Int = 0,
+    val doneSeconds: Int = 0,
+    /** How thick the mist is where the player stands. */
+    val mistPercent: Int = 0,
+    /** The crosshair is on an unlit beacon. */
+    val aimingBeacon: Boolean = false,
 ) {
     companion object {
         const val MAX_HEALTH_TENTHS = 100

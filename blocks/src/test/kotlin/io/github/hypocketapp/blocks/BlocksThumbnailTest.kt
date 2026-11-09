@@ -35,3 +35,21 @@ class BlocksThumbnailTest {
         assertNull(BlocksThumbnail.decode(wrongMagic))
     }
 }
+
+class BlocksCompletionTest {
+    private fun header(version: Int, flags: Int, done: Float): ByteArray =
+        java.nio.ByteBuffer.allocate(64).order(java.nio.ByteOrder.LITTLE_ENDIAN).apply {
+            putInt(0, 0x57425048)
+            putInt(4, version)
+            putInt(56, flags)
+            putFloat(60, done)
+        }.array()
+
+    @org.junit.Test
+    fun completionTimeComesFromVersion4Headers() {
+        org.junit.Assert.assertEquals(754, BlocksWorlds.completedSeconds(header(4, 3, 754.6f)))
+        org.junit.Assert.assertNull(BlocksWorlds.completedSeconds(header(4, 1, 754f))) // beacons placed, not all lit
+        org.junit.Assert.assertNull(BlocksWorlds.completedSeconds(header(3, 3, 754f))) // older saves have no goal
+        org.junit.Assert.assertNull(BlocksWorlds.completedSeconds(ByteArray(10)))
+    }
+}

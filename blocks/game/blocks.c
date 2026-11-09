@@ -113,6 +113,16 @@ typedef struct {
     int32_t volume_percent;
     int32_t fps_setting;   /* 0: the command line's limit, -1: none, else the limit */
     int32_t scale_percent_max; /* 3D resolution, 50-100 (0: 100); dynamic resolution stays below it */
+    /* Written by the game: the beacons (the world's goal). */
+    int32_t beacons;       /* in the world (0 in the benchmark) */
+    int32_t beacons_lit;
+    int32_t beacon_angle;  /* degrees from where the player looks to the nearest unlit beacon, right positive */
+    int32_t beacon_distance; /* blocks to it */
+    int32_t goal_done;     /* 1 once every beacon is lit */
+    int32_t play_seconds;  /* time played in this world */
+    int32_t done_seconds;  /* time played when the last beacon was lit */
+    int32_t mist_percent;  /* how thick the mist is where the player stands */
+    int32_t aiming_beacon; /* 1: the crosshair is on an unlit beacon */
 } SharedIo;
 
 /* ---- OpenGL entry points ---------------------------------------------- */
@@ -243,7 +253,11 @@ static int world_chunks = 8;
 
 /* Block ids are stored in save files: only ever add to the end. */
 enum { AIR, GRASS, DIRT, STONE, SAND, WOOD, LEAVES, WATER, PLANKS, STONE_BRICKS, BRICKS, GLASS, ROOF, PLASTER, LAMP,
+       BEACON_OFF, BEACON_ON, /* the world's goal: see Beacons below; never built or broken by the player */
        BLOCK_TYPES };
+
+/* Blocks that give light (lamp light, see chunk_light). */
+static int gives_light(int b) { return b == LAMP || b == BEACON_ON; }
 
 /* What the player can build with, in the order the app shows it (must match
  * BlocksPalette.kt). */
@@ -253,7 +267,7 @@ static const int palette[] = {PLANKS, STONE_BRICKS, BRICKS, GLASS, ROOF, PLASTER
 
 /* Texture layers. */
 enum { T_GRASS_TOP, T_GRASS_SIDE, T_DIRT, T_STONE, T_SAND, T_WOOD_SIDE, T_WOOD_TOP, T_LEAVES, T_WATER, T_PLANKS,
-       T_STONE_BRICKS, T_BRICKS, T_GLASS, T_ROOF, T_PLASTER, T_LAMP, LAYERS };
+       T_STONE_BRICKS, T_BRICKS, T_GLASS, T_ROOF, T_PLASTER, T_LAMP, T_BEACON_OFF, T_BEACON_ON, LAYERS };
 
 static uint8_t world[MAX_W][WY][MAX_W];
 
@@ -285,6 +299,8 @@ static int texture_for(int block, int face) {
     case ROOF: return face == 3 ? T_PLANKS : T_ROOF;
     case PLASTER: return T_PLASTER;
     case LAMP: return T_LAMP;
+    case BEACON_OFF: return face == 2 || face == 3 ? T_STONE_BRICKS : T_BEACON_OFF;
+    case BEACON_ON: return face == 2 || face == 3 ? T_STONE_BRICKS : T_BEACON_ON;
     default: return T_PLANKS;
     }
 }
@@ -397,7 +413,7 @@ static void count_lamps(void) {
     for (int x = 0; x < WX; x++)
         for (int y = 0; y < WY; y++)
             for (int z = 0; z < WZ; z++)
-                if (world[x][y][z] == LAMP) chunk_lamps[x / CHUNK][z / CHUNK]++;
+                if (gives_light(world[x][y][z])) chunk_lamps[x / CHUNK][z / CHUNK]++;
 }
 
 static int lamps_near(int ci, int cj) {
@@ -433,7 +449,7 @@ static void chunk_light(int ci, int cj) {
             for (int x = x0; x < x1; x++)
                 for (int y = 0; y < WY; y++)
                     for (int z = z0; z < z1; z++)
-                        if (world[x][y][z] == LAMP) {
+                        if (gives_light(world[x][y][z])) {
                             int lx = x - light_x0, lz = z - light_z0;
                             light_grid[lx][y][lz] = LIGHT_MAX;
                             queue[tail++] = (lx * WY + y) * LIGHT_SIDE + lz;
@@ -610,6 +626,19 @@ static void make_textures(void) {
                     if (edge || x == 1 || y == 1 || x == TEX - 2 || y == TEX - 2) { r = 0.35f; g = 0.26f; b = 0.16f; n = 1.0f; }
                     break;
                 }
+                case T_BEACON_OFF: /* a cold grey crystal in a stone frame */
+                case T_BEACON_ON: { /* the same crystal, shining */
+                    int lit = l == T_BEACON_ON;
+                    float dx = x - 7.5f, dy = y - 7.5f, d = fabsf(dx) + fabsf(dy);
+                    if (edge || x == 1 || y == 1 || x == TEX - 2 || y == TEX - 2 || d > 8.5f) {
+                        r = g = b = 0.50f; n = 0.85f + 0.2f * n; /* stone */
+                    } else if (lit) {
+                        r = 0.75f; g = 0.97f; b = 1.0f; n = 1.05f - 0.04f * d + 0.05f * n;
+                    } else {
+                        r = 0.32f; g = 0.34f; b = 0.42f; n = 0.9f + 0.2f * n - 0.02f * d;
+                    }
+                    break;
+                }
                 default: /* planks */
                     r = 0.70f; g = 0.54f; b = 0.32f;
                     n = (y % 4 == 3 || (x == ((y / 4) % 2 ? 3 : 11) )) ? 0.65f : 0.9f + 0.12f * n;
@@ -641,6 +670,7 @@ static const char* world_vs =
     "uniform vec3 chunk_origin;\n"
     "uniform vec3 eye;\n"
     "uniform float glow_layer;\n"
+    "uniform float glow_layer2;\n"
     "uniform vec3 ambient;\n" /* sunlight or moonlight, from the time of day */
     "out vec3 uvl;\n"
     "out vec3 light;\n"
@@ -653,7 +683,8 @@ static const char* world_vs =
     "    uvl = vec3(mod(corner, 2.0), floor(corner * 0.5), uv_layer_ao_light.y);\n"
     "    float shade = face_light[int(pos_face.w)] * (0.55 + 0.15 * uv_layer_ao_light.z);\n"
     "    vec3 lamp = pow(uv_layer_ao_light.w / 12.0, 1.6) * 1.15 * (0.7 + 0.1 * uv_layer_ao_light.z) * vec3(1.0, 0.82, 0.56);\n"
-    "    light = abs(uv_layer_ao_light.y - glow_layer) < 0.5 ? vec3(1.2) : max(shade * ambient, lamp);\n"
+    "    bool glow = abs(uv_layer_ao_light.y - glow_layer) < 0.5 || abs(uv_layer_ao_light.y - glow_layer2) < 0.5;\n"
+    "    light = glow ? vec3(1.2) : max(shade * ambient, lamp);\n"
     "    dist = length(world - eye);\n"
     "}\n";
 
@@ -876,11 +907,11 @@ static void set_block(int x, int y, int z, int b) {
     int old = world[x][y][z], ci = x / CHUNK, cj = z / CHUNK;
     world[x][y][z] = (uint8_t)b;
     world_changed = 1;
-    if (old == LAMP) chunk_lamps[ci][cj]--;
-    if (b == LAMP) chunk_lamps[ci][cj]++;
+    if (gives_light(old)) chunk_lamps[ci][cj]--;
+    if (gives_light(b)) chunk_lamps[ci][cj]++;
     mark_dirty(x, z);
     /* Near a lamp, any change can move light up to LIGHT_REACH blocks away. */
-    if (old == LAMP || b == LAMP || lamps_near(ci, cj))
+    if (gives_light(old) || gives_light(b) || lamps_near(ci, cj))
         for (int i = (x - LIGHT_REACH) / CHUNK; i <= (x + LIGHT_REACH) / CHUNK; i++)
             for (int j = (z - LIGHT_REACH) / CHUNK; j <= (z + LIGHT_REACH) / CHUNK; j++)
                 if (i >= 0 && j >= 0 && i < CHUNKS && j < CHUNKS && !chunks[i][j].dirty) chunks[i][j].dirty = 1;
@@ -941,12 +972,14 @@ static Sky sky_at(float t) {
  * encoded as (count 1-255, block id) byte pairs, x outermost, then y, then z.
  * Must match BlocksWorlds.kt, which reads the header. */
 #define SAVE_MAGIC 0x57425048u /* "HPBW" */
-#define SAVE_VERSION 3
+#define SAVE_VERSION 4
 /* Version 1 had no time of day (those fields were reserved and zero) and
  * starts in the morning; versions 1 and 2 had no inventory and start with an
  * empty one. Version 3 adds the inventory after the block data: one 16-bit
  * count per block id, inventory_size bytes in all (block ids only ever grow,
- * so a longer list comes from a newer game and its extra counts are dropped). */
+ * so a longer list comes from a newer game and its extra counts are dropped).
+ * Version 4 keeps the time played and the goal's state (beacons); earlier
+ * versions get their beacons on load. */
 typedef struct {
     uint32_t magic;
     uint32_t version;
@@ -957,8 +990,15 @@ typedef struct {
     float time_of_day;         /* version 2: 0-1, 0.5 is noon */
     uint32_t days;             /* version 2: full days passed */
     uint32_t inventory_size;   /* version 3: bytes of inventory after the block data */
-    uint32_t reserved[3];
+    float play_seconds;        /* version 4: time played in this world */
+    uint32_t goal_flags;       /* version 4: GOAL_PLACED | GOAL_DONE */
+    float done_seconds;        /* version 4: time played when the last beacon was lit */
 } SaveHeader;
+
+#define GOAL_PLACED 1u /* the beacons were put in the world */
+#define GOAL_DONE 2u   /* every beacon is lit */
+static float play_seconds, done_seconds;
+static uint32_t goal_flags;
 
 /* Writes to a temporary file and renames it over the old save, so a save
  * cut short (the app killed mid-write) never destroys the previous one. */
@@ -979,7 +1019,8 @@ static int save_world(const char* path, const Player* p) {
             }
     if (run) { data[size++] = (uint8_t)run; data[size++] = (uint8_t)run_block; }
     SaveHeader h = {SAVE_MAGIC, SAVE_VERSION, world_chunks, world_seed, p->x, p->y, p->z, p->yaw, p->pitch,
-                    (uint32_t)size, day_time, day_count, (uint32_t)sizeof inventory, {0}};
+                    (uint32_t)size, day_time, day_count, (uint32_t)sizeof inventory, play_seconds, goal_flags,
+                    done_seconds};
     char tmp[4096];
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
     FILE* f = fopen(tmp, "wb");
@@ -1039,6 +1080,11 @@ static int load_world(const char* path, Player* p) {
             memset(inventory, 0, sizeof inventory);
             if (h.version >= 3)
                 for (int b = 0; b < BLOCK_TYPES; b++) inventory[b] = carried[b] > MAX_CARRIED ? MAX_CARRIED : carried[b];
+            if (h.version >= 4) {
+                play_seconds = h.play_seconds >= 0 ? h.play_seconds : 0;
+                goal_flags = h.goal_flags;
+                done_seconds = h.done_seconds;
+            }
             if (h.version >= 2 && h.time_of_day >= 0 && h.time_of_day < 1) {
                 day_time = h.time_of_day;
                 day_count = h.days;
@@ -1049,6 +1095,107 @@ static int load_world(const char* path, Player* p) {
     free(data);
     if (!ok) printf("blocks: %s is not a valid saved world, making a new one\n", path);
     return ok;
+}
+
+/* ---- Beacons: the world's goal ----------------------------------------- */
+
+/* Five dark beacons stand on stone pillars in a ring around the start, where
+ * the seed puts them (so saves need not keep where). Near an unlit one there
+ * is a mist, where night creatures come out even by day. Lighting a beacon
+ * (BEACON_COST) clears its mist, lights the blocks around it and keeps night
+ * creatures BEACON_CALM blocks away. Lighting all five finishes the world. */
+#define BEACONS 5
+#define BEACON_CALM 40.0f
+#define MIST_NEAR 22.0f /* thick mist this close to an unlit beacon */
+#define MIST_FAR 40.0f  /* none beyond */
+#define BEACON_LAMPS 2
+#define BEACON_GLASS 3
+static int beacon_x[BEACONS], beacon_y[BEACONS], beacon_z[BEACONS]; /* beacon_y: -1 when missing */
+
+static void beacon_spot(int k, int* x, int* z) {
+    float a = k * 1.2566371f + rand01(world_seed, 5, 77) * 6.2831853f;
+    float r = WX * 0.36f;
+    int bx = (int)(WX / 2 + cosf(a) * r), bz = (int)(WZ / 2 + sinf(a) * r);
+    *x = bx < 8 ? 8 : bx > WX - 9 ? WX - 9 : bx;
+    *z = bz < 8 ? 8 : bz > WZ - 9 ? WZ - 9 : bz;
+}
+
+/* Builds the pillars and the dark beacons on top (new worlds, and worlds
+ * saved before beacons existed). */
+static void place_beacons(void) {
+    for (int k = 0; k < BEACONS; k++) {
+        int x, z;
+        beacon_spot(k, &x, &z);
+        int y = WY - 7;
+        while (y > 0 && (world[x][y][z] == AIR || world[x][y][z] == LEAVES || world[x][y][z] == WOOD)) y--;
+        /* Clear any tree around, then the pillar and the beacon. */
+        for (int dx = -2; dx <= 2; dx++)
+            for (int dz = -2; dz <= 2; dz++)
+                for (int dy = 1; dy <= 6 && y + dy < WY; dy++) {
+                    int b = world[x + dx][y + dy][z + dz];
+                    if (b == LEAVES || b == WOOD) world[x + dx][y + dy][z + dz] = AIR;
+                }
+        for (int dy = 1; dy <= 3; dy++) world[x][y + dy][z] = STONE_BRICKS;
+        world[x][y + 4][z] = BEACON_OFF;
+    }
+}
+
+static void find_beacons(void) {
+    for (int k = 0; k < BEACONS; k++) {
+        beacon_spot(k, &beacon_x[k], &beacon_z[k]);
+        beacon_y[k] = -1;
+        for (int y = WY - 1; y >= 0 && beacon_y[k] < 0; y--) {
+            int b = world[beacon_x[k]][y][beacon_z[k]];
+            if (b == BEACON_OFF || b == BEACON_ON) beacon_y[k] = y;
+        }
+    }
+}
+
+static int beacon_lit(int k) {
+    return beacon_y[k] >= 0 && world[beacon_x[k]][beacon_y[k]][beacon_z[k]] == BEACON_ON;
+}
+
+static int beacons_present(void) {
+    int n = 0;
+    for (int k = 0; k < BEACONS; k++) n += beacon_y[k] >= 0;
+    return n;
+}
+
+static int beacons_lit(void) {
+    int n = 0;
+    for (int k = 0; k < BEACONS; k++) n += beacon_lit(k);
+    return n;
+}
+
+/* The unlit beacon nearest to x, z (or -1), and its distance in *d. */
+static int nearest_unlit(float x, float z, float* d) {
+    int best = -1;
+    *d = 1e9f;
+    for (int k = 0; k < BEACONS; k++) {
+        if (beacon_y[k] < 0 || beacon_lit(k)) continue;
+        float dx = beacon_x[k] + 0.5f - x, dz = beacon_z[k] + 0.5f - z, dist = sqrtf(dx * dx + dz * dz);
+        if (dist < *d) { *d = dist; best = k; }
+    }
+    return best;
+}
+
+/* How thick the mist is at x, z: 1 near an unlit beacon, 0 away from them. */
+static float mist_at(float x, float z) {
+    float d;
+    if (nearest_unlit(x, z, &d) < 0) return 0;
+    float t = (d - MIST_NEAR) / (MIST_FAR - MIST_NEAR);
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    return 1 - t * t * (3 - 2 * t);
+}
+
+/* Whether a lit beacon keeps night creatures away from x, z. */
+static int calm_at(float x, float z) {
+    for (int k = 0; k < BEACONS; k++) {
+        if (!beacon_lit(k)) continue;
+        float dx = beacon_x[k] + 0.5f - x, dz = beacon_z[k] + 0.5f - z;
+        if (dx * dx + dz * dz < BEACON_CALM * BEACON_CALM) return 1;
+    }
+    return 0;
 }
 
 /* ---- Creatures and particles ----------------------------------------- */
@@ -1099,7 +1246,7 @@ static int lamp_near(float x, float y, float z, int r) {
     for (int dx = -r; dx <= r; dx++)
         for (int dy = -r / 2; dy <= r / 2; dy++)
             for (int dz = -r; dz <= r; dz++)
-                if (block_at(bx + dx, by + dy, bz + dz) == LAMP) return 1;
+                if (gives_light(block_at(bx + dx, by + dy, bz + dz))) return 1;
     return 0;
 }
 
@@ -1204,7 +1351,9 @@ static int update_night(float dt, uint32_t tick, int is_night, float px, float p
     for (int i = 0; i < MAX_NIGHT; i++) alive += night[i].alive;
     /* A new one now and then, out of sight range, never near a lamp. */
     spawn_timer -= dt;
-    if (is_night && alive < night_limit && spawn_timer <= 0) {
+    /* In the dark, or in a beacon's mist even by day. */
+    int dark_here = is_night || mist_at(px, pz) > 0.5f;
+    if (dark_here && alive < night_limit && spawn_timer <= 0) {
         spawn_timer = 3.0f;
         for (int k = 0; k < MAX_NIGHT; k++) {
             if (night[k].alive) continue;
@@ -1214,7 +1363,7 @@ static int update_night(float dt, uint32_t tick, int is_night, float px, float p
             int y = WY - 3;
             while (y > 0 && !is_solid(world[x][y][z])) y--;
             if (world[x][y][z] == WATER || world[x][y][z] == LEAVES || is_solid(world[x][y + 1][z]) ||
-                is_solid(world[x][y + 2][z]) || lamp_near(x + 0.5f, y + 1.0f, z + 0.5f, 9))
+                is_solid(world[x][y + 2][z]) || lamp_near(x + 0.5f, y + 1.0f, z + 0.5f, 9) || calm_at(x + 0.5f, z + 0.5f))
                 break;
             Creature* c = &night[k];
             memset(c, 0, sizeof *c);
@@ -1232,12 +1381,13 @@ static int update_night(float dt, uint32_t tick, int is_night, float px, float p
     for (int i = 0; i < MAX_NIGHT; i++) {
         Creature* c = &night[i];
         if (!c->alive) continue;
-        /* Daylight and lamps drive them away: they fade into smoke. */
+        /* Daylight (outside the mist), lamps and lit beacons drive them away:
+         * they fade into smoke. */
         c->check -= dt;
-        int fade = !is_night;
-        if (!fade && c->check <= 0) {
+        int fade = 0;
+        if (c->check <= 0) {
             c->check = 0.5f;
-            fade = lamp_near(c->x, c->y + 1, c->z, 7);
+            fade = (!is_night && mist_at(c->x, c->z) < 0.3f) || calm_at(c->x, c->z) || lamp_near(c->x, c->y + 1, c->z, 7);
         }
         if (fade) {
             spawn_puff(c->x, c->y + 0.9f, c->z, night_color, 12, tick + i);
@@ -1317,7 +1467,7 @@ static void block_color(int block, float* out) {
         {0, 0, 0}, {0.32f, 0.58f, 0.24f}, {0.52f, 0.37f, 0.24f}, {0.52f, 0.52f, 0.52f}, {0.86f, 0.80f, 0.58f},
         {0.42f, 0.30f, 0.18f}, {0.20f, 0.45f, 0.18f}, {0.16f, 0.32f, 0.68f}, {0.70f, 0.54f, 0.32f},
         {0.55f, 0.55f, 0.55f}, {0.62f, 0.32f, 0.25f}, {0.82f, 0.90f, 0.95f}, {0.64f, 0.29f, 0.19f},
-        {0.86f, 0.84f, 0.78f}, {1.00f, 0.84f, 0.50f},
+        {0.86f, 0.84f, 0.78f}, {1.00f, 0.84f, 0.50f}, {0.36f, 0.38f, 0.46f}, {0.75f, 0.97f, 1.00f},
     };
     memcpy(out, colors[block < BLOCK_TYPES ? block : PLANKS], sizeof(colors[0]));
 }
@@ -1775,6 +1925,7 @@ int main(int argc, char** argv) {
     _Static_assert(__builtin_offsetof(SharedIo, counts) == 128, "must match BlocksSession.kt");
     _Static_assert(__builtin_offsetof(SharedIo, health_tenths) == 160, "must match BlocksSession.kt");
     _Static_assert(__builtin_offsetof(SharedIo, paused) == 176, "must match BlocksSession.kt");
+    _Static_assert(__builtin_offsetof(SharedIo, beacons) == 196, "must match BlocksSession.kt");
     _Static_assert(__builtin_offsetof(SharedIo, crafts) == 52 && __builtin_offsetof(SharedIo, craft) == 56,
                    "must match BlocksSession.kt");
     int w = argc > 1 ? atoi(argv[1]) : 1200;
@@ -1867,6 +2018,7 @@ int main(int argc, char** argv) {
     p_glUseProgram(world_program);
     p_glUniform1i(p_glGetUniformLocation(world_program, "tex"), 0);
     p_glUniform1f(p_glGetUniformLocation(world_program, "glow_layer"), (float)T_LAMP);
+    p_glUniform1f(p_glGetUniformLocation(world_program, "glow_layer2"), (float)T_BEACON_ON);
     p_glUseProgram(hud_program);
     p_glUniform2f(p_glGetUniformLocation(hud_program, "pixel"), 2.0f / w * (h / 540.0f), 2.0f / h * (h / 540.0f));
     make_textures();
@@ -1926,6 +2078,13 @@ int main(int argc, char** argv) {
         if (rename(save_path, aside) == 0) printf("blocks: kept the unreadable save as %s\n", aside);
     }
     if (!loaded) generate_world();
+    /* The goal: beacons, except in the benchmark, which keeps its scene. */
+    if (!(max_frames && getenv("HYPOCKET_BLOCKS_BENCH")) && !(goal_flags & GOAL_PLACED)) {
+        place_beacons();
+        goal_flags |= GOAL_PLACED;
+        world_changed = 1;
+    }
+    find_beacons();
     count_lamps();
     GLuint ebo;
     p_glGenBuffers(1, &ebo);
@@ -2140,6 +2299,33 @@ int main(int argc, char** argv) {
                 }
                 block_hit = 0; /* the blow went to the creature */
             }
+            int target_block = block_hit ? block_at(hit[0], hit[1], hit[2]) : AIR;
+            if (block_hit && (target_block == BEACON_OFF || target_block == BEACON_ON)) {
+                /* Beacons cannot be broken; placing on a dark one lights it. */
+                int can = creative || (inventory[LAMP] >= BEACON_LAMPS && inventory[GLASS] >= BEACON_GLASS);
+                if (places != seen_places && target_block == BEACON_OFF && can) {
+                    if (!creative) {
+                        inventory[LAMP] -= BEACON_LAMPS;
+                        inventory[GLASS] -= BEACON_GLASS;
+                    }
+                    set_block(hit[0], hit[1], hit[2], BEACON_ON);
+                    static const float beam[3] = {0.75f, 0.97f, 1.0f};
+                    spawn_puff(hit[0] + 0.5f, hit[1] + 0.8f, hit[2] + 0.5f, beam, 24, (uint32_t)frames);
+                    play_at(SND_PLACE, &player, hit[0] + 0.5f, hit[1] + 0.5f, hit[2] + 0.5f, 0.6f);
+                    play_sound(SND_CHIRP, 0.5f, 0, 1.2f);
+                    for (int i = 0; i < MAX_NIGHT; i++) /* the ones nearby flee into smoke */
+                        if (night[i].alive && calm_at(night[i].x, night[i].z)) night[i].check = 0;
+                    printf("blocks: beacon lit, %d of %d\n", beacons_lit(), beacons_present());
+                    if (beacons_lit() == beacons_present() && !(goal_flags & GOAL_DONE)) {
+                        goal_flags |= GOAL_DONE;
+                        done_seconds = play_seconds;
+                        printf("blocks: every beacon is lit after %.0f s\n", play_seconds);
+                    }
+                } else {
+                    play_at(SND_STEP, &player, hit[0] + 0.5f, hit[1] + 0.5f, hit[2] + 0.5f, 0.5f); /* a dull knock */
+                }
+                block_hit = 0;
+            }
             if (block_hit) {
                 if (breaks != seen_breaks) {
                     int broken = block_at(hit[0], hit[1], hit[2]), drop = drop_for(broken);
@@ -2171,7 +2357,33 @@ int main(int argc, char** argv) {
             if (day_time >= 1.0f) { day_time -= 1.0f; day_count++; }
         }
         const Sky sk = sky_at(shown_time());
-        const float* sky = sk.sky;
+        float sky[3] = {sk.sky[0], sk.sky[1], sk.sky[2]};
+        if (!paused) play_seconds += dt;
+        /* The mist near unlit beacons: a thicker, closer fog in a dim violet. */
+        float mist = mist_at(player.x, player.z), fog_end = far;
+        if (mist > 0) {
+            float bright = (sk.ambient[0] + sk.ambient[1] + sk.ambient[2]) / 3;
+            static const float haze[3] = {0.56f, 0.50f, 0.68f};
+            for (int k = 0; k < 3; k++) sky[k] = mixf(sky[k], haze[k] * (0.2f + 0.8f * bright), mist * 0.85f);
+            fog_end = mixf(far, 26.0f, mist * 0.8f);
+        }
+        /* The goal, for the HUD's compass. */
+        {
+            float d;
+            int k = nearest_unlit(player.x, player.z, &d);
+            io->beacons = beacons_present();
+            io->beacons_lit = beacons_lit();
+            io->beacon_distance = k >= 0 ? (int)d : 0;
+            io->beacon_angle = k >= 0 ? (int)(wrap_angle(atan2f(beacon_x[k] + 0.5f - player.x, -(beacon_z[k] + 0.5f - player.z)) -
+                                                         player.yaw) * 57.29578f)
+                                      : 0;
+            io->goal_done = (goal_flags & GOAL_DONE) != 0;
+            io->play_seconds = (int)play_seconds;
+            io->done_seconds = (int)done_seconds;
+            io->mist_percent = (int)(mist * 100);
+            int aim[3], aim_before[3];
+            io->aiming_beacon = raycast(&player, aim, aim_before) && block_at(aim[0], aim[1], aim[2]) == BEACON_OFF;
+        }
         /* ---- Recipes ---- */
         int crafts = io->crafts;
         if (crafts != seen_crafts) {
@@ -2257,7 +2469,7 @@ int main(int argc, char** argv) {
         p_glUniform3f(u_ambient, sk.ambient[0], sk.ambient[1], sk.ambient[2]);
         p_glUniform3f(u_eye, player.x, player.y + EYE_HEIGHT, player.z);
         p_glUniform3f(u_fog_color, sky[0], sky[1], sky[2]);
-        p_glUniform1f(u_fog_end, far);
+        p_glUniform1f(u_fog_end, fog_end);
 
         /* Skip chunks beyond the fog or behind the camera. */
         float fx = cosf(player.pitch) * sinf(player.yaw), fz = -cosf(player.pitch) * cosf(player.yaw);
@@ -2342,7 +2554,7 @@ int main(int argc, char** argv) {
             p_glUniformMatrix4fv(ub_view_proj, 1, GL_FALSE, vp);
             p_glUniform3f(ub_eye, player.x, player.y + EYE_HEIGHT, player.z);
             p_glUniform3f(ub_fog_color, sky[0], sky[1], sky[2]);
-            p_glUniform1f(ub_fog_end, far);
+            p_glUniform1f(ub_fog_end, fog_end);
             p_glUniform3f(ub_ambient, sk.ambient[0], sk.ambient[1], sk.ambient[2]);
             p_glBindVertexArray(hud_vao); /* no attributes: corners come from gl_VertexID */
             for (int k = 0; k < n; k++) {
@@ -2358,7 +2570,7 @@ int main(int argc, char** argv) {
             p_glUniformMatrix4fv(ui_view_proj, 1, GL_FALSE, vp);
             p_glUniform3f(ui_eye, player.x, player.y + EYE_HEIGHT, player.z);
             p_glUniform3f(ui_fog_color, sky[0], sky[1], sky[2]);
-            p_glUniform1f(ui_fog_end, far);
+            p_glUniform1f(ui_fog_end, fog_end);
             p_glUniform3f(ui_ambient, sk.ambient[0], sk.ambient[1], sk.ambient[2]);
             p_glBindVertexArray(inst_vao);
             p_glBindBuffer(GL_ARRAY_BUFFER, inst_vbo);

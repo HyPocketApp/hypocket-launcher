@@ -46,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerId
@@ -53,6 +54,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -357,6 +359,7 @@ private fun BlocksScreen(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 if (stats.ready && stats.day > 0) Clock(stats)
+                if (stats.ready && stats.beacons > 0) BeaconCompass(stats)
                 if (world != null) SavedNotice(stats.saves, Modifier)
                 FaintedNotice(stats.deaths)
             }
@@ -364,6 +367,17 @@ private fun BlocksScreen(
                 HealthBar(stats.healthTenths, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp))
                 HurtFlash(stats.hurts)
             }
+            if (stats.aimingBeacon) {
+                Text(
+                    stringResource(if (options.creative) R.string.blocks_beacon_aim_free else R.string.blocks_beacon_aim),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.align(Alignment.Center).padding(top = 72.dp)
+                        .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                )
+            }
+            GoalDone(stats)
             if (pause.open.value) PausePanel(pause, settings, onSettings, onSaveAndExit = { session.stop() })
         }
         if (finished != null) {
@@ -571,6 +585,72 @@ private fun Hotbar(
     }
 }
 
+/** Where the nearest dark beacon is: an arrow turned towards it, how many are lit and how far. */
+@Composable
+private fun BeaconCompass(stats: BlocksStats) {
+    Row(
+        Modifier.background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (stats.beaconsLit < stats.beacons) {
+            Text(
+                stringResource(R.string.blocks_compass_arrow),
+                color = Color(0xFFBFF4FF),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.rotate(stats.beaconAngle.toFloat()),
+            )
+            Text(
+                stringResource(R.string.blocks_beacons_far, stats.beaconsLit, stats.beacons, stats.beaconDistance),
+                color = Color.White,
+                style = MaterialTheme.typography.labelLarge,
+            )
+        } else {
+            Text(pluralStringResource(R.plurals.blocks_beacons_all, stats.beacons, stats.beacons), color = Color(0xFFBFF4FF), style = MaterialTheme.typography.labelLarge)
+        }
+    }
+}
+
+/** Once, when the last beacon is lit: the world is finished, with the time it took. */
+@Composable
+private fun GoalDone(stats: BlocksStats) {
+    var seenDone by remember { mutableStateOf<Boolean?>(null) }
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(stats.ready, stats.goalDone) {
+        if (!stats.ready) return@LaunchedEffect
+        // A world finished before this session opens without the banner.
+        if (seenDone == null) seenDone = stats.goalDone else if (stats.goalDone && seenDone == false) {
+            seenDone = true
+            visible = true
+        }
+    }
+    if (!visible) return
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) {
+        Column(
+            Modifier.background(Color(0xEE14303A), RoundedCornerShape(10.dp)).padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(stringResource(R.string.blocks_goal_done_title), color = Color.White, style = MaterialTheme.typography.headlineSmall)
+            Text(
+                stringResource(R.string.blocks_goal_done_text, formatDuration(stats.doneSeconds)),
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Button(onClick = { visible = false }) { Text(stringResource(R.string.blocks_keep_playing)) }
+        }
+    }
+}
+
+/** "1 h 05 min" or "12 min 30 s". */
+@Composable
+fun formatDuration(seconds: Int): String =
+    if (seconds >= 3600) {
+        stringResource(R.string.blocks_duration_hours, seconds / 3600, seconds % 3600 / 60)
+    } else {
+        stringResource(R.string.blocks_duration_minutes, seconds / 60, seconds % 60)
+    }
+
 /** The game's day and time, like "Day 2 · 18:40". */
 @Composable
 private fun Clock(stats: BlocksStats) {
@@ -734,6 +814,7 @@ private fun BlocksReport.toShareText(versionLine: String, inputLines: List<Strin
     appendLine("World built in: %.0f ms".format(stats.buildMillis))
     appendLine("Heavy mode: ${options.heavy}, dynamic resolution: ${options.dynamicResolution}, creative: ${options.creative}, time: ${options.dayMode}")
     appendLine("Frames: ${stats.frames} in %.1f s".format(seconds))
+    appendLine("Beacons: ${stats.beaconsLit} of ${stats.beacons} lit, goal done: ${stats.goalDone}, played ${stats.playSeconds} s")
     appendLine("Time in the game at the end: day ${stats.day}, %02d:%02d".format(stats.clockMinutes / 60, stats.clockMinutes % 60))
     appendLine("Exit code: ${exitCode ?: "-"}")
     memory?.toLines()?.forEach { appendLine("Memory: $it") }

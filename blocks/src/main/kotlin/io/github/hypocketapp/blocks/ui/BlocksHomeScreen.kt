@@ -192,6 +192,14 @@ private fun WorldCard(world: BlocksWorld, onPlay: () -> Unit, onRename: () -> Un
                 WorldPicture(world)
                 Column(Modifier.weight(1f)) {
                     Text(world.name, style = MaterialTheme.typography.titleSmall)
+                    val completed = remember(world.id, world.lastPlayedMillis) { world.completedSeconds }
+                    if (completed != null) {
+                        Text(
+                            stringResource(R.string.blocks_world_completed, formatDuration(completed)),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                     val played = if (world.saveFile.exists()) {
                         stringResource(
                             R.string.blocks_world_played,
