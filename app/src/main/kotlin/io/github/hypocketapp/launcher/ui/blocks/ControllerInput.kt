@@ -12,14 +12,16 @@ import kotlin.math.sign
  * Game controllers and keyboards (Bluetooth or USB) for HyPocket Blocks.
  *
  * Controller: left stick or d-pad walks, right stick looks, A jumps, X / R1 /
- * right trigger breaks, B / L1 / left trigger places, Start exits.
+ * right trigger breaks, B / L1 / left trigger places, Y picks the next
+ * block, Start exits.
  * Keyboard: WASD walks, arrow keys look, Space jumps, Q breaks, E places,
- * Esc exits.
+ * 1-9 and 0 pick a block, Esc exits.
  */
 class ControllerInput(
     private val session: BlocksSession,
     /** 1 is the default camera speed (the launcher's sensitivity setting). */
     private val sensitivity: Float,
+    private val selection: BlockSelection,
     private val onExit: () -> Unit,
 ) {
 
@@ -101,7 +103,9 @@ class ControllerInput(
                 KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_L2,
                 KeyEvent.KEYCODE_E,
                 -> session.placeBlock()
+                KeyEvent.KEYCODE_BUTTON_Y -> selection.next()
                 KeyEvent.KEYCODE_BUTTON_START, KeyEvent.KEYCODE_ESCAPE -> onExit()
+                in NUMBER_KEYS -> selection.select(NUMBER_KEYS.indexOf(code))
             }
         }
         session.setJump(KeyEvent.KEYCODE_BUTTON_A in keysDown || KeyEvent.KEYCODE_SPACE in keysDown)
@@ -193,10 +197,15 @@ class ControllerInput(
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT,
             KeyEvent.KEYCODE_DPAD_RIGHT,
         )
+        /** 1 to 9, then 0: the first ten blocks of the palette. */
+        private val NUMBER_KEYS = listOf(
+            KeyEvent.KEYCODE_1, KeyEvent.KEYCODE_2, KeyEvent.KEYCODE_3, KeyEvent.KEYCODE_4, KeyEvent.KEYCODE_5,
+            KeyEvent.KEYCODE_6, KeyEvent.KEYCODE_7, KeyEvent.KEYCODE_8, KeyEvent.KEYCODE_9, KeyEvent.KEYCODE_0,
+        )
         private val KEYBOARD_KEYS = setOf(
             KeyEvent.KEYCODE_W, KeyEvent.KEYCODE_A, KeyEvent.KEYCODE_S, KeyEvent.KEYCODE_D, KeyEvent.KEYCODE_SPACE,
             KeyEvent.KEYCODE_Q, KeyEvent.KEYCODE_E, KeyEvent.KEYCODE_ESCAPE,
-        )
+        ) + NUMBER_KEYS
         private val FORWARD_KEYS = setOf(KeyEvent.KEYCODE_W)
         private val BACK_KEYS = setOf(KeyEvent.KEYCODE_S)
         private val LEFT_KEYS = setOf(KeyEvent.KEYCODE_A)

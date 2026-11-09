@@ -11,6 +11,8 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -24,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -57,6 +61,8 @@ import io.github.hypocketapp.engine.BlocksOptions
 import io.github.hypocketapp.engine.BlocksReport
 import io.github.hypocketapp.engine.BlocksSession
 import io.github.hypocketapp.engine.BlocksStats
+import io.github.hypocketapp.engine.BlocksWorld
+import io.github.hypocketapp.engine.BlocksWorlds
 import io.github.hypocketapp.engine.DirectDisplay
 import io.github.hypocketapp.engine.DisplayStatus
 import io.github.hypocketapp.launcher.HyPocketApplication
@@ -69,6 +75,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
@@ -78,12 +85,14 @@ import kotlin.math.roundToInt
  * to it through [BlocksSession].
  *
  * The game cannot follow the app into the background (its display goes away
- * with the surface), so leaving the screen ends the session.
+ * with the surface), so leaving the screen ends the session; a saved world is
+ * written on the way out.
  */
 class BlocksActivity : ComponentActivity() {
     private lateinit var session: BlocksSession
     private lateinit var controller: ControllerInput
     private lateinit var mouse: MouseInput
+    private lateinit var selection: BlockSelection
     private var benchmark: BlocksBenchmark? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -101,26 +110,33 @@ class BlocksActivity : ComponentActivity() {
         session = BlocksSession(this)
         val settings = (application as HyPocketApplication).container.settingsStore.settings.value
         val sensitivity = settings.lookSensitivityPercent / 100f
-        controller = ControllerInput(session, sensitivity, onExit = { session.stop() })
-        mouse = MouseInput(session, sensitivity)
+        selection = BlockSelection(session)
+        controller = ControllerInput(session, sensitivity, selection, onExit = { session.stop() })
+        mouse = MouseInput(session, sensitivity, selection)
         if (intent.getBooleanExtra(EXTRA_BENCHMARK, false)) {
             val run = BlocksBenchmark(this).also { benchmark = it }
             val (width, height) = landscapeScreen(this)
             setContent { HyPocketTheme { BenchmarkScreen(run, width, height, onClose = { finish() }) } }
             return
         }
+        val heavy = intent.getBooleanExtra(EXTRA_HEAVY, false)
+        val world = intent.getStringExtra(EXTRA_WORLD)?.let { worlds(this).get(it) }
         setContent {
             HyPocketTheme {
                 BlocksScreen(
                     session = session,
                     controller = controller,
                     mouse = mouse,
+                    selection = selection,
+                    world = world,
                     lookSensitivity = sensitivity,
                     renderScalePercent = settings.renderScalePercent,
                     fpsLimit = settings.fpsLimit,
                     options = BlocksOptions(
                         dynamicResolution = settings.dynamicResolution,
-                        heavy = intent.getBooleanExtra(EXTRA_HEAVY, false),
+                        heavy = heavy,
+                        world = world,
+                        creatures = if (heavy) 0 else NORMAL_CREATURES,
                     ),
                     onClose = { finish() },
                 )
@@ -169,10 +185,20 @@ class BlocksActivity : ComponentActivity() {
 
     companion object {
         private const val EXTRA_HEAVY = "heavy"
+        private const val EXTRA_WORLD = "world"
         private const val EXTRA_BENCHMARK = "benchmark"
 
-        fun start(context: Context, heavy: Boolean) {
-            context.startActivity(Intent(context, BlocksActivity::class.java).putExtra(EXTRA_HEAVY, heavy))
+        /** Creatures outside heavy mode: some life without the heavy load. */
+        private const val NORMAL_CREATURES = 40
+
+        /** Where the player's worlds are kept. */
+        fun worlds(context: Context) = BlocksWorlds(File(context.filesDir, "blocks-worlds"))
+
+        /** Plays [world], loading and saving it, or a fresh unsaved world without one. */
+        fun start(context: Context, heavy: Boolean, world: BlocksWorld?) {
+            context.startActivity(
+                Intent(context, BlocksActivity::class.java).putExtra(EXTRA_HEAVY, heavy).putExtra(EXTRA_WORLD, world?.id),
+            )
         }
 
         /** Runs the benchmark instead of the game. */
@@ -198,6 +224,8 @@ private fun BlocksScreen(
     session: BlocksSession,
     controller: ControllerInput,
     mouse: MouseInput,
+    selection: BlockSelection,
+    world: BlocksWorld?,
     lookSensitivity: Float,
     renderScalePercent: Int,
     fpsLimit: Int,
@@ -236,12 +264,15 @@ private fun BlocksScreen(
         if (finished == null) {
             TouchControls(session, lookSensitivity)
             Hud(stats, session, controller.used.value, mouse.captured.value, onExit = { session.stop() })
+            Hotbar(selection, Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp))
+            if (world != null) SavedNotice(stats.saves, Modifier.align(Alignment.TopCenter).padding(top = 16.dp))
         } else {
             // The pointer works normally again on the report.
             LaunchedEffect(Unit) { mouse.stop() }
             ReportPanel(
                 finished,
-                listOf(
+                listOfNotNull(
+                    world?.let { "World: ${it.chunks}x${it.chunks} chunks, saved ${finished.stats.saves} times" },
                     "Input devices used: " +
                         (controller.deviceNames + mouse.deviceNames).ifEmpty { setOf("touch only") }.joinToString(),
                     "Input devices connected: " +
@@ -395,6 +426,62 @@ private fun Hud(
                 onRelease = { session.setJump(false) },
             )
         }
+    }
+}
+
+/** The blocks to build with; tap one to choose it. */
+@Composable
+private fun Hotbar(selection: BlockSelection, modifier: Modifier) {
+    val selected = selection.index.intValue
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            stringResource(BuildBlock.entries[selected].label),
+            color = Color.White,
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+        Row(
+            Modifier.padding(top = 4.dp).background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+                .padding(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            BuildBlock.entries.forEachIndexed { i, block ->
+                val shape = RoundedCornerShape(3.dp)
+                Box(
+                    Modifier.size(if (i == selected) 32.dp else 28.dp)
+                        .align(Alignment.CenterVertically)
+                        .border(if (i == selected) 2.dp else 1.dp, if (i == selected) Color.White else block.accent, shape)
+                        .padding(3.dp)
+                        .background(block.color, shape)
+                        .clickable { selection.select(i) },
+                )
+            }
+        }
+    }
+}
+
+/** A short "world saved" notice each time the game writes the save file. */
+@Composable
+private fun SavedNotice(saves: Int, modifier: Modifier) {
+    var shownFor by remember { mutableIntStateOf(0) }
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(saves) {
+        if (saves > shownFor) {
+            shownFor = saves
+            visible = true
+            delay(2000)
+            visible = false
+        }
+    }
+    if (visible) {
+        Text(
+            stringResource(R.string.blocks_saved),
+            color = Color.White,
+            style = MaterialTheme.typography.labelMedium,
+            modifier = modifier.background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(4.dp))
+                .padding(horizontal = 8.dp, vertical = 3.dp),
+        )
     }
 }
 

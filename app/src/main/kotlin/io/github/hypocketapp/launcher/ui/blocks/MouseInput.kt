@@ -9,8 +9,8 @@ import io.github.hypocketapp.engine.BlocksSession
 /**
  * A mouse (Bluetooth, USB, or an adapter that passes one through) for
  * HyPocket Blocks, like in a PC game: a click captures the pointer, then
- * moving the mouse looks around, the left button breaks and the right button
- * places. Esc gives the pointer back.
+ * moving the mouse looks around, the left button breaks, the right button
+ * places and the wheel picks the block. Esc gives the pointer back.
  *
  * Captured events carry relative movement and reach only [view], so the
  * pointer neither leaves the game nor touches its controls.
@@ -19,6 +19,7 @@ class MouseInput(
     private val session: BlocksSession,
     /** 1 is the default camera speed (the launcher's sensitivity setting). */
     private val sensitivity: Float,
+    private val selection: BlockSelection,
 ) {
 
     /** True while the pointer is captured, to show the mouse hint. */
@@ -90,6 +91,11 @@ class MouseInput(
         events++
         captured.value = true
         event.device?.name?.let { if (deviceNames.size < 4) deviceNames += it }
+        if (event.actionMasked == MotionEvent.ACTION_SCROLL) {
+            val wheel = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
+            if (wheel < 0) selection.next() else if (wheel > 0) selection.previous()
+            return true
+        }
         // Relative movement since the last event, including batched samples.
         var dx = 0f
         var dy = 0f

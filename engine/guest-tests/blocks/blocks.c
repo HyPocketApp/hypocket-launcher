@@ -23,7 +23,14 @@
  * own, for testing on a desktop. With HYPOCKET_BLOCKS_BENCH=1 as well it is a
  * benchmark instead: the camera hovers above the start and turns a full
  * circle over the frames, so every run sees the same views, and it prints
- * the averages at the end. */
+ * the averages at the end.
+ *
+ * Worlds can be saved: with HYPOCKET_BLOCKS_SAVE=<file> the world is loaded
+ * from that file if it holds one, generated otherwise, and written back every
+ * 30 seconds after a change and on exit. New worlds take their size from
+ * HYPOCKET_BLOCKS_CHUNKS (8, 16 or 24 chunks a side) and their terrain from
+ * HYPOCKET_BLOCKS_SEED. HYPOCKET_BLOCKS_CREATURES sets how many creatures
+ * wander outside heavy mode. */
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GL/glcorearb.h>
@@ -58,7 +65,8 @@ typedef struct {
     int32_t quit;      /* 1: exit */
     float look_rate_yaw;   /* radians per second, from a controller stick */
     float look_rate_pitch; /* radians per second */
-    int32_t reserved_in[4];
+    int32_t selected;  /* index into the building palette (palette[] below) */
+    int32_t reserved_in[3];
     /* Written by the game. */
     int32_t ready;     /* 1 once the world is built and frames are shown */
     int32_t frames;
@@ -71,6 +79,7 @@ typedef struct {
     int32_t height;
     int32_t scale_percent; /* dynamic resolution: share of width and height drawn */
     int32_t creatures;     /* drawn in the last frame */
+    int32_t saves;         /* times the world was written to its save file */
 } SharedIo;
 
 /* ---- OpenGL entry points ---------------------------------------------- */
@@ -179,9 +188,14 @@ static float fbm(float x, float z, int seed) {
 
 /* ---- World ------------------------------------------------------------ */
 
+/* Varies the terrain between worlds; 0 is the benchmark's world. */
+static int world_seed;
+#define SEEDED(n) ((n) + world_seed * 977)
+
 #define CHUNK 16
-/* 8 x 8 chunks, or 16 x 16 in heavy mode (HYPOCKET_BLOCKS_HEAVY). */
-#define MAX_CHUNKS 16
+/* 8 x 8 chunks, 16 x 16 in heavy mode (HYPOCKET_BLOCKS_HEAVY), up to 24 x 24
+ * for a large saved world. */
+#define MAX_CHUNKS 24
 #define MAX_W (CHUNK * MAX_CHUNKS)
 static int world_chunks = 8;
 #define CHUNKS world_chunks
@@ -190,10 +204,19 @@ static int world_chunks = 8;
 #define WY 48
 #define WATER_LEVEL 15
 
-enum { AIR, GRASS, DIRT, STONE, SAND, WOOD, LEAVES, WATER, PLANKS, BLOCK_TYPES };
+/* Block ids are stored in save files: only ever add to the end. */
+enum { AIR, GRASS, DIRT, STONE, SAND, WOOD, LEAVES, WATER, PLANKS, STONE_BRICKS, BRICKS, GLASS, ROOF, PLASTER, LAMP,
+       BLOCK_TYPES };
+
+/* What the player can build with, in the order the app shows it (must match
+ * BlocksPalette.kt). */
+static const int palette[] = {PLANKS, STONE_BRICKS, BRICKS, GLASS, ROOF, PLASTER, LAMP,
+                              WOOD, STONE, DIRT, SAND, LEAVES};
+#define PALETTE_SIZE ((int)(sizeof palette / sizeof palette[0]))
 
 /* Texture layers. */
-enum { T_GRASS_TOP, T_GRASS_SIDE, T_DIRT, T_STONE, T_SAND, T_WOOD_SIDE, T_WOOD_TOP, T_LEAVES, T_WATER, T_PLANKS, LAYERS };
+enum { T_GRASS_TOP, T_GRASS_SIDE, T_DIRT, T_STONE, T_SAND, T_WOOD_SIDE, T_WOOD_TOP, T_LEAVES, T_WATER, T_PLANKS,
+       T_STONE_BRICKS, T_BRICKS, T_GLASS, T_ROOF, T_PLASTER, T_LAMP, LAYERS };
 
 static uint8_t world[MAX_W][WY][MAX_W];
 
@@ -204,8 +227,10 @@ static int block_at(int x, int y, int z) {
 }
 
 /* Blocks that hide the faces behind them. */
-static int is_opaque(int b) { return b != AIR && b != WATER && b != LEAVES; }
+static int is_opaque(int b) { return b != AIR && b != WATER && b != LEAVES && b != GLASS; }
 static int is_solid(int b) { return b != AIR && b != WATER; }
+/* Drawn after the opaque world, blended. */
+static int is_clear(int b) { return b == WATER || b == GLASS; }
 
 static int texture_for(int block, int face) {
     /* face: 0 +x, 1 -x, 2 +y (top), 3 -y, 4 +z, 5 -z */
@@ -217,12 +242,18 @@ static int texture_for(int block, int face) {
     case WOOD: return face == 2 || face == 3 ? T_WOOD_TOP : T_WOOD_SIDE;
     case LEAVES: return T_LEAVES;
     case WATER: return T_WATER;
+    case STONE_BRICKS: return T_STONE_BRICKS;
+    case BRICKS: return T_BRICKS;
+    case GLASS: return T_GLASS;
+    case ROOF: return face == 3 ? T_PLANKS : T_ROOF;
+    case PLASTER: return T_PLASTER;
+    case LAMP: return T_LAMP;
     default: return T_PLANKS;
     }
 }
 
 static void place_tree(int x, int ground, int z) {
-    int height = 4 + (int)(rand01(x, 7, z) * 2);
+    int height = 4 + (int)(rand01(x, SEEDED(7), z) * 2);
     for (int dy = -2; dy <= 2; dy++)
         for (int dx = -2; dx <= 2; dx++)
             for (int dz = -2; dz <= 2; dz++) {
@@ -240,8 +271,8 @@ static void generate_world(void) {
     static int heights[MAX_W][MAX_W];
     for (int x = 0; x < WX; x++)
         for (int z = 0; z < WZ; z++) {
-            float hills = fbm(x / 40.0f, z / 40.0f, 1);
-            float detail = fbm(x / 12.0f, z / 12.0f, 9);
+            float hills = fbm(x / 40.0f, z / 40.0f, SEEDED(1));
+            float detail = fbm(x / 12.0f, z / 12.0f, SEEDED(9));
             int h = (int)(2 + hills * 34 + detail * 3);
             if (h > WY - 10) h = WY - 10;
             heights[x][z] = h;
@@ -259,7 +290,7 @@ static void generate_world(void) {
         }
     for (int x = 2; x < WX - 2; x++)
         for (int z = 2; z < WZ - 2; z++)
-            if (world[x][heights[x][z]][z] == GRASS && hash3(x, 3, z) % 61 == 0) place_tree(x, heights[x][z], z);
+            if (world[x][heights[x][z]][z] == GRASS && hash3(x, SEEDED(3), z) % 61 == 0) place_tree(x, heights[x][z], z);
 }
 
 /* ---- Meshing ---------------------------------------------------------- */
@@ -274,7 +305,7 @@ typedef struct {
 typedef struct {
     GLuint vao, vbo;
     int quads;       /* opaque quads, first in the buffer */
-    int water_quads; /* water quads, after the opaque ones */
+    int water_quads; /* water and glass quads, after the opaque ones */
     int dirty;
 } Chunk;
 
@@ -345,11 +376,11 @@ static void mesh_chunk(int ci, int cj) {
             for (int y = 0; y < WY; y++)
                 for (int z = cz; z < cz + CHUNK; z++) {
                     int b = world[x][y][z];
-                    if (b == AIR || (b == WATER) != (pass == 1)) continue;
+                    if (b == AIR || is_clear(b) != (pass == 1)) continue;
                     for (int f = 0; f < 6; f++) {
                         const int* n = face_normal[f];
                         int other = block_at(x + n[0], y + n[1], z + n[2]);
-                        int visible = b == WATER ? other == AIR : !is_opaque(other) && other != b;
+                        int visible = b == WATER ? other == AIR || other == GLASS : !is_opaque(other) && other != b;
                         if (b == LEAVES && other == LEAVES) visible = 0;
                         if (y == 0 && f == 3) visible = 0;
                         if (!visible) continue;
@@ -387,7 +418,8 @@ static void make_textures(void) {
         for (int y = 0; y < TEX; y++)
             for (int x = 0; x < TEX; x++) {
                 float n = rand01(x, y, l * 17 + 3);
-                float r, g, b;
+                float r, g, b, a = 1.0f;
+                int edge = x == 0 || y == 0 || x == TEX - 1 || y == TEX - 1;
                 switch (l) {
                 case T_GRASS_TOP: r = 0.32f; g = 0.58f; b = 0.24f; n = 0.8f + 0.3f * n; break;
                 case T_GRASS_SIDE:
@@ -407,7 +439,34 @@ static void make_textures(void) {
                     break;
                 }
                 case T_LEAVES: r = 0.20f; g = 0.45f; b = 0.18f; n = 0.6f + 0.5f * n; break;
-                case T_WATER: r = 0.16f; g = 0.32f; b = 0.68f; n = 0.9f + 0.15f * n; break;
+                case T_WATER: r = 0.16f; g = 0.32f; b = 0.68f; n = 0.9f + 0.15f * n; a = 0.78f; break;
+                case T_STONE_BRICKS: /* large grey blocks, staggered rows */
+                    r = g = b = 0.60f;
+                    n = (y % 8 == 7 || x % 16 == ((y / 8) % 2 ? 4 : 12)) ? 0.62f : 0.85f + 0.2f * n;
+                    break;
+                case T_BRICKS: /* small red bricks with light mortar */
+                    if (y % 4 == 3 || x % 8 == ((y / 4) % 2 ? 2 : 6)) { r = 0.76f; g = 0.72f; b = 0.66f; n = 0.95f; }
+                    else { r = 0.64f; g = 0.30f; b = 0.23f; n = 0.85f + 0.25f * n; }
+                    break;
+                case T_GLASS: /* a light frame around a pane you can see through */
+                    r = 0.78f; g = 0.88f; b = 0.95f; n = 1.0f;
+                    if (edge) { r = 0.90f; g = 0.93f; b = 0.96f; }
+                    else if ((x + y == 9 || x + y == 10 || x + y == 20) && x > 2 && y > 2) { r = g = b = 1.0f; a = 0.6f; }
+                    else a = 0.18f;
+                    break;
+                case T_ROOF: /* overlapping clay tiles */
+                    r = 0.66f; g = 0.30f; b = 0.19f;
+                    n = (y % 4 == 3) ? 0.6f : (y % 4 == 0 ? 1.05f : 0.9f) + 0.1f * n;
+                    if (x % 4 == ((y / 4) % 2 ? 1 : 3) && y % 4 != 3) n *= 0.8f;
+                    break;
+                case T_PLASTER: r = 0.88f; g = 0.86f; b = 0.80f; n = 0.92f + 0.08f * n; break;
+                case T_LAMP: { /* a glowing panel in a dark frame */
+                    float dx = x - 7.5f, dy = y - 7.5f;
+                    r = 1.0f; g = 0.86f; b = 0.52f;
+                    n = 1.0f - 0.025f * sqrtf(dx * dx + dy * dy) + 0.05f * n;
+                    if (edge || x == 1 || y == 1 || x == TEX - 2 || y == TEX - 2) { r = 0.35f; g = 0.26f; b = 0.16f; n = 1.0f; }
+                    break;
+                }
                 default: /* planks */
                     r = 0.70f; g = 0.54f; b = 0.32f;
                     n = (y % 4 == 3 || (x == ((y / 4) % 2 ? 3 : 11) )) ? 0.65f : 0.9f + 0.12f * n;
@@ -416,7 +475,7 @@ static void make_textures(void) {
                 px[l][y][x][0] = (uint8_t)fminf(255, r * n * 255);
                 px[l][y][x][1] = (uint8_t)fminf(255, g * n * 255);
                 px[l][y][x][2] = (uint8_t)fminf(255, b * n * 255);
-                px[l][y][x][3] = l == T_WATER ? 200 : 255;
+                px[l][y][x][3] = (uint8_t)(a * 255);
             }
     GLuint tex;
     p_glGenTextures(1, &tex);
@@ -438,6 +497,7 @@ static const char* world_vs =
     "uniform mat4 view_proj;\n"
     "uniform vec3 chunk_origin;\n"
     "uniform vec3 eye;\n"
+    "uniform float glow_layer;\n"
     "out vec3 uvl;\n"
     "out float light;\n"
     "out float dist;\n"
@@ -446,7 +506,7 @@ static const char* world_vs =
     "    vec3 world = chunk_origin + pos_face.xyz;\n"
     "    gl_Position = view_proj * vec4(world, 1.0);\n"
     "    uvl = uv_layer_ao.xyz;\n"
-    "    light = face_light[int(pos_face.w)] * (0.55 + 0.15 * uv_layer_ao.w);\n"
+    "    light = abs(uv_layer_ao.z - glow_layer) < 0.5 ? 1.2 : face_light[int(pos_face.w)] * (0.55 + 0.15 * uv_layer_ao.w);\n"
     "    dist = length(world - eye);\n"
     "}\n";
 
@@ -589,10 +649,110 @@ static void mark_dirty(int x, int z) {
     if (z % CHUNK == CHUNK - 1 && cj < CHUNKS - 1) chunks[ci][cj + 1].dirty = 1;
 }
 
+static int world_changed; /* since the last save */
+
 static void set_block(int x, int y, int z, int b) {
     if (x < 0 || z < 0 || x >= WX || z >= WZ || y < 0 || y >= WY) return;
     world[x][y][z] = (uint8_t)b;
+    world_changed = 1;
     mark_dirty(x, z);
+}
+
+/* ---- Saved worlds ----------------------------------------------------- */
+
+/* File layout (little endian): this header, then the blocks run-length
+ * encoded as (count 1-255, block id) byte pairs, x outermost, then y, then z.
+ * Must match BlocksWorlds.kt, which reads the header. */
+#define SAVE_MAGIC 0x57425048u /* "HPBW" */
+#define SAVE_VERSION 1
+typedef struct {
+    uint32_t magic;
+    uint32_t version;
+    int32_t chunks; /* a side */
+    int32_t seed;
+    float x, y, z, yaw, pitch; /* the player */
+    uint32_t data_size;        /* bytes of block data after the header */
+    uint32_t reserved[6];
+} SaveHeader;
+
+/* Writes to a temporary file and renames it over the old save, so a save
+ * cut short (the app killed mid-write) never destroys the previous one. */
+static int save_world(const char* path, const Player* p) {
+    size_t cells = (size_t)WX * WY * WZ;
+    uint8_t* data = malloc(cells * 2);
+    if (!data) return 0;
+    size_t size = 0;
+    int run_block = -1, run = 0;
+    for (int x = 0; x < WX; x++)
+        for (int y = 0; y < WY; y++)
+            for (int z = 0; z < WZ; z++) {
+                int b = world[x][y][z];
+                if (b == run_block && run < 255) { run++; continue; }
+                if (run) { data[size++] = (uint8_t)run; data[size++] = (uint8_t)run_block; }
+                run_block = b;
+                run = 1;
+            }
+    if (run) { data[size++] = (uint8_t)run; data[size++] = (uint8_t)run_block; }
+    SaveHeader h = {SAVE_MAGIC, SAVE_VERSION, world_chunks, world_seed, p->x, p->y, p->z, p->yaw, p->pitch,
+                    (uint32_t)size, {0}};
+    char tmp[4096];
+    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    FILE* f = fopen(tmp, "wb");
+    int ok = f && fwrite(&h, sizeof h, 1, f) == 1 && fwrite(data, 1, size, f) == size;
+    if (f) {
+        ok = fflush(f) == 0 && ok;
+        ok = fsync(fileno(f)) == 0 && ok;
+        ok = fclose(f) == 0 && ok;
+    }
+    free(data);
+    if (ok) ok = rename(tmp, path) == 0;
+    if (!ok) {
+        unlink(tmp);
+        printf("blocks: could not save the world to %s\n", path);
+    }
+    return ok;
+}
+
+/* Loads a saved world and the player's place in it. Returns 0, leaving the
+ * world untouched, when there is no valid save. */
+static int load_world(const char* path, Player* p) {
+    FILE* f = fopen(path, "rb");
+    if (!f) return 0;
+    SaveHeader h;
+    int ok = fread(&h, sizeof h, 1, f) == 1 && h.magic == SAVE_MAGIC && h.version == SAVE_VERSION &&
+             h.chunks >= 4 && h.chunks <= MAX_CHUNKS && h.data_size <= (uint32_t)MAX_W * WY * MAX_W * 2;
+    uint8_t* data = ok ? malloc(h.data_size ? h.data_size : 1) : NULL;
+    ok = ok && data && fread(data, 1, h.data_size, f) == h.data_size;
+    fclose(f);
+    if (ok) {
+        /* Decode into a copy first: a bad file must not leave half a world. */
+        int side = CHUNK * h.chunks;
+        size_t cells = (size_t)side * WY * side, done = 0;
+        uint8_t* cellv = malloc(cells);
+        ok = cellv != NULL;
+        for (uint32_t i = 0; ok && i + 1 < h.data_size; i += 2) {
+            int run = data[i], b = data[i + 1];
+            if (run == 0 || b >= BLOCK_TYPES || done + run > cells) { ok = 0; break; }
+            memset(cellv + done, b, run);
+            done += run;
+        }
+        ok = ok && done == cells;
+        if (ok) {
+            world_chunks = h.chunks;
+            world_seed = h.seed;
+            size_t k = 0;
+            for (int x = 0; x < side; x++)
+                for (int y = 0; y < WY; y++)
+                    for (int z = 0; z < side; z++) world[x][y][z] = cellv[k++];
+            p->x = h.x; p->y = h.y; p->z = h.z;
+            p->yaw = h.yaw; p->pitch = h.pitch;
+            p->vy = 0;
+        }
+        free(cellv);
+    }
+    free(data);
+    if (!ok) printf("blocks: %s is not a valid saved world, making a new one\n", path);
+    return ok;
 }
 
 /* ---- Creatures and particles ----------------------------------------- */
@@ -696,6 +856,8 @@ static void block_color(int block, float* out) {
     static const float colors[BLOCK_TYPES][3] = {
         {0, 0, 0}, {0.32f, 0.58f, 0.24f}, {0.52f, 0.37f, 0.24f}, {0.52f, 0.52f, 0.52f}, {0.86f, 0.80f, 0.58f},
         {0.42f, 0.30f, 0.18f}, {0.20f, 0.45f, 0.18f}, {0.16f, 0.32f, 0.68f}, {0.70f, 0.54f, 0.32f},
+        {0.55f, 0.55f, 0.55f}, {0.62f, 0.32f, 0.25f}, {0.82f, 0.90f, 0.95f}, {0.64f, 0.29f, 0.19f},
+        {0.86f, 0.84f, 0.78f}, {1.00f, 0.84f, 0.50f},
     };
     memcpy(out, colors[block < BLOCK_TYPES ? block : PLANKS], sizeof(colors[0]));
 }
@@ -1142,12 +1304,18 @@ int main(int argc, char** argv) {
     GLint u_fog_end = p_glGetUniformLocation(world_program, "fog_end");
     p_glUseProgram(world_program);
     p_glUniform1i(p_glGetUniformLocation(world_program, "tex"), 0);
+    p_glUniform1f(p_glGetUniformLocation(world_program, "glow_layer"), (float)T_LAMP);
     p_glUseProgram(hud_program);
     p_glUniform2f(p_glGetUniformLocation(hud_program, "pixel"), 2.0f / w * (h / 540.0f), 2.0f / h * (h / 540.0f));
     make_textures();
 
     int heavy = getenv("HYPOCKET_BLOCKS_HEAVY") != NULL;
-    if (heavy) world_chunks = MAX_CHUNKS;
+    if (heavy) world_chunks = 16;
+    const char* chunks_env = getenv("HYPOCKET_BLOCKS_CHUNKS");
+    if (chunks_env && atoi(chunks_env) >= 4 && atoi(chunks_env) <= MAX_CHUNKS) world_chunks = atoi(chunks_env);
+    const char* seed_env = getenv("HYPOCKET_BLOCKS_SEED");
+    if (seed_env) world_seed = abs(atoi(seed_env) % 1000000);
+    const char* save_path = getenv("HYPOCKET_BLOCKS_SAVE");
     GLuint box_program = link_program(box_vs, box_fs);
     GLint ub_view_proj = p_glGetUniformLocation(box_program, "view_proj");
     GLint ub_center = p_glGetUniformLocation(box_program, "center");
@@ -1157,9 +1325,10 @@ int main(int argc, char** argv) {
     GLint ub_color = p_glGetUniformLocation(box_program, "color");
     GLint ub_fog_color = p_glGetUniformLocation(box_program, "fog_color");
     GLint ub_fog_end = p_glGetUniformLocation(box_program, "fog_end");
-
     double build_start = now_ms();
-    generate_world();
+    Player player = {0};
+    int loaded = save_path && load_world(save_path, &player);
+    if (!loaded) generate_world();
     GLuint ebo;
     p_glGenBuffers(1, &ebo);
     scratch = malloc((size_t)CHUNK * CHUNK * WY * 3 * 4 * sizeof(Vertex));
@@ -1183,12 +1352,13 @@ int main(int argc, char** argv) {
     int total_quads = 0;
     for (int i = 0; i < CHUNKS; i++)
         for (int j = 0; j < CHUNKS; j++) total_quads += chunks[i][j].quads + chunks[i][j].water_quads;
-    printf("blocks: world built in %.0f ms, %d faces\n", build_ms, total_quads);
+    printf("blocks: world %s in %.0f ms, %d faces, seed %d\n", loaded ? "loaded" : "built", build_ms, total_quads,
+           world_seed);
     fflush(stdout);
 
-    /* Spawn in the middle, on top of the ground. */
-    Player player = {WX / 2 + 0.5f, WY, WZ / 2 + 0.5f, 0, 0, -0.25f, 0};
-    for (int r = 0; r < WX / 2; r++) { /* nearest grass, spiralling out */
+    /* A new world: spawn in the middle, on top of the ground. */
+    if (!loaded) player = (Player){WX / 2 + 0.5f, WY, WZ / 2 + 0.5f, 0, 0, -0.25f, 0};
+    for (int r = 0; r < WX / 2 && !loaded; r++) { /* nearest grass, spiralling out */
         int found = 0;
         for (int dx = -r; dx <= r && !found; dx++)
             for (int dz = -r; dz <= r && !found; dz++) {
@@ -1203,13 +1373,19 @@ int main(int argc, char** argv) {
             }
         if (found) break;
     }
-    while (player.y > 1 && !collides(player.x, player.y - 1, player.z)) player.y -= 1;
-    float base_yaw = io->look_yaw, base_pitch = io->look_pitch;
+    while (!loaded && player.y > 1 && !collides(player.x, player.y - 1, player.z)) player.y -= 1;
+    /* A loaded world keeps the direction the player faced (not the pitch,
+     * which the app clamps from the default). */
+    float base_yaw = io->look_yaw - player.yaw, base_pitch = io->look_pitch;
     int seen_breaks = io->breaks, seen_places = io->places;
 
     const float sky[3] = {0.55f, 0.73f, 0.92f};
     const float far = heavy ? 128.0f : 72.0f;
     if (heavy) spawn_creatures(MAX_CREATURES);
+    else if (getenv("HYPOCKET_BLOCKS_CREATURES")) {
+        int n = atoi(getenv("HYPOCKET_BLOCKS_CREATURES"));
+        spawn_creatures(n < 0 ? 0 : n > MAX_CREATURES ? MAX_CREATURES : n);
+    }
     printf("blocks: %s mode, %dx%d chunks, %d creatures, view distance %.0f\n", heavy ? "heavy" : "normal",
            world_chunks, world_chunks, creature_count, far);
     double last = now_ms(), stats_start = last, work_total = 0;
@@ -1234,6 +1410,8 @@ int main(int argc, char** argv) {
     int bench_frames = 0;
     const int bench_warmup = 60; /* frames left out: shaders, caches, ramp-up */
     int step_variant = 0, was_in_water = 0;
+    double last_save = last;
+    if (bench) save_path = NULL; /* the benchmark never touches saves */
 
     while (!io->quit && (max_frames == 0 || frames < max_frames)) {
         double frame_start = now_ms();
@@ -1309,7 +1487,9 @@ int main(int argc, char** argv) {
                             0.9f + 0.2f * rand01(hit[0], hit[1], hit[2]));
                     set_block(hit[0], hit[1], hit[2], hit[1] < WATER_LEVEL + 1 && block_at(hit[0], hit[1] + 1, hit[2]) == WATER ? WATER : AIR);
                 } else if (block_at(before[0], before[1], before[2]) == AIR || block_at(before[0], before[1], before[2]) == WATER) {
-                    set_block(before[0], before[1], before[2], PLANKS);
+                    int selected = io->selected;
+                    if (selected < 0 || selected >= PALETTE_SIZE) selected = 0;
+                    set_block(before[0], before[1], before[2], palette[selected]);
                     if (collides(player.x, player.y, player.z)) set_block(before[0], before[1], before[2], AIR);
                     else play_at(SND_PLACE, &player, before[0] + 0.5f, before[1] + 0.5f, before[2] + 0.5f, 1.0f);
                 }
@@ -1561,7 +1741,20 @@ int main(int argc, char** argv) {
             work_total = 0;
             stats_wait = 0;
         }
+        /* Save a changed world every 30 seconds. */
+        if (save_path && world_changed && frame_end - last_save >= 30000.0) {
+            if (save_world(save_path, &player)) {
+                world_changed = 0;
+                io->saves++;
+            }
+            last_save = frame_end;
+        }
         if (fps_limit > 0) sleep_ms(1000.0 / fps_limit - (now_ms() - frame_start));
+    }
+    /* Always on exit: the player's place changes even without building. */
+    if (save_path && save_world(save_path, &player)) {
+        io->saves++;
+        printf("blocks: world saved\n");
     }
     if (previous) p_glDeleteSync(previous);
     if (bench && bench_frames > 0) {

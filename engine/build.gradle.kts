@@ -309,3 +309,7 @@ androidComponents {
         variant.sources.jniLibs?.addGeneratedSourceDirectory(buildBox64, BuildBox64Task::jniLibsDir)
     }
 }
+
+dependencies {
+    testImplementation(libs.junit)
+}

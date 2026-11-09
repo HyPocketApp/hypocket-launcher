@@ -80,6 +80,9 @@ class BlocksSession(context: Context) : AutoCloseable {
     /** Places a block next to the one under the crosshair. */
     fun placeBlock() = synchronized(io) { io.putInt(OFF_PLACES, ++places) }
 
+    /** Chooses the block [placeBlock] places: an index into the game's building palette. */
+    fun selectBlock(index: Int) = synchronized(io) { io.putInt(OFF_SELECTED, index) }
+
     /** What the game reports while it runs. */
     val stats: BlocksStats
         get() = synchronized(io) {
@@ -95,6 +98,7 @@ class BlocksSession(context: Context) : AutoCloseable {
                 height = io.getInt(OFF_HEIGHT),
                 scalePercent = io.getInt(OFF_SCALE),
                 creatures = io.getInt(OFF_CREATURES),
+                saves = io.getInt(OFF_SAVES),
             )
         }
 
@@ -128,6 +132,12 @@ class BlocksSession(context: Context) : AutoCloseable {
             if (options.dynamicResolution) put("HYPOCKET_BLOCKS_DYNAMIC", "1")
             if (options.heavy) put("HYPOCKET_BLOCKS_HEAVY", "1")
             if (options.benchmarkFrames > 0) put("HYPOCKET_BLOCKS_BENCH", "1")
+            options.world?.let { world ->
+                put("HYPOCKET_BLOCKS_SAVE", world.saveFile.absolutePath)
+                put("HYPOCKET_BLOCKS_CHUNKS", world.chunks.toString())
+                put("HYPOCKET_BLOCKS_SEED", world.seed.toString())
+            }
+            if (options.creatures > 0) put("HYPOCKET_BLOCKS_CREATURES", options.creatures.toString())
             putAll(options.extraEnv)
         }
 
@@ -213,6 +223,7 @@ class BlocksSession(context: Context) : AutoCloseable {
         const val OFF_QUIT = 36
         const val OFF_LOOK_RATE_YAW = 40
         const val OFF_LOOK_RATE_PITCH = 44
+        const val OFF_SELECTED = 48
         const val OFF_READY = 64
         const val OFF_FRAMES = 68
         const val OFF_FPS = 72
@@ -224,6 +235,7 @@ class BlocksSession(context: Context) : AutoCloseable {
         const val OFF_HEIGHT = 96
         const val OFF_SCALE = 100
         const val OFF_CREATURES = 104
+        const val OFF_SAVES = 108
     }
 }
 
@@ -243,8 +255,10 @@ data class BlocksStats(
     val height: Int = 0,
     /** Share of the width and height the 3D scene is drawn at (dynamic resolution). */
     val scalePercent: Int = 100,
-    /** Creatures drawn in the last frame (heavy mode). */
+    /** Creatures drawn in the last frame. */
     val creatures: Int = 0,
+    /** Times the game wrote the world to its save file. */
+    val saves: Int = 0,
 )
 
 /** What the game does beyond the defaults. */
@@ -255,6 +269,10 @@ data class BlocksOptions(
     val heavy: Boolean = false,
     /** Above 0: a benchmark of this many frames with a fixed camera path. */
     val benchmarkFrames: Int = 0,
+    /** A saved world to load and save; without one, a fresh world nobody keeps. */
+    val world: BlocksWorld? = null,
+    /** Wandering creatures outside heavy mode (heavy mode always has 300). */
+    val creatures: Int = 0,
     /** More environment for the game (Mesa and Box64 options under test). */
     val extraEnv: Map<String, String> = emptyMap(),
     /** More environment for the VirGL server (its options under test). */
