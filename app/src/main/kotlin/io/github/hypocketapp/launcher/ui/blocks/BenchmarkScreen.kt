@@ -125,7 +125,10 @@ private fun BenchmarkResults(results: List<BlocksBenchmark.PhaseResult>, onClose
 private fun List<BlocksBenchmark.PhaseResult>.toShareText(): String {
     val results = this
     return buildString {
-        appendLine("HyPocket Blocks benchmark (heavy mode, ${BlocksBenchmark.FRAMES} frames per phase, no FPS limit)")
+        appendLine(
+            "HyPocket Blocks benchmark (heavy mode, ${BlocksBenchmark.FRAMES} frames per phase, " +
+                "no FPS or refresh-rate limit)",
+        )
         appendLine("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
         appendLine(appVersionLine())
         appendLine("Android: ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
@@ -145,7 +148,7 @@ private fun List<BlocksBenchmark.PhaseResult>.toShareText(): String {
             r.report.output.lines().filter { it.startsWith("bench:") || it.startsWith("blocks: ") }
                 .takeLast(6).forEach { appendLine(it) }
             appendLine("--- ${r.phase.name}: server ---")
-            r.report.serverOutput.lines().filter { it.startsWith("hypocket-stats") }.forEach { appendLine(it) }
+            r.report.serverOutput.lines().filter { it.startsWith("hypocket-stats") || it.startsWith("hypocket-profile") }.forEach { appendLine(it) }
             r.report.memory?.toLines()?.forEach { appendLine("Memory: $it") }
         }
     }

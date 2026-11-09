@@ -1,8 +1,126 @@
 diff --git a/src/vrend/vrend_decode.c b/src/vrend/vrend_decode.c
-index 7774a25..9751e87 100644
+index 7774a25..6242823 100644
 --- a/src/vrend/vrend_decode.c
 +++ b/src/vrend/vrend_decode.c
-@@ -2155,3 +2155,16 @@ static void vrend_decode_ctx_init_base(struct vrend_decode_ctx *dctx,
+@@ -21,6 +21,7 @@
+  * OTHER DEALINGS IN THE SOFTWARE.
+  *
+  **************************************************************************/
++#include <time.h>
+ #include <stdint.h>
+ #include <string.h>
+ #include <stdio.h>
+@@ -2046,6 +2047,50 @@ static void dump_command_stream_to_file(const void *buffer, size_t size)
+    }
+ }
+ 
++/* HyPocket: with HYPOCKET_PROFILE set, where command processing time goes,
++ * logged every 600 command buffers. With HYPOCKET_ONE_ERROR_CHECK set, GL
++ * errors are checked once per command buffer instead of after every
++ * command (each check is a glGetError call into the driver). */
++static struct {
++   int enabled, one_error_check;
++   unsigned submits;
++   double cmd_ms[VIRGL_MAX_COMMANDS], error_check_ms, switch_ms;
++   unsigned cmd_count[VIRGL_MAX_COMMANDS];
++} hypocket_profile = { .enabled = -1 };
++
++static double hypocket_profile_now(void)
++{
++   struct timespec ts;
++   clock_gettime(CLOCK_MONOTONIC, &ts);
++   return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
++}
++
++static void hypocket_profile_log(void)
++{
++   double total = hypocket_profile.error_check_ms + hypocket_profile.switch_ms;
++   for (int i = 0; i < VIRGL_MAX_COMMANDS; i++)
++      total += hypocket_profile.cmd_ms[i];
++   fprintf(stderr, "hypocket-profile: %u command buffers, %.1f ms: context switches %.1f ms, error checks %.1f ms\n",
++           hypocket_profile.submits, total, hypocket_profile.switch_ms, hypocket_profile.error_check_ms);
++   /* The six commands that took longest. */
++   for (int n = 0; n < 6; n++) {
++      int best = -1;
++      for (int i = 0; i < VIRGL_MAX_COMMANDS; i++)
++         if (hypocket_profile.cmd_count[i] && (best < 0 || hypocket_profile.cmd_ms[i] > hypocket_profile.cmd_ms[best]))
++            best = i;
++      if (best < 0)
++         break;
++      fprintf(stderr, "hypocket-profile:   %-24s %7u calls %8.1f ms (%.2f us each)\n", vrend_get_comand_name(best),
++              hypocket_profile.cmd_count[best], hypocket_profile.cmd_ms[best],
++              1000.0 * hypocket_profile.cmd_ms[best] / hypocket_profile.cmd_count[best]);
++      hypocket_profile.cmd_count[best] = 0; /* left out of the next round */
++   }
++   memset(hypocket_profile.cmd_ms, 0, sizeof(hypocket_profile.cmd_ms));
++   memset(hypocket_profile.cmd_count, 0, sizeof(hypocket_profile.cmd_count));
++   hypocket_profile.error_check_ms = hypocket_profile.switch_ms = 0;
++   hypocket_profile.submits = 0;
++}
++
+ static int vrend_decode_ctx_submit_cmd(struct virgl_context *ctx,
+                                        const void *buffer,
+                                        size_t size)
+@@ -2055,11 +2100,20 @@ static int vrend_decode_ctx_submit_cmd(struct virgl_context *ctx,
+    bool bret;
+    int ret;
+ 
++   if (hypocket_profile.enabled < 0) {
++      hypocket_profile.enabled = getenv("HYPOCKET_PROFILE") != NULL;
++      hypocket_profile.one_error_check = getenv("HYPOCKET_ONE_ERROR_CHECK") != NULL;
++   }
++   const bool profile = hypocket_profile.enabled;
++   double t_start = profile ? hypocket_profile_now() : 0;
++
+ #define TRANSFER_HEADER_SIZE 4096
+ 
+    bret = vrend_hw_switch_context(gdctx->grctx, true);
+    if (bret == false)
+       return EINVAL;
++   if (profile)
++      hypocket_profile.switch_ms += hypocket_profile_now() - t_start;
+ 
+    if (VREND_DEBUG_ENABLED &&
+        vrend_debug(gdctx->grctx, dbg_dump_cmd_streams) &&
+@@ -2095,9 +2149,17 @@ static int vrend_decode_ctx_submit_cmd(struct virgl_context *ctx,
+ 
+       TRACE_SCOPE_SLOW(vrend_get_comand_name(cmd));
+ 
++      double t0 = profile ? hypocket_profile_now() : 0;
+       ret = decode_table[cmd](gdctx->grctx, buf, len);
+-      if (!vrend_check_no_error(gdctx->grctx) && !ret)
++      double t1 = profile ? hypocket_profile_now() : 0;
++      if (!hypocket_profile.one_error_check && !vrend_check_no_error(gdctx->grctx) && !ret)
+          ret = EINVAL;
++      if (profile) {
++         double t2 = hypocket_profile_now();
++         hypocket_profile.cmd_ms[cmd] += t1 - t0;
++         hypocket_profile.cmd_count[cmd]++;
++         hypocket_profile.error_check_ms += t2 - t1;
++      }
+       if (ret) {
+          virgl_error("context %d failed to dispatch %s: %d\n",
+                gdctx->base.ctx_id, vrend_get_comand_name(cmd), ret);
+@@ -2106,6 +2168,18 @@ static int vrend_decode_ctx_submit_cmd(struct virgl_context *ctx,
+          return ret;
+       }
+    }
++   if (hypocket_profile.one_error_check) {
++      double t0 = profile ? hypocket_profile_now() : 0;
++      bool ok = vrend_check_no_error(gdctx->grctx);
++      if (profile)
++         hypocket_profile.error_check_ms += hypocket_profile_now() - t0;
++      if (!ok) {
++         virgl_error("context %d: GL error in a command buffer\n", gdctx->base.ctx_id);
++         return EINVAL;
++      }
++   }
++   if (profile && ++hypocket_profile.submits >= 600)
++      hypocket_profile_log();
+    return 0;
+ }
+ 
+@@ -2155,3 +2229,16 @@ static void vrend_decode_ctx_init_base(struct vrend_decode_ctx *dctx,
     ctx->retire_fences = vrend_decode_ctx_retire_fences;
     ctx->submit_fence = vrend_decode_ctx_submit_fence;
  }

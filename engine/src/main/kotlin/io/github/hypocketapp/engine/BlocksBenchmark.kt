@@ -24,6 +24,8 @@ class BlocksBenchmark(private val context: Context) {
         val name: String,
         /** Environment for the game. */
         val env: Map<String, String> = emptyMap(),
+        /** Environment for the VirGL server. */
+        val serverEnv: Map<String, String> = emptyMap(),
         /** Share of the screen's width and height. */
         val scalePercent: Int = 100,
     )
@@ -52,7 +54,9 @@ class BlocksBenchmark(private val context: Context) {
                 if (cancelled) session.stop()
                 session.run(
                     width, height, fpsLimit = 0, display = display,
-                    options = BlocksOptions(heavy = true, benchmarkFrames = FRAMES, extraEnv = phase.env),
+                    options = BlocksOptions(
+                        heavy = true, benchmarkFrames = FRAMES, extraEnv = phase.env, serverEnv = phase.serverEnv,
+                    ),
                 )
             }
             val bench = BENCH_LINE.find(report.output)
@@ -80,9 +84,9 @@ class BlocksBenchmark(private val context: Context) {
             // HyPocket's: a fence is a command buffer number, resources are
             // busy only while the command buffers that used them run.
             Phase("HyPocket fences"),
-            // Mesa's glthread was slower on Adreno and no faster on Mali with
-            // the old fences; check again now that waits are precise.
-            Phase("HyPocket fences + glthread", mapOf("mesa_glthread" to "true")),
+            // The server checks GL errors once per command buffer instead of
+            // after every command (each check is a call into the driver).
+            Phase("one error check", serverEnv = mapOf("HYPOCKET_ONE_ERROR_CHECK" to "1")),
             // A quarter of the pixels: tells pixel work from geometry and draw calls.
             Phase("half resolution", scalePercent = 50),
         )

@@ -111,7 +111,10 @@ class BlocksSession(context: Context) : AutoCloseable {
         fenceFile.writeBytes(ByteArray(FENCE_PAGE_SIZE))
         val fenceEnv = mapOf("HYPOCKET_FENCE_PATH" to fenceFile.absolutePath)
         val serverEnv = fenceEnv +
-            (if (display != null) mapOf("HYPOCKET_DISPLAY_SOCKET" to display.socketName) else emptyMap())
+            (if (display != null) mapOf("HYPOCKET_DISPLAY_SOCKET" to display.socketName) else emptyMap()) +
+            // Benchmarks measure what the phone can do, not the screen's refresh rate.
+            (if (options.benchmarkFrames > 0) mapOf("HYPOCKET_DISPLAY_UNTHROTTLED" to "1", "HYPOCKET_PROFILE" to "1") else emptyMap()) +
+            options.serverEnv
         val presentEnv = if (display != null) mapOf("HYPOCKET_PRESENT" to "1") else emptyMap()
         val (server, failureLog) = VirglServer.start(runtime, serverEnv)
         if (server == null) return BlocksReport(DisplayStatus.SERVER_FAILED, stats, serverOutput = failureLog)
@@ -254,6 +257,8 @@ data class BlocksOptions(
     val benchmarkFrames: Int = 0,
     /** More environment for the game (Mesa and Box64 options under test). */
     val extraEnv: Map<String, String> = emptyMap(),
+    /** More environment for the VirGL server (its options under test). */
+    val serverEnv: Map<String, String> = emptyMap(),
 )
 
 data class BlocksReport(

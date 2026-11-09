@@ -71,6 +71,7 @@ struct State {
     int received_buffers = 0;
     int forgotten_buffers = 0;
     std::atomic<int> direct_frames{0};  // frames drawn from a buffer the guest drew into
+    std::atomic<int> skipped_frames{0};  // overtaken by a newer frame before being drawn
 };
 
 namespace {
@@ -327,7 +328,20 @@ void Serve(std::shared_ptr<State> state) {
         Note(s, "server connected");
         uint32_t msg[4];
         int passed;
-        while (!s.stop && ReadHeader(fd, msg, &passed)) {
+        // The newest frame not drawn yet. When frames arrive faster than the
+        // screen shows them (a benchmark without the refresh-rate limit), only
+        // the newest is drawn and the ones it overtook go straight back.
+        int pending = -1, pending_fence = -1;
+        while (!s.stop) {
+            if (pending >= 0) {
+                pollfd p{fd, POLLIN, 0};
+                if (poll(&p, 1, 0) <= 0 || !(p.revents & POLLIN)) {
+                    DrawFrame(s, pending, pending_fence);
+                    pending = pending_fence = -1;
+                    continue;
+                }
+            }
+            if (!ReadHeader(fd, msg, &passed)) break;
             if (msg[0] == kMsgBuffer && msg[1] < kBuffers) {
                 if (passed >= 0) close(passed);
                 Buffer& b = s.buffers[msg[1]];
@@ -342,15 +356,26 @@ void Serve(std::shared_ptr<State> state) {
                 s.received_buffers++;
             } else if (msg[0] == kMsgForget && msg[1] < kBuffers) {
                 if (passed >= 0) close(passed);
+                if (pending == static_cast<int>(msg[1])) {
+                    if (pending_fence >= 0) close(pending_fence);
+                    pending = pending_fence = -1;
+                }
                 FreeBuffer(s, s.buffers[msg[1]]);
                 if (s.previous == static_cast<int>(msg[1])) s.previous = -1;
                 s.forgotten_buffers++;
             } else if (msg[0] == kMsgFrame) {
-                DrawFrame(s, static_cast<int>(msg[1]), passed);
+                if (pending >= 0) {
+                    if (pending_fence >= 0) close(pending_fence);
+                    if (pending != s.previous) SendRelease(s, pending);
+                    s.skipped_frames++;
+                }
+                pending = static_cast<int>(msg[1]);
+                pending_fence = passed;
             } else if (passed >= 0) {
                 close(passed);
             }
         }
+        if (pending_fence >= 0) close(pending_fence);
         Note(s, "server disconnected");
         s.conn_fd = -1;
         close(fd);
@@ -395,7 +420,8 @@ std::string DirectDisplayInfo(std::shared_ptr<State>* handle) {
     return s.info + "buffers received: " + std::to_string(s.received_buffers) +
            ", forgotten: " + std::to_string(s.forgotten_buffers) +
            ", frames drawn: " + std::to_string(s.shown.load()) +
-           ", without a copy: " + std::to_string(s.direct_frames.load());
+           ", without a copy: " + std::to_string(s.direct_frames.load()) +
+           ", skipped: " + std::to_string(s.skipped_frames.load());
 }
 
 void DirectDisplayDestroy(std::shared_ptr<State>* handle) {

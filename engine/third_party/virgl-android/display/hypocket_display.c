@@ -454,9 +454,18 @@ static void free_copy_buffers(void)
 }
 
 /* Waits until every adopted buffer except index and the one shown before it
- * is back from the screen: the guest draws into the oldest one next. */
+ * is back from the screen: the guest draws into the oldest one next. With
+ * HYPOCKET_DISPLAY_UNTHROTTLED (benchmarks) it does not wait: frames are not
+ * held to the screen's refresh rate, at the cost of possible tearing. */
 static void wait_for_releases(int index)
 {
+   static int unthrottled = -1;
+   if (unthrottled < 0)
+      unthrottled = getenv("HYPOCKET_DISPLAY_UNTHROTTLED") != NULL;
+   if (unthrottled) {
+      read_releases();
+      return;
+   }
    for (int waited = 0;;) {
       read_releases();
       if (d.state < 0) return;
