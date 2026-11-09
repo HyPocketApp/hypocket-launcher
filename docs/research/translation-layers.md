@@ -549,7 +549,7 @@ What it means:
 
 ### HyPocket Blocks on the test phone (November 2026)
 
-`engine/guest-tests/blocks` is a small, original block game written for this
+`blocks/game` (then `engine/guest-tests/blocks`) is a small, original block game written for this
 project (chunked meshes with only visible faces, per-vertex ambient
 occlusion, water, walking, breaking and placing blocks). It runs through the
 whole path: Box64, desktop OpenGL 4.1, VirGL and direct display (stage 2),

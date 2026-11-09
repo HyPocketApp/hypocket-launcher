@@ -50,6 +50,7 @@ The planned Gradle modules are:
 | `:app`    | Kotlin   | Screens, navigation, view models                        |
 | `:core`   | Kotlin   | Account, verification, downloads, settings storage      |
 | `:engine` | C/C++    | Native engine, exposed to Kotlin through a thin JNI API |
+| `:blocks` | Kotlin, C | HyPocket Blocks, our own original block game (see below) |
 
 Rules:
 
@@ -57,6 +58,10 @@ Rules:
 - Kotlin talks to native code only through the JNI bridge in `:engine`.
 - Account verification belongs to `:core`, and the engine is only started
   after verification succeeds.
+- `:blocks` depends only on the engine's public game interface (`GuestGame`,
+  `DirectDisplay`), never on `:app` or `:core`, so it can become its own app
+  or repository later. It only ever runs its own program, built from source
+  in this repository, never game files.
 
 Research on the CPU and graphics translation layers, their licenses and the
 plan for `:engine` is in [docs/research/translation-layers.md](docs/research/translation-layers.md).
@@ -121,8 +126,8 @@ The test program is committed already built. To rebuild it, run
 
 ### Testing with HyPocket Blocks
 
-**Settings > HyPocket Blocks** opens a small block world written for this
-project (`engine/guest-tests/blocks`): saved worlds (**New world**, kept in
+The **Blocks** tab opens HyPocket Blocks, a block game written for this
+project (the `:blocks` module, game source in `blocks/game`): saved worlds (**New world**, kept in
 the app's files as `blocks-worlds/<id>.hpw`, see `BlocksWorlds.kt`) or an
 unsaved **Quick game**. It is an x86-64 Linux program,
 so it goes through the same path a real game will: Box64, desktop OpenGL 4.1
@@ -137,7 +142,7 @@ game's world), and the
 falls behind. Use it to check performance with a game-like load, and paste
 the report from **Exit > Copy report** in your issue or pull request.
 
-To rebuild it, run `engine/guest-tests/blocks/build.sh` on an x86-64 Linux
+To rebuild it, run `blocks/game/build.sh` on an x86-64 Linux
 machine with gcc and the EGL/GL development files. Running it there with
 `EGL_PLATFORM=surfaceless` and a frame count as the fourth argument draws
 that many frames on its own, which is handy for checking changes without a

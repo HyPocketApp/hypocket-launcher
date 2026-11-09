@@ -1,4 +1,4 @@
-package io.github.hypocketapp.launcher.ui.blocks
+package io.github.hypocketapp.blocks.ui
 
 import android.content.ClipData
 import androidx.compose.foundation.background
@@ -31,11 +31,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import io.github.hypocketapp.engine.BlocksBenchmark
+import io.github.hypocketapp.blocks.BlocksBenchmark
 import io.github.hypocketapp.engine.DirectDisplay
-import io.github.hypocketapp.launcher.R
-import io.github.hypocketapp.launcher.diagnostics.appVersionLine
-import io.github.hypocketapp.launcher.ui.settings.FrameSurfaceView
+import io.github.hypocketapp.blocks.R
+import io.github.hypocketapp.engine.view.FrameSurfaceView
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -47,7 +46,7 @@ import java.io.File
  * set of options, then a table to compare them and a report to copy.
  */
 @Composable
-fun BenchmarkScreen(benchmark: BlocksBenchmark, screenWidth: Int, screenHeight: Int, onClose: () -> Unit) {
+fun BenchmarkScreen(benchmark: BlocksBenchmark, screenWidth: Int, screenHeight: Int, versionLine: String, onClose: () -> Unit) {
     val directDisplay = remember { CompletableDeferred<DirectDisplay?>() }
     var phase by remember { mutableIntStateOf(0) }
     var results by remember { mutableStateOf<List<BlocksBenchmark.PhaseResult>?>(null) }
@@ -83,13 +82,13 @@ fun BenchmarkScreen(benchmark: BlocksBenchmark, screenWidth: Int, screenHeight: 
                     style = MaterialTheme.typography.bodySmall)
             }
         } else {
-            BenchmarkResults(done, onClose)
+            BenchmarkResults(done, versionLine, onClose)
         }
     }
 }
 
 @Composable
-private fun BenchmarkResults(results: List<BlocksBenchmark.PhaseResult>, onClose: () -> Unit) {
+private fun BenchmarkResults(results: List<BlocksBenchmark.PhaseResult>, versionLine: String, onClose: () -> Unit) {
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     Column(
@@ -113,16 +112,16 @@ private fun BenchmarkResults(results: List<BlocksBenchmark.PhaseResult>, onClose
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = {
                 scope.launch {
-                    clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("HyPocket report", results.toShareText())))
+                    clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("HyPocket report", results.toShareText(versionLine))))
                 }
-            }) { Text(stringResource(R.string.probe_copy)) }
-            OutlinedButton(onClick = onClose) { Text(stringResource(R.string.display_close), color = Color.White) }
+            }) { Text(stringResource(R.string.blocks_copy_report)) }
+            OutlinedButton(onClick = onClose) { Text(stringResource(R.string.blocks_close), color = Color.White) }
         }
     }
 }
 
 /** Plain-text report, in English, to paste into an issue. */
-private fun List<BlocksBenchmark.PhaseResult>.toShareText(): String {
+private fun List<BlocksBenchmark.PhaseResult>.toShareText(versionLine: String): String {
     val results = this
     return buildString {
         appendLine(
@@ -130,7 +129,7 @@ private fun List<BlocksBenchmark.PhaseResult>.toShareText(): String {
                 "no FPS or refresh-rate limit)",
         )
         appendLine("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
-        appendLine(appVersionLine())
+        appendLine(versionLine)
         appendLine("Android: ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
         appendLine("SoC: ${if (android.os.Build.VERSION.SDK_INT >= 31) android.os.Build.SOC_MODEL else "unknown"}")
         results.firstOrNull()?.report?.renderer?.let { appendLine("Renderer: $it") }

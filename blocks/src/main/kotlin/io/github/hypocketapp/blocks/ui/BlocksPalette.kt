@@ -1,14 +1,14 @@
-package io.github.hypocketapp.launcher.ui.blocks
+package io.github.hypocketapp.blocks.ui
 
 import androidx.annotation.StringRes
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.graphics.Color
-import io.github.hypocketapp.engine.BlocksSession
-import io.github.hypocketapp.launcher.R
+import io.github.hypocketapp.blocks.BlocksSession
+import io.github.hypocketapp.blocks.R
 
 /**
  * The blocks the player builds with, in the game's order (palette[] in
- * engine/guest-tests/blocks/blocks.c): the index is what the game receives.
+ * blocks/game/blocks.c): the index is what the game receives.
  * The colours are close to the game's generated textures, for the hotbar.
  */
 enum class BuildBlock(@param:StringRes val label: Int, val color: Color, val accent: Color) {

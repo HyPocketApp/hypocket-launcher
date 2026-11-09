@@ -311,5 +311,6 @@ androidComponents {
 }
 
 dependencies {
-    testImplementation(libs.junit)
+    // FrameSurfaceView (engine.view) uses the bitmap helpers.
+    implementation(libs.androidx.core.ktx)
 }

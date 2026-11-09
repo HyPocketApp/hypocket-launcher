@@ -1,4 +1,4 @@
-package io.github.hypocketapp.launcher.ui.settings
+package io.github.hypocketapp.engine.view
 
 import android.annotation.SuppressLint
 import android.content.Context

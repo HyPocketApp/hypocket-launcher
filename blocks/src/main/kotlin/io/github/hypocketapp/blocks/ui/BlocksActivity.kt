@@ -1,4 +1,4 @@
-package io.github.hypocketapp.launcher.ui.blocks
+package io.github.hypocketapp.blocks.ui
 
 import android.annotation.SuppressLint
 import android.content.ClipData
@@ -56,20 +56,18 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import io.github.hypocketapp.engine.BlocksBenchmark
-import io.github.hypocketapp.engine.BlocksOptions
-import io.github.hypocketapp.engine.BlocksReport
-import io.github.hypocketapp.engine.BlocksSession
-import io.github.hypocketapp.engine.BlocksStats
-import io.github.hypocketapp.engine.BlocksWorld
-import io.github.hypocketapp.engine.BlocksWorlds
+import io.github.hypocketapp.blocks.BlocksBenchmark
+import io.github.hypocketapp.blocks.BlocksConfig
+import io.github.hypocketapp.blocks.BlocksOptions
+import io.github.hypocketapp.blocks.BlocksReport
+import io.github.hypocketapp.blocks.BlocksSession
+import io.github.hypocketapp.blocks.BlocksStats
+import io.github.hypocketapp.blocks.BlocksWorld
+import io.github.hypocketapp.blocks.BlocksWorlds
 import io.github.hypocketapp.engine.DirectDisplay
 import io.github.hypocketapp.engine.DisplayStatus
-import io.github.hypocketapp.launcher.HyPocketApplication
-import io.github.hypocketapp.launcher.diagnostics.appVersionLine
-import io.github.hypocketapp.launcher.R
-import io.github.hypocketapp.launcher.ui.settings.FrameSurfaceView
-import io.github.hypocketapp.launcher.ui.theme.HyPocketTheme
+import io.github.hypocketapp.blocks.R
+import io.github.hypocketapp.engine.view.FrameSurfaceView
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -108,21 +106,21 @@ class BlocksActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
         session = BlocksSession(this)
-        val settings = (application as HyPocketApplication).container.settingsStore.settings.value
-        val sensitivity = settings.lookSensitivityPercent / 100f
+        val config = BlocksConfig.from(intent)
+        val sensitivity = config.lookSensitivityPercent / 100f
         selection = BlockSelection(session)
         controller = ControllerInput(session, sensitivity, selection, onExit = { session.stop() })
         mouse = MouseInput(session, sensitivity, selection)
         if (intent.getBooleanExtra(EXTRA_BENCHMARK, false)) {
             val run = BlocksBenchmark(this).also { benchmark = it }
             val (width, height) = landscapeScreen(this)
-            setContent { HyPocketTheme { BenchmarkScreen(run, width, height, onClose = { finish() }) } }
+            setContent { BlocksTheme { BenchmarkScreen(run, width, height, config.versionLine, onClose = { finish() }) } }
             return
         }
         val heavy = intent.getBooleanExtra(EXTRA_HEAVY, false)
         val world = intent.getStringExtra(EXTRA_WORLD)?.let { worlds(this).get(it) }
         setContent {
-            HyPocketTheme {
+            BlocksTheme {
                 BlocksScreen(
                     session = session,
                     controller = controller,
@@ -130,10 +128,11 @@ class BlocksActivity : ComponentActivity() {
                     selection = selection,
                     world = world,
                     lookSensitivity = sensitivity,
-                    renderScalePercent = settings.renderScalePercent,
-                    fpsLimit = settings.fpsLimit,
+                    renderScalePercent = config.renderScalePercent,
+                    fpsLimit = config.fpsLimit,
+                    versionLine = config.versionLine,
                     options = BlocksOptions(
-                        dynamicResolution = settings.dynamicResolution,
+                        dynamicResolution = config.dynamicResolution,
                         heavy = heavy,
                         world = world,
                         creatures = if (heavy) 0 else NORMAL_CREATURES,
@@ -195,15 +194,14 @@ class BlocksActivity : ComponentActivity() {
         fun worlds(context: Context) = BlocksWorlds(File(context.filesDir, "blocks-worlds"))
 
         /** Plays [world], loading and saving it, or a fresh unsaved world without one. */
-        fun start(context: Context, heavy: Boolean, world: BlocksWorld?) {
-            context.startActivity(
-                Intent(context, BlocksActivity::class.java).putExtra(EXTRA_HEAVY, heavy).putExtra(EXTRA_WORLD, world?.id),
-            )
+        fun start(context: Context, config: BlocksConfig, heavy: Boolean, world: BlocksWorld?) {
+            val intent = Intent(context, BlocksActivity::class.java).putExtra(EXTRA_HEAVY, heavy).putExtra(EXTRA_WORLD, world?.id)
+            context.startActivity(config.putInto(intent))
         }
 
         /** Runs the benchmark instead of the game. */
-        fun startBenchmark(context: Context) {
-            context.startActivity(Intent(context, BlocksActivity::class.java).putExtra(EXTRA_BENCHMARK, true))
+        fun startBenchmark(context: Context, config: BlocksConfig) {
+            context.startActivity(config.putInto(Intent(context, BlocksActivity::class.java).putExtra(EXTRA_BENCHMARK, true)))
         }
     }
 }
@@ -229,6 +227,7 @@ private fun BlocksScreen(
     lookSensitivity: Float,
     renderScalePercent: Int,
     fpsLimit: Int,
+    versionLine: String,
     options: BlocksOptions,
     onClose: () -> Unit,
 ) {
@@ -271,6 +270,7 @@ private fun BlocksScreen(
             LaunchedEffect(Unit) { mouse.stop() }
             ReportPanel(
                 finished,
+                versionLine,
                 listOfNotNull(
                     world?.let { "World: ${it.chunks}x${it.chunks} chunks, saved ${finished.stats.saves} times" },
                     "Input devices used: " +
@@ -506,7 +506,7 @@ private fun HoldButton(label: String, onPress: () -> Unit, onRelease: () -> Unit
 }
 
 @Composable
-private fun ReportPanel(report: BlocksReport, inputLines: List<String>, onClose: () -> Unit) {
+private fun ReportPanel(report: BlocksReport, versionLine: String, inputLines: List<String>, onClose: () -> Unit) {
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     Column(
@@ -521,28 +521,28 @@ private fun ReportPanel(report: BlocksReport, inputLines: List<String>, onClose:
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = {
                 scope.launch {
-                    clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("HyPocket report", report.toShareText(inputLines))))
+                    clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("HyPocket report", report.toShareText(versionLine, inputLines))))
                 }
-            }) { Text(stringResource(R.string.probe_copy)) }
-            OutlinedButton(onClick = onClose) { Text(stringResource(R.string.display_close), color = Color.White) }
+            }) { Text(stringResource(R.string.blocks_copy_report)) }
+            OutlinedButton(onClick = onClose) { Text(stringResource(R.string.blocks_close), color = Color.White) }
         }
     }
 }
 
 private fun DisplayStatus.label(): Int = when (this) {
     DisplayStatus.PASSED -> R.string.blocks_status_ended
-    DisplayStatus.FAILED -> R.string.probe_status_failed
-    DisplayStatus.TIMED_OUT -> R.string.probe_status_timed_out
-    DisplayStatus.BLOCKED_SYSCALL -> R.string.probe_status_blocked_syscall
-    DisplayStatus.SERVER_FAILED -> R.string.gfx_status_server_failed
-    DisplayStatus.NOT_AVAILABLE -> R.string.probe_status_not_available
+    DisplayStatus.FAILED -> R.string.blocks_status_failed
+    DisplayStatus.TIMED_OUT -> R.string.blocks_status_timed_out
+    DisplayStatus.BLOCKED_SYSCALL -> R.string.blocks_status_blocked_syscall
+    DisplayStatus.SERVER_FAILED -> R.string.blocks_status_server_failed
+    DisplayStatus.NOT_AVAILABLE -> R.string.blocks_status_not_available
 }
 
 /** Plain-text report, in English, to paste into an issue. */
-private fun BlocksReport.toShareText(inputLines: List<String>): String = buildString {
+private fun BlocksReport.toShareText(versionLine: String, inputLines: List<String>): String = buildString {
     appendLine("HyPocket Blocks session")
     appendLine("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
-    appendLine(appVersionLine())
+    appendLine(versionLine)
     appendLine("Android: ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
     appendLine("SoC: ${if (android.os.Build.VERSION.SDK_INT >= 31) android.os.Build.SOC_MODEL else "unknown"}")
     appendLine("Status: $status")

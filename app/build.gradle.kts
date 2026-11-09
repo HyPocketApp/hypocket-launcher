@@ -81,6 +81,7 @@ kotlin {
 
 dependencies {
     implementation(project(":core"))
+    implementation(project(":blocks"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)

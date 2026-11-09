@@ -1,6 +1,10 @@
-package io.github.hypocketapp.engine
+package io.github.hypocketapp.blocks
 
 import android.content.Context
+import io.github.hypocketapp.engine.DirectDisplay
+import io.github.hypocketapp.engine.DisplayStatus
+import io.github.hypocketapp.engine.GuestGame
+import io.github.hypocketapp.engine.MemoryUsage
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.ByteOrder
@@ -9,23 +13,21 @@ import java.nio.channels.FileChannel
 import kotlin.concurrent.thread
 
 /**
- * Runs HyPocket Blocks (engine/guest-tests/blocks), the original test game,
- * through the same path a real game takes: Box64, desktop OpenGL 4.1 and
- * VirGL, with frames shown by [DirectDisplay].
+ * Runs HyPocket Blocks (blocks/game), the original block game, through
+ * [GuestGame]: the same path a real game takes (Box64, desktop OpenGL 4.1 and
+ * VirGL, with frames shown by [DirectDisplay]).
  *
  * Touch input and the game's statistics go through a small shared file (the
  * layout is SharedIo in blocks.c). Input setters can be called from any
  * thread; [run] blocks until the game exits.
  */
 class BlocksSession(context: Context) : AutoCloseable {
-    private val runtime = GuestRuntime(context)
+    private val game = GuestGame(context)
 
     /** Frames read back by the game when direct display is not possible. */
-    val frameFile: File = File(runtime.cacheDir, "hypocket-frame.bin")
-    private val ioFile = File(runtime.cacheDir, "hypocket-blocks-io.bin")
-    private val audioFile = File(runtime.cacheDir, "hypocket-blocks-audio.bin")
-    /** Shared by the VirGL server and the game's Mesa: the last finished command buffer. */
-    private val fenceFile = File(runtime.cacheDir, "hypocket-fences.bin")
+    val frameFile: File = File(game.cacheDir, "hypocket-frame.bin")
+    private val ioFile = File(game.cacheDir, "hypocket-blocks-io.bin")
+    private val audioFile = File(game.cacheDir, "hypocket-blocks-audio.bin")
     private val io: MappedByteBuffer
 
     private var yaw = 0f
@@ -108,27 +110,9 @@ class BlocksSession(context: Context) : AutoCloseable {
      * frames back into [frameFile].
      */
     fun run(width: Int, height: Int, fpsLimit: Int, display: DirectDisplay?, options: BlocksOptions = BlocksOptions()): BlocksReport {
-        if (!runtime.isAvailable || !VirglServer.binary(runtime).exists()) {
-            return BlocksReport(DisplayStatus.NOT_AVAILABLE, stats)
-        }
-        // A fresh page each run: the server numbers command buffers from 1.
-        fenceFile.writeBytes(ByteArray(FENCE_PAGE_SIZE))
-        val fenceEnv = mapOf("HYPOCKET_FENCE_PATH" to fenceFile.absolutePath)
-        val serverEnv = fenceEnv +
-            (if (display != null) mapOf("HYPOCKET_DISPLAY_SOCKET" to display.socketName) else emptyMap()) +
-            // Benchmarks measure what the phone can do, not the screen's refresh rate.
-            (if (options.benchmarkFrames > 0) mapOf("HYPOCKET_DISPLAY_UNTHROTTLED" to "1", "HYPOCKET_PROFILE" to "1") else emptyMap()) +
-            options.serverEnv
-        val presentEnv = if (display != null) mapOf("HYPOCKET_PRESENT" to "1") else emptyMap()
-        val (server, failureLog) = VirglServer.start(runtime, serverEnv)
-        if (server == null) return BlocksReport(DisplayStatus.SERVER_FAILED, stats, serverOutput = failureLog)
-        // Without audio the game runs silent.
-        val audio = AudioOutput.create(audioFile)
-        val audioEnv = if (audio != null) mapOf("HYPOCKET_AUDIO_PATH" to audioFile.absolutePath) else emptyMap()
-        val optionEnv = buildMap {
-            // Precise fences between our Mesa and our VirGL server (see
-            // engine/third_party/mesa-guest); options can turn them off.
-            put("HYPOCKET_FENCES", "1")
+        val env = buildMap {
+            put("HYPOCKET_INPUT_PATH", ioFile.absolutePath)
+            put("HYPOCKET_FRAME_PATH", frameFile.absolutePath)
             if (options.dynamicResolution) put("HYPOCKET_BLOCKS_DYNAMIC", "1")
             if (options.heavy) put("HYPOCKET_BLOCKS_HEAVY", "1")
             if (options.benchmarkFrames > 0) put("HYPOCKET_BLOCKS_BENCH", "1")
@@ -140,50 +124,43 @@ class BlocksSession(context: Context) : AutoCloseable {
             if (options.creatures > 0) put("HYPOCKET_BLOCKS_CREATURES", options.creatures.toString())
             putAll(options.extraEnv)
         }
-
-        MemorySampler().use { sampler -> server.use { audio.use {
-            val result = runtime.runAsset(
-                ASSET,
-                extraEnv = server.guestEnvironment + mapOf(
-                    "HYPOCKET_INPUT_PATH" to ioFile.absolutePath,
-                    "HYPOCKET_FRAME_PATH" to frameFile.absolutePath,
-                    "MESA_GL_VERSION_OVERRIDE" to "4.1",
-                    "MESA_GLSL_VERSION_OVERRIDE" to "410",
-                ) + presentEnv + audioEnv + fenceEnv + optionEnv,
+        // Benchmarks measure what the phone can do, not the screen's refresh rate.
+        val benchmarkServerEnv =
+            if (options.benchmarkFrames > 0) mapOf("HYPOCKET_DISPLAY_UNTHROTTLED" to "1", "HYPOCKET_PROFILE" to "1") else emptyMap()
+        val result = game.run(
+            GuestGame.Launch(
+                asset = ASSET,
                 args = listOf(width.toString(), height.toString(), fpsLimit.toString()) +
                     (if (options.benchmarkFrames > 0) listOf(options.benchmarkFrames.toString()) else emptyList()),
+                env = env,
+                serverEnv = benchmarkServerEnv + options.serverEnv,
+                display = display,
+                audioFile = audioFile,
+                preciseFences = options.extraEnv["HYPOCKET_FENCES"] != "0",
                 timeoutSeconds = MAX_SESSION_SECONDS,
                 onStart = { started ->
                     process = started
                     if (stopping) started.destroy()
                 },
-            )
-            process = null
-            val memory = sampler.finish()
-            server.awaitExit(3)
-            val text = result.output
-            return BlocksReport(
-                status = when {
-                    // The server found no usable OpenGL ES driver (an emulator, for one).
-                    server.log.contains("couldn't find an OpenGL ES implementation") -> DisplayStatus.SERVER_FAILED
-                    !result.finished -> DisplayStatus.TIMED_OUT
-                    result.blockedSyscall -> DisplayStatus.BLOCKED_SYSCALL
-                    result.exitCode != 0 || !text.contains("blocks: ok") -> DisplayStatus.FAILED
-                    else -> DisplayStatus.PASSED
-                },
-                stats = stats,
-                renderer = Regex("""blocks: GL_RENDERER (.*)""").find(text)?.groupValues?.get(1),
-                exitCode = result.exitCode,
-                seconds = result.millis / 1000.0,
-                direct = display != null,
-                directInfo = display?.info.orEmpty(),
-                memory = memory,
-                audioInfo = audio?.info ?: "no audio stream",
-                options = options,
-                output = text,
-                serverOutput = server.log,
-            )
-        } } }
+            ),
+        )
+        process = null
+        val text = result.output
+        return BlocksReport(
+            // The game says "blocks: ok" when it ran to the end.
+            status = if (result.status == DisplayStatus.PASSED && !text.contains("blocks: ok")) DisplayStatus.FAILED else result.status,
+            stats = stats,
+            renderer = Regex("""blocks: GL_RENDERER (.*)""").find(text)?.groupValues?.get(1),
+            exitCode = result.exitCode,
+            seconds = result.seconds,
+            direct = display != null,
+            directInfo = result.directInfo,
+            memory = result.memory,
+            audioInfo = result.audioInfo,
+            options = options,
+            output = text,
+            serverOutput = result.serverOutput,
+        )
     }
 
     /** Asks the game to exit, and ends it if it does not within a few seconds. */
@@ -199,16 +176,14 @@ class BlocksSession(context: Context) : AutoCloseable {
     override fun close() {
         stop()
         ioFile.delete()
-        fenceFile.delete()
     }
 
     private companion object {
         const val ASSET = "blocks-x86_64"
         const val MAX_SESSION_SECONDS = 4 * 60 * 60L
         const val STOP_GRACE_MILLIS = 3000L
-        const val FENCE_PAGE_SIZE = 4096
 
-        // Must match SharedIo in engine/guest-tests/blocks/blocks.c.
+        // Must match SharedIo in blocks/game/blocks.c.
         const val IO_SIZE = 128
         const val MAGIC = 0x49425048
         const val OFF_MAGIC = 0

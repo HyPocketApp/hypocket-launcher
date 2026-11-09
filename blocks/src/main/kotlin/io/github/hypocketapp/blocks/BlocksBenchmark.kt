@@ -1,6 +1,8 @@
-package io.github.hypocketapp.engine
+package io.github.hypocketapp.blocks
 
 import android.content.Context
+import io.github.hypocketapp.engine.DirectDisplay
+import io.github.hypocketapp.engine.DisplayStatus
 
 /**
  * Runs HyPocket Blocks in heavy mode several times with a fixed camera path,

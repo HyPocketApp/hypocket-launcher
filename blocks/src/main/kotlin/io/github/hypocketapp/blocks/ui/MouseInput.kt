@@ -1,10 +1,10 @@
-package io.github.hypocketapp.launcher.ui.blocks
+package io.github.hypocketapp.blocks.ui
 
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
 import androidx.compose.runtime.mutableStateOf
-import io.github.hypocketapp.engine.BlocksSession
+import io.github.hypocketapp.blocks.BlocksSession
 
 /**
  * A mouse (Bluetooth, USB, or an adapter that passes one through) for

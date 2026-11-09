@@ -16,4 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "hypocket-launcher"
 
-include(":app", ":core", ":engine")
+include(":app", ":core", ":engine", ":blocks")

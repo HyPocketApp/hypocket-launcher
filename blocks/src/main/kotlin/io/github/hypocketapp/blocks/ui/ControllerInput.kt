@@ -1,10 +1,10 @@
-package io.github.hypocketapp.launcher.ui.blocks
+package io.github.hypocketapp.blocks.ui
 
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import androidx.compose.runtime.mutableStateOf
-import io.github.hypocketapp.engine.BlocksSession
+import io.github.hypocketapp.blocks.BlocksSession
 import kotlin.math.abs
 import kotlin.math.sign
 

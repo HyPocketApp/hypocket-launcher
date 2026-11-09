@@ -1,11 +1,14 @@
-package io.github.hypocketapp.launcher.ui.settings
+package io.github.hypocketapp.blocks.ui
 
 import android.text.format.DateUtils
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -29,14 +32,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
-import io.github.hypocketapp.engine.BlocksWorld
-import io.github.hypocketapp.engine.BlocksWorlds
-import io.github.hypocketapp.launcher.R
-import io.github.hypocketapp.launcher.ui.blocks.BlocksActivity
+import io.github.hypocketapp.blocks.BlocksWorld
+import io.github.hypocketapp.blocks.BlocksWorlds
+import io.github.hypocketapp.blocks.R
+import io.github.hypocketapp.blocks.BlocksConfig
 
-/** HyPocket Blocks: the saved worlds, a quick unsaved game and the benchmark. */
+/**
+ * HyPocket Blocks' home: the saved worlds, a quick unsaved game and the
+ * benchmark. [config] is read each time a game starts, so setting changes
+ * apply to the next game.
+ */
 @Composable
-fun BlocksSection() {
+fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val store = remember { BlocksActivity.worlds(context) }
     var heavy by rememberSaveable { mutableStateOf(false) }
@@ -50,8 +57,11 @@ fun BlocksSection() {
         onPauseOrDispose {}
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(stringResource(R.string.blocks_title), style = MaterialTheme.typography.titleMedium)
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(stringResource(R.string.blocks_title), style = MaterialTheme.typography.headlineSmall)
         Text(stringResource(R.string.blocks_description), style = MaterialTheme.typography.bodySmall)
 
         Text(stringResource(R.string.blocks_worlds), style = MaterialTheme.typography.titleSmall)
@@ -61,13 +71,13 @@ fun BlocksSection() {
         worlds.forEach { world ->
             WorldCard(
                 world,
-                onPlay = { BlocksActivity.start(context, heavy, world) },
+                onPlay = { BlocksActivity.start(context, config(), heavy, world) },
                 onDelete = { deleting = world },
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { creating = true }) { Text(stringResource(R.string.blocks_new_world)) }
-            OutlinedButton(onClick = { BlocksActivity.start(context, heavy, null) }) {
+            OutlinedButton(onClick = { BlocksActivity.start(context, config(), heavy, null) }) {
                 Text(stringResource(R.string.blocks_open))
             }
         }
@@ -81,7 +91,7 @@ fun BlocksSection() {
             Text(stringResource(R.string.blocks_heavy), modifier = Modifier.weight(1f))
             Switch(checked = heavy, onCheckedChange = { heavy = it })
         }
-        OutlinedButton(onClick = { BlocksActivity.startBenchmark(context) }) {
+        OutlinedButton(onClick = { BlocksActivity.startBenchmark(context, config()) }) {
             Text(stringResource(R.string.blocks_benchmark))
         }
         Text(stringResource(R.string.blocks_benchmark_description), style = MaterialTheme.typography.bodySmall)
@@ -93,7 +103,7 @@ fun BlocksSection() {
                 creating = false
                 val world = store.create(name, chunks)
                 worlds = store.list()
-                BlocksActivity.start(context, heavy, world)
+                BlocksActivity.start(context, config(), heavy, world)
             },
             onDismiss = { creating = false },
         )

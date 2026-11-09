@@ -97,8 +97,6 @@ fun SettingsScreen(store: SettingsStore, modifier: Modifier = Modifier) {
             stringResource(R.string.settings_engine_info, Engine.version, Engine.abi),
             style = MaterialTheme.typography.bodySmall,
         )
-        BlocksSection()
-
         SecureStorageSection()
 
         TranslatorTestSection()

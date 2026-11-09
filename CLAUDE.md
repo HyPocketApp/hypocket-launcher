@@ -21,6 +21,9 @@ its rules apply to you. This file only adds what is specific to AI agents.
 
 - Keep Kotlin (UI and logic in `:app` and `:core`) separate from C/C++ (engine
   in `:engine`). Cross the boundary only through the JNI bridge.
+- `:blocks` (HyPocket Blocks, our original game) uses only the engine's public
+  game interface and nothing from `:app` or `:core`; keep it that way so it
+  can move to its own repository.
 - Code, comments, identifiers and commits in English, using Conventional
   Commits.
 - User-facing text goes in `res/values/strings.xml` (English) and

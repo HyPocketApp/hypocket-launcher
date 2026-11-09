@@ -1,4 +1,4 @@
-package io.github.hypocketapp.engine
+package io.github.hypocketapp.blocks
 
 import java.io.File
 import java.util.Properties

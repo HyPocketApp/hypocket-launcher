@@ -4,6 +4,7 @@ import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -19,7 +20,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import io.github.hypocketapp.blocks.BlocksConfig
+import io.github.hypocketapp.blocks.ui.BlocksHomeScreen
 import io.github.hypocketapp.launcher.AppContainer
+import io.github.hypocketapp.launcher.diagnostics.appVersionLine
 import io.github.hypocketapp.launcher.R
 import io.github.hypocketapp.launcher.ui.account.AccountScreen
 import io.github.hypocketapp.launcher.ui.game.GameScreen
@@ -28,6 +32,7 @@ import io.github.hypocketapp.launcher.ui.settings.SettingsScreen
 private enum class Tab(@param:StringRes val label: Int, val icon: ImageVector) {
     ACCOUNT(R.string.tab_account, Icons.Filled.AccountCircle),
     GAME(R.string.tab_game, Icons.Filled.PlayArrow),
+    BLOCKS(R.string.tab_blocks, Icons.Filled.Build),
     SETTINGS(R.string.tab_settings, Icons.Filled.Settings),
 }
 
@@ -53,7 +58,20 @@ fun HyPocketApp(container: AppContainer) {
         when (current) {
             Tab.ACCOUNT -> AccountScreen(container.accountSession, modifier)
             Tab.GAME -> GameScreen(container, modifier)
+            Tab.BLOCKS -> BlocksHomeScreen(config = { blocksConfig(container) }, modifier)
             Tab.SETTINGS -> SettingsScreen(container.settingsStore, modifier)
         }
     }
+}
+
+/** HyPocket Blocks lives in its own module; it gets the launcher's settings from here. */
+private fun blocksConfig(container: AppContainer): BlocksConfig {
+    val settings = container.settingsStore.settings.value
+    return BlocksConfig(
+        versionLine = appVersionLine(),
+        lookSensitivityPercent = settings.lookSensitivityPercent,
+        renderScalePercent = settings.renderScalePercent,
+        fpsLimit = settings.fpsLimit,
+        dynamicResolution = settings.dynamicResolution,
+    )
 }

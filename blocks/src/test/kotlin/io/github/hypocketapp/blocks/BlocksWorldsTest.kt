@@ -1,4 +1,4 @@
-package io.github.hypocketapp.engine
+package io.github.hypocketapp.blocks
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
