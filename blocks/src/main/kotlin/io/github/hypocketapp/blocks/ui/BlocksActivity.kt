@@ -360,6 +360,15 @@ private fun BlocksScreen(
             ) {
                 if (stats.ready && stats.day > 0) Clock(stats)
                 if (stats.ready && stats.beacons > 0) BeaconCompass(stats)
+                if (stats.sheltered) {
+                    Text(
+                        stringResource(R.string.blocks_sheltered),
+                        color = Color(0xFFFFE3A8),
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
                 if (world != null) SavedNotice(stats.saves, Modifier)
                 EventNotice(stats.deaths, R.string.blocks_fainted)
                 EventNotice(stats.takes, R.string.blocks_taken, Color(0xAA3A2466))

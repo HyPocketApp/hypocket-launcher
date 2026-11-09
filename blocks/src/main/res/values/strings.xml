@@ -135,4 +135,5 @@
     <string name="blocks_status_timed_out">Timed out: the translated program took too long.</string>
     <string name="blocks_taken">Something dragged you into the mist… and you woke up at the start.</string>
     <string name="blocks_grabbed">It has you! Press jump again and again to break free</string>
+    <string name="blocks_sheltered">Sheltered: the mist and the creatures stay outside</string>
 </resources>

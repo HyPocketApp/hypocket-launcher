@@ -1210,6 +1210,56 @@ static int calm_at(float x, float z) {
     return 0;
 }
 
+/* ---- Shelters ---------------------------------------------------------- */
+
+/* A shelter is a closed room with light in it: the mist does not come in and
+ * night creatures can neither find nor reach the player there. The air
+ * around the player is filled outwards, through anything that is not a wall
+ * (leaves and water let the mist through); if it runs out within
+ * SHELTER_CELLS without leaving the box around the player, the room is
+ * closed, and a lamp in its walls, floor or ceiling makes it lit. */
+#define SHELTER_CELLS 600
+#define SHELTER_R 12
+#define SHELTER_SIDE (SHELTER_R * 2 + 1)
+
+static int is_wall(int b) { return is_solid(b) && b != LEAVES; }
+
+static int shelter_at(float px, float py, float pz) {
+    static uint16_t seen[SHELTER_SIDE][SHELTER_SIDE][SHELTER_SIDE];
+    static uint16_t mark;
+    static int16_t queue[SHELTER_CELLS + 8][3];
+    if (++mark == 0) { memset(seen, 0, sizeof seen); mark = 1; }
+    int ox = (int)floorf(px), oy = (int)floorf(py + 0.2f), oz = (int)floorf(pz);
+    int head = 0, tail = 0, lit = 0;
+    for (int dy = 0; dy <= 1; dy++) {
+        if (is_wall(block_at(ox, oy + dy, oz))) continue;
+        seen[SHELTER_R][SHELTER_R + dy][SHELTER_R] = mark;
+        queue[tail][0] = 0; queue[tail][1] = (int16_t)dy; queue[tail][2] = 0;
+        tail++;
+    }
+    while (head < tail) {
+        int cx = queue[head][0], cy = queue[head][1], cz = queue[head][2];
+        head++;
+        for (int f = 0; f < 6; f++) {
+            int nx = cx + face_normal[f][0], ny = cy + face_normal[f][1], nz = cz + face_normal[f][2];
+            int wx = ox + nx, wy = oy + ny, wz = oz + nz;
+            if (abs(nx) > SHELTER_R - 1 || abs(ny) > SHELTER_R - 1 || abs(nz) > SHELTER_R - 1 || wy >= WY) return 0;
+            uint16_t* s = &seen[nx + SHELTER_R][ny + SHELTER_R][nz + SHELTER_R];
+            if (*s == mark) continue;
+            *s = mark;
+            int b = block_at(wx, wy, wz);
+            if (is_wall(b)) {
+                lit |= gives_light(b);
+                continue;
+            }
+            if (tail >= SHELTER_CELLS) return 0; /* too big to be a room */
+            queue[tail][0] = (int16_t)nx; queue[tail][1] = (int16_t)ny; queue[tail][2] = (int16_t)nz;
+            tail++;
+        }
+    }
+    return tail > 0 && lit;
+}
+
 /* ---- Creatures and particles ----------------------------------------- */
 
 /* Two kinds of creatures. Peaceful ones wander (heavy mode fills the world
@@ -2236,6 +2286,20 @@ int main(int argc, char** argv) {
             }
     while (spawn_y > 1 && !collides(spawn_x, spawn_y - 1, spawn_z)) spawn_y -= 1;
     if (!loaded) player = (Player){spawn_x, spawn_y, spawn_z, 0, 0, -0.25f, 0};
+    if (getenv("HYPOCKET_BLOCKS_TEST_ROOM")) { /* testing: a closed room with a lamp around the start */
+        int rx = (int)spawn_x, ry = (int)spawn_y, rz = (int)spawn_z, open = atoi(getenv("HYPOCKET_BLOCKS_TEST_ROOM")) == 2;
+        for (int dx = -2; dx <= 2; dx++)
+            for (int dz = -2; dz <= 2; dz++)
+                for (int dy = -1; dy <= 3; dy++) {
+                    int edge = abs(dx) == 2 || abs(dz) == 2 || dy == -1 || dy == 3;
+                    world[rx + dx][ry + dy][rz + dz] = (uint8_t)(edge ? PLASTER : AIR);
+                }
+        world[rx][ry + 3][rz] = LAMP;
+        if (open) world[rx + 2][ry][rz] = world[rx + 2][ry + 1][rz] = AIR; /* a doorway */
+        count_lamps();
+        for (int i = 0; i < CHUNKS; i++)
+            for (int j = 0; j < CHUNKS; j++) chunks[i][j].dirty = 2;
+    }
     /* A loaded world keeps the direction the player faced (not the pitch,
      * which the app clamps from the default). */
     float base_yaw = io->look_yaw - player.yaw, base_pitch = io->look_pitch;
@@ -2476,7 +2540,8 @@ int main(int argc, char** argv) {
         float sky[3] = {sk.sky[0], sk.sky[1], sk.sky[2]};
         if (!paused) play_seconds += dt;
         /* The mist near unlit beacons: a thicker, closer fog in a dim violet. */
-        float mist = mist_at(player.x, player.z), fog_end = far;
+        /* A shelter keeps the mist outside. */
+        float mist = sheltered ? 0 : mist_at(player.x, player.z), fog_end = far;
         if (mist > 0) {
             float bright = (sk.ambient[0] + sk.ambient[1] + sk.ambient[2]) / 3;
             static const float haze[3] = {0.56f, 0.50f, 0.68f};
@@ -2515,6 +2580,13 @@ int main(int argc, char** argv) {
             seen_crafts = crafts;
         }
         int is_night = sk.sun_dir[1] < -0.04f;
+        {
+            static float shelter_timer;
+            if ((shelter_timer -= dt) <= 0 || frames == 0) {
+                shelter_timer = 0.25f;
+                sheltered = !bench && shelter_at(player.x, player.y, player.z);
+            }
+        }
         if (!paused) {
             update_creatures(dt, (uint32_t)frames, player.x, player.z);
             respawn_creatures(dt, is_night, player.x, player.z, (uint32_t)frames);

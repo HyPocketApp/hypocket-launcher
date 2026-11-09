@@ -133,4 +133,5 @@
     <string name="blocks_status_timed_out">Tempo esgotado: o programa traduzido demorou demais.</string>
     <string name="blocks_taken">Algo arrastou você para a névoa… e você acordou no começo.</string>
     <string name="blocks_grabbed">Ele te pegou! Aperte Pular várias vezes para se soltar</string>
+    <string name="blocks_sheltered">Abrigado: a névoa e as criaturas ficam do lado de fora</string>
 </resources>
