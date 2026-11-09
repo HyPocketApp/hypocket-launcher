@@ -123,6 +123,7 @@ internal class GuestRuntime(context: Context) {
     companion object {
         /** 128 + SIGSYS: Android's seccomp filter killed the process. */
         const val EXIT_SIGSYS = 128 + 31
+        /** Output kept for the report: its first and last halves. */
         private const val MAX_OUTPUT_CHARS = 64 * 1024
 
         /** Must match GUEST_RUNTIME in engine/build.gradle.kts. */
@@ -158,13 +159,11 @@ internal class GuestRuntime(context: Context) {
             val startNanos = System.nanoTime()
             val process = builder.start()
             onStart(process)
-            val output = StringBuilder()
+            val output = OutputKeeper(headChars = MAX_OUTPUT_CHARS / 2, tailChars = MAX_OUTPUT_CHARS / 2)
             val reader = thread(name = "guest-output") {
                 process.inputStream.bufferedReader().useLines { lines ->
                     lines.forEach { line ->
-                        synchronized(output) {
-                            if (output.length < MAX_OUTPUT_CHARS) output.appendLine(line)
-                        }
+                        output.add(line)
                         onLine(line)
                     }
                 }
@@ -177,7 +176,7 @@ internal class GuestRuntime(context: Context) {
                 finished = finished,
                 exitCode = if (finished) process.exitValue() else null,
                 millis = millis,
-                output = synchronized(output) { output.toString() },
+                output = output.toString(),
             )
         }
     }

@@ -12,11 +12,11 @@ import kotlin.concurrent.thread
 internal class VirglServer private constructor(
     private val process: Process,
     private val reader: Thread,
-    private val output: StringBuilder,
+    private val output: OutputKeeper,
     val socket: File,
 ) : AutoCloseable {
 
-    val log: String get() = synchronized(output) { output.toString() }
+    val log: String get() = output.toString()
 
     /**
      * The path of the shared memory [name] the server made (see [start]'s
@@ -59,6 +59,7 @@ internal class VirglServer private constructor(
     }
 
     companion object {
+        /** Output kept for the report: its first and last halves. */
         private const val MAX_OUTPUT_CHARS = 32 * 1024
         private const val MEMFD_LOG = "hypocket-memfd: "
         private const val MEMFD_FAILED_LOG = "hypocket-memfd-failed: "
@@ -100,13 +101,11 @@ internal class VirglServer private constructor(
                     }
                 }
                 .start()
-            val output = StringBuilder()
+            val output = OutputKeeper(headChars = MAX_OUTPUT_CHARS / 2, tailChars = MAX_OUTPUT_CHARS / 2)
             val reader = thread(name = "virgl-server-output") {
                 process.inputStream.bufferedReader().useLines { lines ->
                     lines.forEach { line ->
-                        synchronized(output) {
-                            if (output.length < MAX_OUTPUT_CHARS) output.appendLine(line)
-                        }
+                        output.add(line)
                         onLine(line)
                     }
                 }
