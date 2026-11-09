@@ -378,6 +378,44 @@ which caps it near 75 fps.
 An LDPlayer emulator (Android 9) could not run the server: it found no
 OpenGL ES driver. Emulators are not supported for now.
 
+### Late fences, and where a draw call's time goes (November 2026)
+
+Without the refresh-rate limit the M12 still stopped near 60 fps, with the
+server 76% busy: game CPU (4.2 ms) plus server time (13.2 ms) again added up
+to the frame time. A trace on a PC showed why: the server's single thread
+only retires fences between command buffers, so the game heard that frame N
+was done only after the server had also worked through all of frame N+1,
+and the server then idled while the game prepared the next frame. The
+server's fence thread now writes the shared fence page as soon as the GPU
+finishes a command buffer. Benchmark with the server's options turned off
+one at a time (heavy scene, each box its own draw call, about 410 draw calls
+per frame):
+
+| Phone | before | GL error check after every command | fences on the main thread | both on |
+|---|---|---|---|---|
+| Galaxy M12 (Mali-G52) | 57.6 fps | 66.5 fps | 59.1 fps | 67.9 fps |
+| Xiaomi SM7435 (Adreno 710) | 89.8 fps* | 129.7 fps | 138.9 fps | 134.0 fps |
+
+\* First phase on a cold phone; the benchmark now warms up first.
+
+On the M12 the server is now 87-91% busy. The Xiaomi is limited by pixels
+(236 fps at half resolution), so neither change shows there. Inside the
+server's draw command (DRAW_VBO, about 24 us on the M12):
+
+| Step | M12 (us per draw) |
+|---|---|
+| The driver's own glDraw call | 18.7 |
+| Uniform buffers, constants and samplers | 1.6 |
+| Shader program selection | 1.3 |
+| Vertex buffers | 1.2 |
+| Everything else | 1.2 |
+
+Three quarters of the time is inside the Mali driver, so fewer draw calls
+is what helps most: HyPocket Blocks now draws its creatures and particles
+with one instanced draw call (about 160 draw calls per frame instead of
+410). The benchmark keeps separate draws in its phases, the same load in
+every version, and adds one phase with instancing.
+
 ### A third phone: Helio G99 with Mali-G57 MC2 (November 2026)
 
 A tester's Galaxy A24 (MT6789, Mali-G57 MC2, 3.7 GB of memory, Android 16):
