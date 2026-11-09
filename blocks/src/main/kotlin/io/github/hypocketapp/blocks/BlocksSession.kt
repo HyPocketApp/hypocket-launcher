@@ -50,6 +50,7 @@ class BlocksSession(context: Context) : AutoCloseable {
         }
         io.order(ByteOrder.LITTLE_ENDIAN)
         io.putInt(OFF_VERSION, 1)
+        io.putInt(OFF_VOLUME, 100)
         io.putInt(OFF_MAGIC, MAGIC)
     }
 
@@ -94,6 +95,17 @@ class BlocksSession(context: Context) : AutoCloseable {
         io.put(OFF_CRAFT + 4, recipe.output.ordinal.toByte())
         io.put(OFF_CRAFT + 5, recipe.count.toByte())
         io.putInt(OFF_CRAFTS, ++crafts)
+    }
+
+    /** Holds the world still (the pause menu); it is still drawn, at 30 fps. */
+    fun setPaused(paused: Boolean) = synchronized(io) { io.putInt(OFF_PAUSED, if (paused) 1 else 0) }
+
+    /** Applies the in-game settings the game itself handles; they take effect on the next frame. */
+    fun applySettings(settings: BlocksSettings.Values) = synchronized(io) {
+        io.putInt(OFF_VIEW, settings.viewDistance)
+        io.putInt(OFF_VOLUME, settings.volumePercent)
+        io.putInt(OFF_FPS_SETTING, if (settings.fpsLimit == 0) -1 else settings.fpsLimit)
+        io.putInt(OFF_SCALE_MAX, settings.scalePercent)
     }
 
     /** Chooses the block [placeBlock] places: an index into the game's building palette. */
@@ -258,6 +270,11 @@ class BlocksSession(context: Context) : AutoCloseable {
         const val OFF_DEATHS = 164
         const val OFF_HURTS = 168
         const val OFF_NIGHT_NEAR = 172
+        const val OFF_PAUSED = 176
+        const val OFF_VIEW = 180
+        const val OFF_VOLUME = 184
+        const val OFF_FPS_SETTING = 188
+        const val OFF_SCALE_MAX = 192
     }
 }
 

@@ -21,7 +21,9 @@ phone's GPU, and the direct display.
 | `src/main/kotlin/.../BlocksSession.kt` | Runs the game through the engine and talks to it through a small shared file. |
 | `src/main/kotlin/.../BlocksWorlds.kt` | The saved worlds: one `.hpw` save (written by the game) and one `.properties` file each. |
 | `src/main/kotlin/.../BlocksBenchmark.kt` | The benchmark: a fixed camera path, once per set of options. |
-| `src/main/kotlin/.../ui/` | The home screen (worlds), the game screen, touch, controller and mouse input, and the benchmark screen. |
+| `src/main/kotlin/.../ui/` | The home screen (worlds), the game screen with its inventory and pause menu, touch, controller and mouse input, and the benchmark screen. |
+| `src/main/kotlin/.../BlocksRecipes.kt` | The recipes, one table. |
+| `src/main/kotlin/.../BlocksSettings.kt` | The settings changed in the game's own settings screen. |
 
 ## Boundaries
 

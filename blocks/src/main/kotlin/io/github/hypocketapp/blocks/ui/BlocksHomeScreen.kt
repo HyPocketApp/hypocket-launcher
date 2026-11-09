@@ -1,6 +1,16 @@
 package io.github.hypocketapp.blocks.ui
 
 import android.text.format.DateUtils
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import io.github.hypocketapp.blocks.BlocksThumbnail
 import androidx.compose.foundation.horizontalScroll
 import androidx.core.content.edit
 import androidx.compose.foundation.layout.Arrangement
@@ -56,6 +66,9 @@ fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) 
     var worlds by remember { mutableStateOf(store.list()) }
     var creating by rememberSaveable { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<BlocksWorld?>(null) }
+    var renaming by remember { mutableStateOf<BlocksWorld?>(null) }
+    var testOptions by rememberSaveable { mutableStateOf(false) }
+    val copyName = stringResource(R.string.blocks_copy_name)
 
     // Back from a game: the worlds' last-played times changed.
     LifecycleResumeEffect(Unit) {
@@ -78,6 +91,11 @@ fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) 
             WorldCard(
                 world,
                 onPlay = { BlocksActivity.start(context, config(), heavy, world, dayMode) },
+                onRename = { renaming = world },
+                onDuplicate = {
+                    store.duplicate(world.id, copyName.format(world.name))
+                    worlds = store.list()
+                },
                 onDelete = { deleting = world },
             )
         }
@@ -89,32 +107,38 @@ fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) 
         }
         Text(stringResource(R.string.blocks_quick_play_description), style = MaterialTheme.typography.bodySmall)
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(stringResource(R.string.blocks_heavy), modifier = Modifier.weight(1f))
-            Switch(checked = heavy, onCheckedChange = { heavy = it })
+        // For testers: the heavy load, the time of day and the benchmark.
+        TextButton(onClick = { testOptions = !testOptions }) {
+            Text(stringResource(if (testOptions) R.string.blocks_test_options_hide else R.string.blocks_test_options))
         }
-        Text(stringResource(R.string.blocks_day_mode), style = MaterialTheme.typography.labelLarge)
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DayMode.entries.forEach { mode ->
-                FilterChip(
-                    selected = dayMode == mode,
-                    onClick = {
-                        dayMode = mode
-                        prefs.edit { putString(KEY_DAY_MODE, mode.name) }
-                    },
-                    label = { Text(stringResource(dayModeLabel(mode))) },
-                )
+        if (testOptions) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(stringResource(R.string.blocks_heavy), modifier = Modifier.weight(1f))
+                Switch(checked = heavy, onCheckedChange = { heavy = it })
             }
+            Text(stringResource(R.string.blocks_day_mode), style = MaterialTheme.typography.labelLarge)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DayMode.entries.forEach { mode ->
+                    FilterChip(
+                        selected = dayMode == mode,
+                        onClick = {
+                            dayMode = mode
+                            prefs.edit { putString(KEY_DAY_MODE, mode.name) }
+                        },
+                        label = { Text(stringResource(dayModeLabel(mode))) },
+                    )
+                }
+            }
+            Text(stringResource(R.string.blocks_day_mode_hint), style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = { BlocksActivity.startBenchmark(context, config()) }) {
+                Text(stringResource(R.string.blocks_benchmark))
+            }
+            Text(stringResource(R.string.blocks_benchmark_description), style = MaterialTheme.typography.bodySmall)
         }
-        Text(stringResource(R.string.blocks_day_mode_hint), style = MaterialTheme.typography.bodySmall)
-        OutlinedButton(onClick = { BlocksActivity.startBenchmark(context, config()) }) {
-            Text(stringResource(R.string.blocks_benchmark))
-        }
-        Text(stringResource(R.string.blocks_benchmark_description), style = MaterialTheme.typography.bodySmall)
     }
 
     if (creating) {
@@ -126,6 +150,17 @@ fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) 
                 BlocksActivity.start(context, config(), heavy, world, dayMode)
             },
             onDismiss = { creating = false },
+        )
+    }
+    renaming?.let { world ->
+        RenameDialog(
+            world.name,
+            onRename = { name ->
+                store.rename(world.id, name)
+                worlds = store.list()
+                renaming = null
+            },
+            onDismiss = { renaming = null },
         )
     }
     deleting?.let { world ->
@@ -146,43 +181,85 @@ fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) 
 }
 
 @Composable
-private fun WorldCard(world: BlocksWorld, onPlay: () -> Unit, onDelete: () -> Unit) {
+private fun WorldCard(world: BlocksWorld, onPlay: () -> Unit, onRename: () -> Unit, onDuplicate: () -> Unit, onDelete: () -> Unit) {
     Card(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.padding(12.dp).fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(world.name, style = MaterialTheme.typography.titleSmall)
-                val played = if (world.saveFile.exists()) {
-                    stringResource(
-                        R.string.blocks_world_played,
-                        DateUtils.getRelativeTimeSpanString(world.lastPlayedMillis).toString(),
-                    )
-                } else {
-                    stringResource(R.string.blocks_world_new)
-                }
-                Text(
-                    stringResource(
-                        R.string.blocks_world_info_mode,
-                        stringResource(sizeLabel(world.chunks)),
+        Column(Modifier.padding(12.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                WorldPicture(world)
+                Column(Modifier.weight(1f)) {
+                    Text(world.name, style = MaterialTheme.typography.titleSmall)
+                    val played = if (world.saveFile.exists()) {
                         stringResource(
-                            when {
-                                world.creative -> R.string.blocks_mode_creative
-                                world.peaceful -> R.string.blocks_mode_peaceful
-                                else -> R.string.blocks_mode_survival
-                            },
+                            R.string.blocks_world_played,
+                            DateUtils.getRelativeTimeSpanString(world.lastPlayedMillis).toString(),
+                        )
+                    } else {
+                        stringResource(R.string.blocks_world_new)
+                    }
+                    Text(
+                        stringResource(
+                            R.string.blocks_world_info_mode,
+                            stringResource(sizeLabel(world.chunks)),
+                            stringResource(
+                                when {
+                                    world.creative -> R.string.blocks_mode_creative
+                                    world.peaceful -> R.string.blocks_mode_peaceful
+                                    else -> R.string.blocks_mode_survival
+                                },
+                            ),
+                            played,
                         ),
-                        played,
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                )
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Button(onClick = onPlay) { Text(stringResource(R.string.blocks_play)) }
             }
-            TextButton(onClick = onDelete) { Text(stringResource(R.string.blocks_delete)) }
-            Button(onClick = onPlay) { Text(stringResource(R.string.blocks_play)) }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onRename) { Text(stringResource(R.string.blocks_rename)) }
+                TextButton(onClick = onDuplicate) { Text(stringResource(R.string.blocks_duplicate)) }
+                TextButton(onClick = onDelete) { Text(stringResource(R.string.blocks_delete)) }
+            }
         }
     }
+}
+
+/** The world's last picture, or a plain tile before it was first played. */
+@Composable
+private fun WorldPicture(world: BlocksWorld) {
+    val modifier = Modifier.size(width = 96.dp, height = 54.dp).clip(RoundedCornerShape(4.dp))
+    // Read again whenever the world was played since.
+    val picture = remember(world.id, world.lastPlayedMillis) {
+        runCatching { BlocksThumbnail.decode(world.thumbnailFile.readBytes()) }.getOrNull()
+            ?.let { Bitmap.createBitmap(it.pixels, it.width, it.height, Bitmap.Config.ARGB_8888).asImageBitmap() }
+    }
+    if (picture != null) {
+        Image(picture, contentDescription = null, modifier = modifier, contentScale = ContentScale.Crop)
+    } else {
+        Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant))
+    }
+}
+
+@Composable
+private fun RenameDialog(current: String, onRename: (String) -> Unit, onDismiss: () -> Unit) {
+    var name by rememberSaveable { mutableStateOf(current) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.blocks_rename)) },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it.take(BlocksWorlds.MAX_NAME) },
+                label = { Text(stringResource(R.string.blocks_world_name)) },
+                singleLine = true,
+            )
+        },
+        confirmButton = { TextButton(onClick = { onRename(name) }) { Text(stringResource(R.string.blocks_save)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.blocks_cancel)) } },
+    )
 }
 
 @Composable
@@ -243,7 +320,7 @@ private fun NewWorldDialog(onCreate: (String, Int, Boolean, Boolean) -> Unit, on
     )
 }
 
-private const val PREFS = "hypocket_blocks"
+private const val PREFS = io.github.hypocketapp.blocks.BlocksSettings.PREFS
 private const val KEY_DAY_MODE = "day_mode"
 
 private fun dayModeLabel(mode: DayMode): Int = when (mode) {

@@ -14,16 +14,16 @@ import kotlin.math.sign
  *
  * Controller: left stick or d-pad walks, right stick looks, A jumps, X / R1 /
  * right trigger breaks, B / L1 / left trigger places, Y picks the next
- * block, Select opens the inventory, Start exits.
+ * block, Select opens the inventory, Start opens the menu.
  * Keyboard: WASD walks, arrow keys look, Space jumps, Q breaks, E places,
- * 1-9 pick a place in the hotbar, I or Tab opens the inventory, Esc exits.
+ * 1-9 pick a place in the hotbar, I or Tab opens the inventory, Esc opens the menu.
  * In the inventory the d-pad or arrow keys move, A or Enter puts the block in
  * the hotbar or makes the recipe, and B, Select, I, Tab or Esc close it.
  */
 class ControllerInput(
     private val session: BlocksSession,
     /** 1 is the default camera speed (the launcher's sensitivity setting). */
-    private val sensitivity: Float,
+    private val sensitivity: () -> Float,
     private val selection: BlockSelection,
     private val inventory: Inventory,
     /** Makes the recipe at this index of BlocksRecipes.ALL once. */
@@ -104,7 +104,7 @@ class ControllerInput(
             ry = axis(event, device, MotionEvent.AXIS_RY)
         }
         // Squared response: fine aim near the centre, fast turns at the edge.
-        stickLook = rx * abs(rx) * LOOK_YAW_RATE * sensitivity to -ry * abs(ry) * LOOK_PITCH_RATE * sensitivity
+        stickLook = rx * abs(rx) * LOOK_YAW_RATE * sensitivity() to -ry * abs(ry) * LOOK_PITCH_RATE * sensitivity()
         val right = maxOf(event.getAxisValue(MotionEvent.AXIS_RTRIGGER), event.getAxisValue(MotionEvent.AXIS_GAS))
         val left = maxOf(event.getAxisValue(MotionEvent.AXIS_LTRIGGER), event.getAxisValue(MotionEvent.AXIS_BRAKE))
         if (right > TRIGGER_ON && !rightTrigger) session.breakBlock()
@@ -162,7 +162,7 @@ class ControllerInput(
         keyLook = if (dpadWalks) {
             0f to 0f
         } else {
-            axisOf(left, right) * KEY_LOOK_RATE * sensitivity to axisOf(downKeys, up) * KEY_LOOK_RATE * 0.7f * sensitivity
+            axisOf(left, right) * KEY_LOOK_RATE * sensitivity() to axisOf(downKeys, up) * KEY_LOOK_RATE * 0.7f * sensitivity()
         }
         update()
         return true

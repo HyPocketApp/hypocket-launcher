@@ -24,6 +24,9 @@ data class BlocksWorld(
 ) {
     val lastPlayedMillis: Long get() = if (saveFile.exists()) saveFile.lastModified() else createdMillis
     val sizeBytes: Long get() = if (saveFile.exists()) saveFile.length() else 0L
+
+    /** A small picture of the world the game writes next to its save (see BlocksThumbnail). */
+    val thumbnailFile: File get() = File(saveFile.path + ".thumb")
 }
 
 /**
@@ -53,10 +56,9 @@ class BlocksWorlds(private val directory: File) {
         require(chunks in SIZES) { "unsupported world size $chunks" }
         directory.mkdirs()
         val created = System.currentTimeMillis()
-        var id = "w$created"
-        while (File(directory, id + META).exists()) id += "x"
+        val id = newId()
         val properties = Properties().apply {
-            setProperty(KEY_NAME, name.trim().ifEmpty { "World" }.take(MAX_NAME))
+            setProperty(KEY_NAME, cleanName(name))
             setProperty(KEY_CHUNKS, chunks.toString())
             setProperty(KEY_SEED, random.nextInt(0, 1_000_000).toString())
             setProperty(KEY_CREATED, created.toString())
@@ -69,16 +71,55 @@ class BlocksWorlds(private val directory: File) {
 
     /** Remembers how the player arranged the hotbar of world [id]. */
     fun saveHotbar(id: String, hotbar: List<Int>) {
-        if (!ID.matches(id)) return
-        val meta = File(directory, id + META)
-        if (!meta.exists()) return
-        val properties = Properties()
-        runCatching { meta.inputStream().use { properties.load(it) } }.getOrElse { return }
+        val properties = load(id) ?: return
         properties.setProperty(KEY_HOTBAR, hotbar.joinToString(","))
-        // Write next to it and rename, so a crash never leaves half a file.
+        store(id, properties)
+    }
+
+    private fun load(id: String): Properties? {
+        if (!ID.matches(id)) return null
+        val meta = File(directory, id + META)
+        if (!meta.exists()) return null
+        return Properties().takeIf { p -> runCatching { meta.inputStream().use { p.load(it) } }.isSuccess }
+    }
+
+    /** Writes next to the file and renames, so a crash never leaves half a file. */
+    private fun store(id: String, properties: Properties) {
         val tmp = File(directory, "$id$META.tmp")
         tmp.outputStream().use { properties.store(it, "HyPocket Blocks world") }
-        if (!tmp.renameTo(meta)) tmp.delete()
+        if (!tmp.renameTo(File(directory, id + META))) tmp.delete()
+    }
+
+    private fun newId(): String {
+        var id = "w${System.currentTimeMillis()}"
+        while (File(directory, id + META).exists()) id += "x"
+        return id
+    }
+
+    private fun cleanName(name: String) = name.trim().ifEmpty { "World" }.take(MAX_NAME)
+
+    /** Gives world [id] a new name. Returns the renamed world, or null if there is no such world. */
+    fun rename(id: String, name: String): BlocksWorld? {
+        val properties = load(id) ?: return null
+        properties.setProperty(KEY_NAME, cleanName(name))
+        store(id, properties)
+        return get(id)
+    }
+
+    /**
+     * Copies world [id], save and picture included, under [name]: a new world
+     * that is changed apart from the first. Returns null if there is no such world.
+     */
+    fun duplicate(id: String, name: String): BlocksWorld? {
+        val source = get(id) ?: return null
+        val properties = load(id) ?: return null
+        val copy = newId()
+        properties.setProperty(KEY_NAME, cleanName(name))
+        properties.setProperty(KEY_CREATED, System.currentTimeMillis().toString())
+        if (source.saveFile.exists()) source.saveFile.copyTo(File(directory, copy + SAVE))
+        if (source.thumbnailFile.exists()) source.thumbnailFile.copyTo(File(directory, "$copy$SAVE.thumb"))
+        store(copy, properties)
+        return get(copy)
     }
 
     /** Deletes a world and its save for good. */
@@ -86,6 +127,8 @@ class BlocksWorlds(private val directory: File) {
         if (!ID.matches(id)) return
         File(directory, "$id$SAVE.tmp").delete()
         File(directory, "$id$SAVE.unreadable").delete()
+        File(directory, "$id$SAVE.thumb").delete()
+        File(directory, "$id$SAVE.thumb.tmp").delete()
         File(directory, id + SAVE).delete()
         File(directory, id + META).delete()
     }

@@ -107,6 +107,12 @@ typedef struct {
     int32_t deaths;        /* times the player fainted and woke up at the start */
     int32_t hurts;         /* incremented each time the player is hurt */
     int32_t night_near;    /* night creatures within 24 blocks */
+    /* Written by the app: the pause menu and the in-game settings. */
+    int32_t paused;        /* 1: the world stands still (it is still drawn, at 30 fps) */
+    int32_t view_distance; /* blocks; 0: the mode's default */
+    int32_t volume_percent;
+    int32_t fps_setting;   /* 0: the command line's limit, -1: none, else the limit */
+    int32_t scale_percent_max; /* 3D resolution, 50-100 (0: 100); dynamic resolution stays below it */
 } SharedIo;
 
 /* ---- OpenGL entry points ---------------------------------------------- */
@@ -1523,7 +1529,8 @@ static struct {
     double next_chirp;
     uint64_t mixed;
     int peak_voices;
-} audio = {.lock = PTHREAD_MUTEX_INITIALIZER, .noise = 22222};
+    volatile float volume; /* 0-1, from the in-game settings */
+} audio = {.lock = PTHREAD_MUTEX_INITIALIZER, .noise = 22222, .volume = 1.0f};
 
 static float audio_noise(void) {
     audio.noise = audio.noise * 1664525u + 1013904223u;
@@ -1624,8 +1631,8 @@ static void mix(uint64_t start, int frames) {
         l = l / (1.0f + fabsf(l));
         r = r / (1.0f + fabsf(r));
         uint32_t index = (uint32_t)((start + (uint64_t)f) % audio.ring->capacity);
-        audio.samples[index * 2] = (int16_t)(l * 32000.0f);
-        audio.samples[index * 2 + 1] = (int16_t)(r * 32000.0f);
+        audio.samples[index * 2] = (int16_t)(l * 32000.0f * audio.volume);
+        audio.samples[index * 2 + 1] = (int16_t)(r * 32000.0f * audio.volume);
     }
     pthread_mutex_unlock(&audio.lock);
 }
@@ -1720,8 +1727,38 @@ static int create_target(int width, int height, GLuint* fbo) {
     return p_glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
 }
 
+/* Writes <save>.thumb: "HPBT", width, height (32-bit, little endian), then
+ * RGBA rows from the bottom up, as OpenGL reads them. BlocksWorlds.kt reads it. */
+#define THUMB_MAGIC 0x54425048u /* "HPBT" */
+static void save_thumbnail(const char* save_path, GLuint source, int w, int h) {
+    static GLuint thumb_fbo;
+    static int tw, th;
+    if (!thumb_fbo) {
+        tw = 192;
+        th = (192 * h / w) & ~1;
+        if (th < 2 || !create_target(tw, th, &thumb_fbo)) return;
+    }
+    static uint8_t pixels[192 * 192 * 4];
+    if (th > 192) return;
+    p_glBindFramebuffer(GL_READ_FRAMEBUFFER, source);
+    p_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, thumb_fbo);
+    p_glBlitFramebuffer(0, 0, w, h, 0, 0, tw, th, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    p_glBindFramebuffer(GL_READ_FRAMEBUFFER, thumb_fbo);
+    p_glReadPixels(0, 0, tw, th, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    p_glBindFramebuffer(GL_FRAMEBUFFER, source);
+    char path[4096], tmp[4200];
+    snprintf(path, sizeof path, "%s.thumb", save_path);
+    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    FILE* f = fopen(tmp, "wb");
+    if (!f) return;
+    uint32_t header[3] = {THUMB_MAGIC, (uint32_t)tw, (uint32_t)th};
+    int ok = fwrite(header, sizeof header, 1, f) == 1 && fwrite(pixels, (size_t)tw * th * 4, 1, f) == 1;
+    ok = fclose(f) == 0 && ok;
+    if (!ok || rename(tmp, path) != 0) unlink(tmp);
+}
+
 static SharedIo* open_io(void) {
-    static SharedIo local;
+    static SharedIo local = {.volume_percent = 100};
     const char* path = getenv("HYPOCKET_INPUT_PATH");
     if (!path) return &local;
     int fd = open(path, O_RDWR);
@@ -1737,6 +1774,7 @@ int main(int argc, char** argv) {
     _Static_assert(sizeof(SaveHeader) == 64, "the save header must keep its size");
     _Static_assert(__builtin_offsetof(SharedIo, counts) == 128, "must match BlocksSession.kt");
     _Static_assert(__builtin_offsetof(SharedIo, health_tenths) == 160, "must match BlocksSession.kt");
+    _Static_assert(__builtin_offsetof(SharedIo, paused) == 176, "must match BlocksSession.kt");
     _Static_assert(__builtin_offsetof(SharedIo, crafts) == 52 && __builtin_offsetof(SharedIo, craft) == 56,
                    "must match BlocksSession.kt");
     int w = argc > 1 ? atoi(argv[1]) : 1200;
@@ -1945,7 +1983,8 @@ int main(int argc, char** argv) {
     float day_seconds = 15 * 60;
     if (getenv("HYPOCKET_BLOCKS_DAY_SECONDS") && atof(getenv("HYPOCKET_BLOCKS_DAY_SECONDS")) >= 10)
         day_seconds = (float)atof(getenv("HYPOCKET_BLOCKS_DAY_SECONDS"));
-    const float far = heavy ? 128.0f : 72.0f;
+    const float default_far = heavy ? 128.0f : 72.0f;
+    float far = default_far;
     /* Danger: night creatures and fall damage. Creative worlds have neither;
      * peaceful worlds (HYPOCKET_BLOCKS_PEACEFUL) keep falls but no attackers. */
     int peaceful = getenv("HYPOCKET_BLOCKS_PEACEFUL") != NULL;
@@ -1965,7 +2004,8 @@ int main(int argc, char** argv) {
     int window_frames = 0, calm_windows = 0, cooldown_windows = 0, missed_windows = 0;
     int stuck_windows = 0, probing = 0, probe_windows = 0;
     double probe_fps = 0, no_lower_until = 0;
-    const double target_fps = fps_limit > 0 ? fps_limit : 60;
+    const int launch_fps_limit = fps_limit;
+    double target_fps = fps_limit > 0 ? fps_limit : 60;
     const double run_start = last;
     double log_ms = 0, log_work = 0, log_wait = 0; /* since the last printed statistics */
     int log_frames = 0;
@@ -1994,6 +2034,20 @@ int main(int argc, char** argv) {
         float dt = (float)((frame_start - last) / 1000.0);
         last = frame_start;
         if (dt > 0.1f) dt = 0.1f;
+
+        /* ---- Settings and pause ---- */
+        int paused = io->paused != 0;
+        int view = io->view_distance;
+        far = view > 0 ? (view < 32 ? 32.0f : view > 160 ? 160.0f : (float)view) : default_far;
+        int volume = io->volume_percent;
+        audio.volume = (volume < 0 ? 0 : volume > 100 ? 100 : volume) / 100.0f;
+        int fps_setting = io->fps_setting;
+        fps_limit = fps_setting == 0 ? launch_fps_limit : fps_setting < 0 ? 0 : fps_setting < 15 ? 15 : fps_setting;
+        target_fps = fps_limit > 0 ? fps_limit : 60;
+        if (paused) {
+            fps_limit = 30; /* the world stands still: save the battery */
+            dt = 0;
+        }
 
         /* ---- Input and movement ---- */
         float mx = io->move_x, my = io->move_y;
@@ -2132,9 +2186,11 @@ int main(int argc, char** argv) {
             }
             seen_crafts = crafts;
         }
-        update_creatures(dt, (uint32_t)frames, player.x, player.z);
         int is_night = sk.sun_dir[1] < -0.04f;
-        damage += update_night(dt, (uint32_t)frames, is_night, player.x, player.y, player.z);
+        if (!paused) {
+            update_creatures(dt, (uint32_t)frames, player.x, player.z);
+            damage += update_night(dt, (uint32_t)frames, is_night, player.x, player.y, player.z);
+        }
 
         /* ---- Health ---- */
         if (damage > 0 && !creative) {
@@ -2152,7 +2208,7 @@ int main(int argc, char** argv) {
                 for (int i = 0; i < MAX_NIGHT; i++) night[i].alive = 0;
                 printf("blocks: the player fainted and woke up at the start\n");
             }
-        } else if ((calm -= dt) <= 0 && health < MAX_HEALTH) {
+        } else if (!paused && (calm -= dt) <= 0 && health < MAX_HEALTH) {
             health += dt / 4.0f; /* a point every four seconds */
             if (health > MAX_HEALTH) health = MAX_HEALTH;
         }
@@ -2169,8 +2225,13 @@ int main(int argc, char** argv) {
             }
 
         /* ---- Draw ---- */
-        int scaled = dynamic && scale < 0.999f;
-        int sw = scaled ? ((int)(w * scale) & ~1) : w, sh = scaled ? ((int)(h * scale) & ~1) : h;
+        /* The 3D resolution setting caps the scale; dynamic resolution stays below it. */
+        int cap_percent = io->scale_percent_max;
+        float cap = cap_percent >= 50 && cap_percent < 100 ? cap_percent / 100.0f : 1.0f;
+        if (cap < 1.0f && !scene_fbo && !create_target(w, h, &scene_fbo)) scene_fbo = 0;
+        float draw_scale = dynamic ? fminf(scale, cap) : cap;
+        int scaled = scene_fbo && draw_scale < 0.999f;
+        int sw = scaled ? ((int)(w * draw_scale) & ~1) : w, sh = scaled ? ((int)(h * draw_scale) & ~1) : h;
         p_glBindFramebuffer(GL_FRAMEBUFFER, scaled ? scene_fbo : fbo);
         p_glViewport(0, 0, sw, sh);
         p_glClearColor(sky[0], sky[1], sky[2], 1.0f);
@@ -2338,6 +2399,10 @@ int main(int argc, char** argv) {
         p_glDrawArrays(GL_TRIANGLES, 0, 12);
         p_glDisable(GL_BLEND);
 
+        /* A small picture of the world for the world list: soon after it
+         * starts, every 30 seconds and when leaving. */
+        if (save_path && (io->quit || frames == 30 || frames % 1800 == 0)) save_thumbnail(save_path, window_target ? 0 : fbo, w, h);
+
         if (present) {
             if (!window_target) {
                 p_glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
@@ -2375,6 +2440,11 @@ int main(int argc, char** argv) {
         }
         wait_total = 0;
         window_frames++;
+        if (paused) { /* paused frames say nothing about the GPU */
+            window_start = frame_end;
+            window_work = window_wait = 0;
+            window_frames = 0;
+        }
         if (dynamic && frame_end - window_start >= 500.0) {
             double work = window_work / window_frames, wait = window_wait / window_frames;
             double fps_now = window_frames * 1000.0 / (frame_end - window_start);
@@ -2439,7 +2509,7 @@ int main(int argc, char** argv) {
             window_work = window_wait = 0;
             window_frames = 0;
         }
-        io->scale_percent = (int)(scale * 100.0f + 0.5f);
+        io->scale_percent = (int)((dynamic ? fminf(scale, cap) : cap) * 100.0f + 0.5f);
         io->creatures = creatures_drawn;
         io->clock_minutes = (int)(shown_time() * 1440.0f) % 1440;
         for (int k = 0; k < PALETTE_SIZE && k < 16; k++) io->counts[k] = (int16_t)inventory[palette[k]];

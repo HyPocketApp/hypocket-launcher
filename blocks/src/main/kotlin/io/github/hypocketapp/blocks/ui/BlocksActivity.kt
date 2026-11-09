@@ -9,6 +9,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -43,6 +44,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerId
@@ -61,6 +64,7 @@ import io.github.hypocketapp.blocks.BlocksBenchmark
 import io.github.hypocketapp.blocks.BlocksConfig
 import io.github.hypocketapp.blocks.BlocksOptions
 import io.github.hypocketapp.blocks.BlocksRecipes
+import io.github.hypocketapp.blocks.BlocksSettings
 import io.github.hypocketapp.blocks.BlocksReport
 import io.github.hypocketapp.blocks.BlocksSession
 import io.github.hypocketapp.blocks.BlocksStats
@@ -95,6 +99,9 @@ class BlocksActivity : ComponentActivity() {
     private lateinit var mouse: MouseInput
     private lateinit var selection: BlockSelection
     private lateinit var inventory: Inventory
+    private lateinit var pause: PauseMenu
+    private lateinit var settingsStore: BlocksSettings
+    private val settings = mutableStateOf<BlocksSettings.Values?>(null)
     private var benchmark: BlocksBenchmark? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -111,7 +118,9 @@ class BlocksActivity : ComponentActivity() {
         }
         session = BlocksSession(this)
         val config = BlocksConfig.from(intent)
-        val sensitivity = config.lookSensitivityPercent / 100f
+        settingsStore = BlocksSettings.of(this, config)
+        settings.value = settingsStore.load()
+        val sensitivity = { (settings.value?.sensitivityPercent ?: config.lookSensitivityPercent) / 100f }
         val store = worlds(this)
         val world = intent.getStringExtra(EXTRA_WORLD)?.let { store.get(it) }
         // Quick games are creative, like before worlds could be survival ones.
@@ -127,12 +136,29 @@ class BlocksActivity : ComponentActivity() {
             controller.reset()
             if (open) mouse.release()
         }
+        pause = PauseMenu { open ->
+            // The world stands still and the pointer is free while the menu is up.
+            session.setPaused(open)
+            controller.reset()
+            if (open) mouse.release()
+        }
         controller = ControllerInput(
             session, sensitivity, selection, inventory,
             craft = { i -> BlocksRecipes.ALL.getOrNull(i)?.let { session.craft(it) } },
-            onExit = { session.stop() },
+            onExit = { pause.show() },
         )
-        mouse = MouseInput(session, sensitivity, selection, paused = { inventory.open.value })
+        mouse = MouseInput(session, sensitivity, selection, paused = { inventory.open.value || pause.open.value })
+        settings.value?.let { session.applySettings(it) }
+        // Back: closes the inventory, steps back in the menu, or opens it.
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                when {
+                    inventory.open.value -> inventory.close()
+                    pause.open.value -> pause.back()
+                    else -> pause.show()
+                }
+            }
+        })
         if (intent.getBooleanExtra(EXTRA_BENCHMARK, false)) {
             val run = BlocksBenchmark(this).also { benchmark = it }
             val (width, height) = landscapeScreen(this)
@@ -149,8 +175,11 @@ class BlocksActivity : ComponentActivity() {
                     mouse = mouse,
                     selection = selection,
                     inventory = inventory,
+                    pause = pause,
+                    settings = settings.value ?: settingsStore.load(),
+                    onSettings = { changed -> changeSettings(changed) },
                     world = world,
-                    lookSensitivity = sensitivity,
+                    lookSensitivity = sensitivity(),
                     renderScalePercent = config.renderScalePercent,
                     fpsLimit = config.fpsLimit,
                     versionLine = config.versionLine,
@@ -174,6 +203,15 @@ class BlocksActivity : ComponentActivity() {
     // this public Activity method as restricted, which lint flags wrongly.
     @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // The pause menu is an ordinary screen: Android and Compose take the
+        // keys (a controller's A falls back to the d-pad centre, B to Back).
+        if (::pause.isInitialized && pause.open.value) {
+            if (event.keyCode == KeyEvent.KEYCODE_BUTTON_START) {
+                if (event.action == KeyEvent.ACTION_UP) pause.resume()
+                return true
+            }
+            return super.dispatchKeyEvent(event)
+        }
         // With the mouse captured, Esc gives the pointer back instead of exiting.
         if (event.keyCode == KeyEvent.KEYCODE_ESCAPE && mouse.captured.value) {
             if (event.action == KeyEvent.ACTION_UP) mouse.release()
@@ -192,6 +230,13 @@ class BlocksActivity : ComponentActivity() {
     override fun onPointerCaptureChanged(hasCapture: Boolean) {
         super.onPointerCaptureChanged(hasCapture)
         mouse.onCaptureChanged(hasCapture)
+    }
+
+    private fun changeSettings(changed: BlocksSettings.Values) {
+        val before = settings.value ?: return
+        settings.value = changed
+        settingsStore.save(before, changed)
+        session.applySettings(changed)
     }
 
     override fun onStop() {
@@ -252,6 +297,9 @@ private fun BlocksScreen(
     mouse: MouseInput,
     selection: BlockSelection,
     inventory: Inventory,
+    pause: PauseMenu,
+    settings: BlocksSettings.Values,
+    onSettings: (BlocksSettings.Values) -> Unit,
     world: BlocksWorld?,
     lookSensitivity: Float,
     renderScalePercent: Int,
@@ -294,8 +342,8 @@ private fun BlocksScreen(
         if (finished == null && inventory.open.value) {
             InventoryPanel(inventory, selection, stats.counts, options.creative, onCraft = { session.craft(it) })
         } else if (finished == null) {
-            TouchControls(session, lookSensitivity)
-            Hud(stats, session, controller.used.value, mouse.captured.value, onExit = { session.stop() })
+            if (!pause.open.value) TouchControls(session, lookSensitivity)
+            Hud(stats, session, controller.used.value, mouse.captured.value, settings.showStats, onMenu = { pause.show() })
             Hotbar(
                 selection,
                 stats.counts,
@@ -316,6 +364,7 @@ private fun BlocksScreen(
                 HealthBar(stats.healthTenths, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp))
                 HurtFlash(stats.hurts)
             }
+            if (pause.open.value) PausePanel(pause, settings, onSettings, onSaveAndExit = { session.stop() })
         }
         if (finished != null) {
             // The pointer works normally again on the report.
@@ -355,7 +404,7 @@ private fun TouchControls(session: BlocksSession, sensitivity: Float) {
     var stickKnob by remember { mutableStateOf(Offset.Zero) }
 
     Box(
-        Modifier.fillMaxSize().pointerInput(Unit) {
+        Modifier.fillMaxSize().pointerInput(lookPerPx) {
             var stickPointer: PointerId? = null
             val lookStart = mutableMapOf<PointerId, Offset>()
             val lookMoved = mutableMapOf<PointerId, Boolean>()
@@ -440,13 +489,14 @@ private fun Hud(
     session: BlocksSession,
     controllerUsed: Boolean,
     mouseCaptured: Boolean,
-    onExit: () -> Unit,
+    showStats: Boolean,
+    onMenu: () -> Unit,
 ) {
     Box(Modifier.fillMaxSize().padding(16.dp)) {
         Column(Modifier.align(Alignment.TopStart), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             if (!stats.ready) {
                 Text(stringResource(R.string.blocks_loading), color = Color.White)
-            } else {
+            } else if (showStats) {
                 Text(
                     stringResource(R.string.blocks_stats, stats.fps, stats.frameMillis, stats.triangles),
                     color = Color.White,
@@ -472,8 +522,8 @@ private fun Hud(
             }
             Text(stringResource(hint), color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
         }
-        OutlinedButton(onClick = onExit, modifier = Modifier.align(Alignment.TopEnd)) {
-            Text(stringResource(R.string.blocks_exit), color = Color.White)
+        OutlinedButton(onClick = onMenu, modifier = Modifier.align(Alignment.TopEnd)) {
+            Text(stringResource(R.string.blocks_menu), color = Color.White)
         }
         Row(Modifier.align(Alignment.BottomEnd), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             // These sit above the touch layer, so pressing them does not turn the camera.
@@ -646,14 +696,18 @@ private fun ReportPanel(report: BlocksReport, versionLine: String, inputLines: L
         Text(stringResource(report.status.label()), color = Color.White)
         val averageFps = if (report.seconds > 0) report.stats.frames / report.seconds else 0.0
         Text(stringResource(R.string.blocks_summary, report.stats.frames, averageFps), color = Color.White)
+        val first = remember { FocusRequester() }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
+            Button(onClick = onClose, modifier = Modifier.focusRequester(first)) {
+                Text(stringResource(R.string.blocks_back_to_worlds))
+            }
+            OutlinedButton(onClick = {
                 scope.launch {
                     clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("HyPocket report", report.toShareText(versionLine, inputLines))))
                 }
-            }) { Text(stringResource(R.string.blocks_copy_report)) }
-            OutlinedButton(onClick = onClose) { Text(stringResource(R.string.blocks_close), color = Color.White) }
+            }) { Text(stringResource(R.string.blocks_copy_report), color = Color.White) }
         }
+        LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
     }
 }
 

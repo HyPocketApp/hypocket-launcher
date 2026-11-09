@@ -18,7 +18,7 @@ import io.github.hypocketapp.blocks.BlocksSession
 class MouseInput(
     private val session: BlocksSession,
     /** 1 is the default camera speed (the launcher's sensitivity setting). */
-    private val sensitivity: Float,
+    private val sensitivity: () -> Float,
     private val selection: BlockSelection,
     /** True while a screen over the game (the inventory) wants a normal pointer. */
     private val paused: () -> Boolean = { false },
@@ -107,7 +107,7 @@ class MouseInput(
         }
         dx += event.x
         dy += event.y
-        if (dx != 0f || dy != 0f) session.look(dx * LOOK_PER_COUNT * sensitivity, -dy * LOOK_PER_COUNT * sensitivity)
+        if (dx != 0f || dy != 0f) session.look(dx * LOOK_PER_COUNT * sensitivity(), -dy * LOOK_PER_COUNT * sensitivity())
         // Act on newly pressed buttons, whatever action carries them.
         val state = event.buttonState
         val pressed = state and buttons.inv()

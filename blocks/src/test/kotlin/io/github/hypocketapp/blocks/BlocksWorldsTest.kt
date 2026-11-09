@@ -94,6 +94,44 @@ class BlocksWorldsTest {
     }
 
     @Test
+    fun renameKeepsEverythingElse() {
+        val worlds = BlocksWorlds(folder.root)
+        val world = worlds.create("A", 16, peaceful = true)
+        worlds.saveHotbar(world.id, listOf(9, 7, 8, 10, 11, 0, 1, 3, 6))
+        val renamed = checkNotNull(worlds.rename(world.id, "  Casa  "))
+        assertEquals("Casa", renamed.name)
+        assertEquals(world.copy(name = "Casa", hotbar = renamed.hotbar), renamed)
+        assertEquals(9, renamed.hotbar.size)
+        assertNull(worlds.rename("../x", "B"))
+    }
+
+    @Test
+    fun duplicateCopiesTheSaveAndPicture() {
+        val worlds = BlocksWorlds(folder.root)
+        val world = worlds.create("A", 8)
+        world.saveFile.writeBytes(byteArrayOf(1, 2, 3))
+        world.thumbnailFile.writeBytes(byteArrayOf(4, 5))
+        val copy = checkNotNull(worlds.duplicate(world.id, "A (copy)"))
+        assertTrue(copy.id != world.id)
+        assertEquals("A (copy)", copy.name)
+        assertEquals(world.seed, copy.seed)
+        assertEquals(listOf<Byte>(1, 2, 3), copy.saveFile.readBytes().toList())
+        assertEquals(listOf<Byte>(4, 5), copy.thumbnailFile.readBytes().toList())
+        copy.saveFile.writeBytes(byteArrayOf(9)) // the copy lives apart from the first
+        assertEquals(3, world.saveFile.length())
+        assertEquals(2, worlds.list().size)
+    }
+
+    @Test
+    fun deleteRemovesThePicture() {
+        val worlds = BlocksWorlds(folder.root)
+        val world = worlds.create("A", 8)
+        world.thumbnailFile.writeBytes(byteArrayOf(1))
+        worlds.delete(world.id)
+        assertFalse(world.thumbnailFile.exists())
+    }
+
+    @Test
     fun longAndEmptyNamesAreFixed() {
         val worlds = BlocksWorlds(folder.root)
         assertEquals(BlocksWorlds.MAX_NAME, worlds.create("x".repeat(100), 8).name.length)
