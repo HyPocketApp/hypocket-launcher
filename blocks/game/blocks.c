@@ -95,7 +95,8 @@ typedef struct {
     int32_t saves;         /* times the world was written to its save file */
     int32_t clock_minutes; /* time of day in the game, minutes after midnight */
     int32_t day;           /* days passed in this world, from 1 */
-    int32_t reserved_out[2];
+    int32_t finished;      /* 1 once the game has saved and is about to exit normally */
+    int32_t reserved_out;
     int16_t counts[16];    /* blocks carried, in palette order (unlimited in creative mode) */
 } SharedIo;
 
@@ -1737,6 +1738,9 @@ int main(int argc, char** argv) {
     double probe_fps = 0, no_lower_until = 0;
     const double target_fps = fps_limit > 0 ? fps_limit : 60;
     const double run_start = last;
+    double log_ms = 0, log_work = 0, log_wait = 0; /* since the last printed statistics */
+    int log_frames = 0;
+    float log_low_fps = 1e9f;
     GLsync previous = 0;
     io->width = w;
     io->height = h;
@@ -2148,12 +2152,26 @@ int main(int argc, char** argv) {
         if (frame_end - stats_start >= 1000.0) {
             io->fps = (float)(stats_frames * 1000.0 / (frame_end - stats_start));
             io->frame_ms = (float)(work_total / stats_frames);
-            /* cpu: the game's own work per frame; wait: for the GPU and server. */
-            printf("blocks: %.1f fps, %.1f ms/frame (cpu %.1f, wait %.1f), %d triangles, %d chunks, scale %d%%, "
-                   "%d creatures\n",
-                   io->fps, io->frame_ms, (work_total - stats_wait) / stats_frames, stats_wait / stats_frames,
-                   triangles, visible_count, io->scale_percent, creatures_drawn);
-            fflush(stdout);
+            log_frames += stats_frames;
+            log_ms += frame_end - stats_start;
+            log_work += work_total;
+            log_wait += stats_wait;
+            if (io->fps < log_low_fps) log_low_fps = io->fps;
+            /* Printed every second at first, then every 10 seconds with the
+             * slowest second in between: a long session must not fill the
+             * app's limited copy of this output. */
+            if (log_ms >= (frame_end - run_start < 30000.0 ? 1000.0 : 10000.0)) {
+                /* cpu: the game's own work per frame; wait: for the GPU and server. */
+                printf("blocks: %.1f fps (lowest %.1f), %.1f ms/frame (cpu %.1f, wait %.1f), %d triangles, %d chunks, "
+                       "scale %d%%, %d creatures\n",
+                       log_frames * 1000.0 / log_ms, log_low_fps, log_work / log_frames,
+                       (log_work - log_wait) / log_frames, log_wait / log_frames, triangles, visible_count,
+                       io->scale_percent, creatures_drawn);
+                fflush(stdout);
+                log_frames = 0;
+                log_ms = log_work = log_wait = 0;
+                log_low_fps = 1e9f;
+            }
             stats_start = frame_end;
             stats_frames = 0;
             work_total = 0;
@@ -2183,6 +2201,7 @@ int main(int argc, char** argv) {
     }
     stop_audio();
     if (header) __atomic_store_n(&header[4], 0, __ATOMIC_RELEASE);
+    __atomic_store_n(&io->finished, 1, __ATOMIC_RELEASE);
     printf("blocks: %d frames, GL error 0x%x\n", frames, p_glGetError());
     printf("blocks: ok\n");
     return 0;

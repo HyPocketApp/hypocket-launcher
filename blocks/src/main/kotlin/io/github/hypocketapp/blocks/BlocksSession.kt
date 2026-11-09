@@ -104,6 +104,7 @@ class BlocksSession(context: Context) : AutoCloseable {
                 clockMinutes = io.getInt(OFF_CLOCK),
                 day = io.getInt(OFF_DAY),
                 counts = List(COUNTS) { io.getShort(OFF_COUNTS + it * 2).toInt() },
+                finished = io.getInt(OFF_FINISHED) != 0,
             )
         }
 
@@ -151,8 +152,13 @@ class BlocksSession(context: Context) : AutoCloseable {
         process = null
         val text = result.output
         return BlocksReport(
-            // The game says "blocks: ok" when it ran to the end.
-            status = if (result.status == DisplayStatus.PASSED && !text.contains("blocks: ok")) DisplayStatus.FAILED else result.status,
+            // The game marks the shared file (and says "blocks: ok") when it ran to the end.
+            // The output alone is not enough: the engine keeps only its start.
+            status = if (result.status == DisplayStatus.PASSED && !stats.finished && !text.contains("blocks: ok")) {
+                DisplayStatus.FAILED
+            } else {
+                result.status
+            },
             stats = stats,
             renderer = Regex("""blocks: GL_RENDERER (.*)""").find(text)?.groupValues?.get(1),
             exitCode = result.exitCode,
@@ -217,6 +223,7 @@ class BlocksSession(context: Context) : AutoCloseable {
         const val OFF_SAVES = 108
         const val OFF_CLOCK = 112
         const val OFF_DAY = 116
+        const val OFF_FINISHED = 120
         const val OFF_COUNTS = 128
         const val COUNTS = 16
     }
@@ -248,6 +255,8 @@ data class BlocksStats(
     val day: Int = 0,
     /** Blocks the player carries, by index into the building palette. */
     val counts: List<Int> = emptyList(),
+    /** The game saved and exited normally. */
+    val finished: Boolean = false,
 )
 
 /** What the game does beyond the defaults. */
