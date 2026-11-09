@@ -1,6 +1,9 @@
 package io.github.hypocketapp.engine
 
+import android.content.ClipData
 import android.content.Context
+import android.content.Intent
+import androidx.core.content.FileProvider
 import java.io.File
 import java.io.Writer
 import java.text.SimpleDateFormat
@@ -71,7 +74,8 @@ class RunLog internal constructor(val file: File, header: String) : AutoCloseabl
  * the oldest deleted beyond [MAX_LOGS].
  */
 class RunLogs(context: Context) {
-    val dir: File = File(context.applicationContext.filesDir, "reports")
+    private val appContext = context.applicationContext
+    val dir: File = File(appContext.filesDir, "reports")
 
     class Entry(val file: File) {
         /** What ran: "blocks", "benchmark" and so on. */
@@ -106,6 +110,23 @@ class RunLogs(context: Context) {
             .sortedByDescending { it.name }
             .map(::Entry)
 
+    /**
+     * An intent that sends [entry] as a .txt file, whole, for
+     * Intent.createChooser. Pasted text is cut by the share sheet and the
+     * clipboard on large reports; a file is not, and whoever gets it can
+     * search it instead of reading it all.
+     */
+    fun shareIntent(entry: Entry): Intent {
+        val uri = FileProvider.getUriForFile(appContext, "${appContext.packageName}$AUTHORITY_SUFFIX", entry.file)
+        return Intent(Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_STREAM, uri)
+            .putExtra(Intent.EXTRA_SUBJECT, entry.file.name)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            // The chooser passes the read permission on only through clip data.
+            .also { it.clipData = ClipData.newRawUri(entry.file.name, uri) }
+    }
+
     fun deleteAll() {
         dir.listFiles().orEmpty().forEach { it.delete() }
     }
@@ -117,6 +138,9 @@ class RunLogs(context: Context) {
     private companion object {
         const val MAX_LOGS = 30
         const val STAMP_LENGTH = 15
+
+        /** After the package name; must match the provider in the engine's manifest. */
+        const val AUTHORITY_SUFFIX = ".hypocket.reports"
 
         // yyyyMMdd-HHmmss: sorts by name in time order.
         fun stampFormat() = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT)
