@@ -519,6 +519,36 @@ and our Mesa (`mesa-guest/hypocket-present.patch`):
   this change). The script now stops git's search at its work dir and fails
   if the patch did not land.
 
+**v40 on the Galaxy M12** (commit 84d1256):
+
+| phase | v39 fps | v40 fps | server busy % (v40) |
+|---|---|---|---|
+| before | 59.3 | 64.7 | 65 |
+| error check each | 68.9 | 77.1 | 76 |
+| late fences | 57.5 | 64.8 | 65 |
+| default | 68.7 | 79.4 | 77 |
+| half resolution | 72.3 | 82.1 | 80 |
+| instanced creatures | 117.8 | 110.8 | 50 |
+
+- Every phase with separate draws gained 9-16% (the "before" phase also has
+  the new draw caches). Per draw, from the profile's second window: select
+  0.32 us (was 1.3), objects 1.1 us (was 1.6), vertices 1.0 us (was 1.2),
+  and the driver's glDraw 18.2 us (was 18.7); DRAW_VBO 21.4 us.
+- Instanced creatures went down 6%. It is the last phase, so the phone is
+  at its warmest; the server is only 50% busy there and its draws spend
+  2.1 us in "vertices" (each draw changes vertex buffers). To check.
+- A 265 s game session in heavy mode held 59 fps with the server 32% busy,
+  and "failed to export fence sync object" did not appear.
+- Audio: the app could not open the server's memfd (the ring fell back to a
+  file), so the hypothesis is not tested yet. The session had 9 underruns in
+  262 s, one about every 29 s, which matches the 30 s writeback expiry of a
+  dirty shared file.
+- Memory: 20 s into the session the server held about 51 MB (guest resources
+  16, malloc 14.6, code 19.4, GPU driver mappings 0.1: the Mali driver's GPU
+  memory is not mapped into the process), but its peak was already 145 MB.
+  So the reported peak is a spike while the world loads, not the steady
+  state.
+
 ### A third phone: Helio G99 with Mali-G57 MC2 (November 2026)
 
 A tester's Galaxy A24 (MT6789, Mali-G57 MC2, 3.7 GB of memory, Android 16):
