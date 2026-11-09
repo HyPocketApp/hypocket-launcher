@@ -32,7 +32,12 @@ rm -rf src build
 mkdir src
 tar -xf "$tarball" -C src --strip-components=1
 # HyPocket: eglSwapBuffers on a pbuffer presents it through the VirGL server.
-(cd src && git apply "$here/hypocket-present.patch")
+# The work dir can be inside another git checkout (engine/build is inside this
+# repository): without the ceiling, git apply finds that repository, takes
+# the patch's paths as relative to its top and skips them all silently.
+(cd src && GIT_CEILING_DIRECTORIES="$work" git apply "$here/hypocket-present.patch")
+grep -q HYPOCKET src/src/gallium/winsys/virgl/vtest/virgl_vtest_winsys.c || {
+    echo "hypocket-present.patch was not applied" >&2; exit 1; }
 
 cat > aarch64.cross <<CROSS
 [binaries]

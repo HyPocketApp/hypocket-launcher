@@ -70,12 +70,18 @@ Java_io_github_hypocketapp_engine_NativeBridge_nativeDisplayInfo(JNIEnv* env, jo
 
 // Audio bridge (see audio_output.cpp). The handle is a pointer kept by Kotlin.
 extern "C" JNIEXPORT jlong JNICALL
-Java_io_github_hypocketapp_engine_NativeBridge_nativeAudioCreate(JNIEnv* env, jobject /* this */, jstring path) {
+Java_io_github_hypocketapp_engine_NativeBridge_nativeAudioCreate(JNIEnv* env, jobject /* this */, jstring path,
+                                                               jboolean existing) {
     const char* chars = env->GetStringUTFChars(path, nullptr);
     if (chars == nullptr) return 0;
-    auto* handle = hypocket::AudioOutputCreate(chars);
+    auto* handle = hypocket::AudioOutputCreate(chars, existing == JNI_TRUE);
     env->ReleaseStringUTFChars(path, chars);
     return reinterpret_cast<jlong>(handle);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_io_github_hypocketapp_engine_NativeBridge_nativeAudioLastError(JNIEnv* env, jobject /* this */) {
+    return env->NewStringUTF(hypocket::AudioOutputLastError().c_str());
 }
 
 extern "C" JNIEXPORT jstring JNICALL

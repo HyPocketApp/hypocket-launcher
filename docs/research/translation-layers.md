@@ -416,6 +416,160 @@ with one instanced draw call (about 160 draw calls per frame instead of
 410). The benchmark keeps separate draws in its phases, the same load in
 every version, and adds one phase with instancing.
 
+### v39 results, and a leaner server (November 2026)
+
+The heavy benchmark with v39 (fps; "instanced creatures" draws the
+creatures with one instanced draw, the other phases with one draw each):
+
+| Phone | before | error check each | late fences | default | half resolution | instanced creatures |
+|---|---|---|---|---|---|---|
+| Galaxy M12 (Mali-G52) | 59.3 | 68.9 | 57.5 | 68.7 | 72.3 | 117.8 |
+| Galaxy A24 (Mali-G57) | 165.9 | - | - | 175.4 | 193.5 | 195.4 |
+
+- On the M12 a DRAW_VBO costs about 24 us, 19 of them inside the Mali
+  driver's glDraw call. Half the resolution gains only 5%: the limit is the
+  number of draw calls, not pixels. Instancing the creatures (fewer draws)
+  gains 71%.
+- On the A24 a DRAW_VBO costs about 3.6 us and the server is only 54% busy;
+  the rest looks like waiting for the GPU.
+
+What changed after v39, in the server (`virgl-android/android-display.patch`)
+and our Mesa (`mesa-guest/hypocket-present.patch`):
+
+- **"failed to export fence sync object" (`virgl_fence_set_fd: failed
+  err=-9`)**: seen 3 times in 99 s of play on the M12, harmlessly. Upstream
+  exports every fence of the renderer's own context as a sync file (a dup
+  of the driver's native fence fd, kept in a table) for clients that ask
+  for fence fds. Our Mesa never asks, so this was only cost: an
+  `eglDupNativeFenceFDANDROID`, an fd dup and a poll of every stored fence
+  on each command buffer. The error is EBADF from that dup, so the driver
+  most likely handed back an fd number that was not open; the sync thread
+  waits on (and dups) the same fence at the same time, which fits a rare
+  race (not confirmed on the phone). Closing such a number blindly
+  could close some other fd that took it meanwhile, so the export is now
+  off unless a client asks for fence fds (DRM syncs or SUBMIT_CMD2 out
+  fences), which takes the race away rather than hiding the message.
+- **Shared pages no longer live in files.** The fence page, which the
+  server's sync thread writes after every command buffer, was a file in the
+  app's cache, and so was the audio ring. A shared mapping of a file is
+  written back to storage now and then (dirty pages expire after about 30
+  s), and a write to a page meanwhile waits in the file system, which on the
+  M12's eMMC can take tens of milliseconds. That matches the 4 audio
+  underruns in 96 s (the game keeps 60 ms of sound ahead) and none on the
+  A24, which has faster UFS storage; it is a hypothesis until the next
+  report. The fence page is now a memfd the server hands to our Mesa over
+  the vtest socket (`VCMD_HYPOCKET_FENCE_PAGE`, 67), so it can never touch
+  storage. The audio ring is opened by the game by path, and Android gives
+  neither the app nor the game a way to pass the other an fd, so the server
+  makes it as a memfd too (`HYPOCKET_MEMFDS`, Android 11 and later) and both
+  sides open the server's `/proc/<pid>/fd/<n>`. If the app cannot open it
+  (SELinux may refuse), the ring stays a file; the audio line of the report
+  says "ring in memory" or "ring in a file".
+- **Memory.** The server now logs where its resident memory is, from
+  `/proc/self/smaps`, after 20 s and at the end (`hypocket-memory:` lines):
+  the GPU driver's mappings, the guest's resources (memfds the game maps as
+  well, so the "VirGL server" peak and the game's peak count them twice),
+  malloc, other anonymous memory and code. The A24 uses about 180 MB
+  against 115 MB on the M12; part of it is its larger screen (2340x1080
+  against 1600x720: three presented images, the depth buffer and the 3D
+  framebuffer are 2.2 times bigger, about 30 MB more), the rest will show in
+  that breakdown. Freed malloc memory now goes back to the system after
+  about a second (`M_DECAY_TIME`).
+- **Fewer GL calls per draw.** In DRAW_VBO, the steps the profile calls
+  "select", "objects" and "vertices":
+  - select: upstream picks the shader program again whenever any vertex
+    buffer changed, which is nearly every draw of a game (each chunk has its
+    own buffer) and builds and compares the shader keys of the vertex
+    shader three times and the fragment shader once, to find the same
+    program. The vertex shader's key only depends on the vertex elements'
+    integer and BGRA attributes, so the program is now picked again only
+    when those change (or for upstream's other reasons).
+  - objects: the uniform block with the system values (y flip, alpha
+    reference) was bound again with `glBindBufferRange` on every draw, and
+    the other uniform buffers whenever they were marked dirty, even with the
+    same buffer and range. A binding change can make the driver check its
+    state again in the next glDraw, which is where most of the time goes on
+    the Mali-G52, so ranges already bound are skipped. Constants identical
+    to the last ones are not uploaded again.
+  - vertices: the vertex array object is bound only when it is not the one
+    already bound.
+  - The GLES-only lookup of the texture level uniforms (a string format
+    and a driver lookup per stage) runs once per program instead of on
+    every draw.
+
+  These caches are per GL context and are dropped whenever other code binds
+  a vertex array object or deletes a buffer or vertex array object, so a
+  reused name is never taken for the old one. `HYPOCKET_NO_DRAW_CACHE`
+  turns them off, to compare or to rule them out if something draws wrong.
+
+  On a PC (the server on llvmpipe, heavy scene, separate draws, 800x360,
+  two runs each way) the steps dropped as expected: select from 18.6-19.9
+  to 7.9-10.5 ms per 600 command buffers, objects from 35.6-35.9 to
+  29.9-34.9 and vertices from 18.1-18.2 to 15.7-17.7. The frame rate did not
+  change (65.5-67.3 fps either way) because llvmpipe's own draw takes 97% of
+  the time; what this is worth on the Mali-G52, where the driver's glDraw is
+  much cheaper relative to these steps, needs the phone. The image read back
+  after 120 frames matched with and without the caches except for the
+  moving creatures (0.15% of the pixels), and the fence page went through
+  the socket (0-1 fence round trips per 5 s).
+- **Build fix.** `mesa-guest/build.sh` extracts Mesa inside `engine/build`,
+  which is inside this repository; `git apply` then found the repository
+  and silently skipped every path of our patch, so a build could ship Mesa
+  without HyPocket's changes (it happened in a fresh checkout while making
+  this change). The script now stops git's search at its work dir and fails
+  if the patch did not land.
+
+**hypocket-otim-01 on the Galaxy M12** (commit 84d1256; the engine session numbers its APKs on its own):
+
+| phase | v39 fps | otim-01 fps | server busy % (otim-01) |
+|---|---|---|---|
+| before | 59.3 | 64.7 | 65 |
+| error check each | 68.9 | 77.1 | 76 |
+| late fences | 57.5 | 64.8 | 65 |
+| default | 68.7 | 79.4 | 77 |
+| half resolution | 72.3 | 82.1 | 80 |
+| instanced creatures | 117.8 | 110.8 | 50 |
+
+- Every phase with separate draws gained 9-16% (the "before" phase also has
+  the new draw caches). Per draw, from the profile's second window: select
+  0.32 us (was 1.3), objects 1.1 us (was 1.6), vertices 1.0 us (was 1.2),
+  and the driver's glDraw 18.2 us (was 18.7); DRAW_VBO 21.4 us.
+- Instanced creatures went down 6%. It is the last phase, so the phone is
+  at its warmest; the server is only 50% busy there and its draws spend
+  2.1 us in "vertices" (each draw changes vertex buffers). To check.
+- A 265 s game session in heavy mode held 59 fps with the server 32% busy,
+  and "failed to export fence sync object" did not appear.
+- Audio: the app could not open the server's memfd (the ring fell back to a
+  file), so the hypothesis is not tested yet. The session had 9 underruns in
+  262 s, one about every 29 s, which matches the 30 s writeback expiry of a
+  dirty shared file.
+- Memory: 20 s into the session the server held about 51 MB (guest resources
+  16, malloc 14.6, code 19.4, GPU driver mappings 0.1: the Mali driver's GPU
+  memory is not mapped into the process), but its peak was already 145 MB.
+  So the reported peak is a spike while the world loads, not the steady
+  state.
+
+**Changes in hypocket-otim-02** (diagnostics mostly; the M12 is needed for
+the answers):
+
+- Audio: when the ring cannot go in memory the report now says why, e.g.
+  "ring in a file (not in memory: /proc/N/fd/3: open: Permission denied
+  (errno 13))", and the run log gets the same line. The server logs
+  `hypocket-memfd-failed:` with errno if it cannot make the memfd (before,
+  that line could be taken for a path). The app also stopped truncating
+  the server's memfd when opening it (`O_TRUNC` was meant for the file).
+- Memory: the server reads its resident size every 100 ms (one read of
+  `/proc/self/statm`) and logs the full `hypocket-memory:` breakdown each
+  time it has grown by 24 MB since the last line, eight times at most, so
+  the load spike is caught while it lasts. Each line also counts the shaders
+  compiled and programs linked so far and the time they took: the Mali
+  shader compiler is the main suspect.
+- Draws: deleting a buffer now only drops the uniform buffer cache, not the
+  vertex array one (a deleted buffer cannot be the bound vertex array
+  object). `hypocket-stats:` counts the resources made in each window: the
+  instanced phase orphans its instance buffer every frame, which in virgl
+  can make a new resource (a memfd, a mapping and a GL buffer) per frame.
+
 ### A third phone: Helio G99 with Mali-G57 MC2 (November 2026)
 
 A tester's Galaxy A24 (MT6789, Mali-G57 MC2, 3.7 GB of memory, Android 16):

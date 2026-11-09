@@ -23,7 +23,9 @@ internal object NativeBridge {
 
     external fun nativeDisplayInfo(handle: Long): String
 
-    external fun nativeAudioCreate(path: String): Long
+    external fun nativeAudioCreate(path: String, existing: Boolean): Long
+
+    external fun nativeAudioLastError(): String
 
     external fun nativeAudioInfo(handle: Long): String
 
