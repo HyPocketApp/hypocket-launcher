@@ -332,6 +332,38 @@ frame, so its work can overlap with presenting, but this deserves a closer
 look (for example rendering straight into the shared buffers, which would
 remove the server's copy).
 
+### Draw calls and geometry: the fences were the bottleneck (November 2026)
+
+The new benchmark (heavy world, fixed camera path, no FPS limit) on two
+phones, before any change:
+
+| Phone | fps | game CPU ms | wait ms | server ms/frame | half resolution |
+|---|---|---|---|---|---|
+| Galaxy M12 (Mali-G52) | 28.3 | 19.1 | 16.3 | 15.1 (39% busy) | 33.3 fps |
+| Xiaomi SM7435 (Adreno 710) | 93.4 | 4.8 | 6.0 | 3.1 (27% busy) | 95.0 fps |
+
+Mesa's glthread made the Adreno phone slower (73 fps) and changed nothing
+on the M12; Box64's SAFEFLAGS=0 and SEP=1 changed nothing either. Pixels
+mattered little. On the M12, game CPU plus server time added up to the
+frame time, so the two were taking turns rather than working in parallel.
+
+The cause is in the vtest protocol's fences: each fence creates a
+resource, a round trip in protocol 3 that waits until the server has
+worked through everything queued; VCMD_RESOURCE_BUSY_WAIT answers whether
+the GPU finished everything sent so far, whatever resource it is asked
+about, so waiting for the previous frame also waits for the current one
+and any "is this buffer busy" check means "is the GPU idle"; and timed
+waits poll every 10 microseconds. Our Mesa and server now use precise
+fences (command buffer numbers, per-resource busy tracking, and a shared
+page with the last finished number plus a futex, so no round trips at
+all). Built for a PC and run there with llvmpipe, the heavy benchmark went
+from 55.9 to 75.0 fps, the game's CPU time from 13.8 to 0.6 ms per frame,
+and the server from 70% to 92% busy. The server's command processing is
+now the part to speed up next.
+
+An LDPlayer emulator (Android 9) could not run the server: it found no
+OpenGL ES driver. Emulators are not supported for now.
+
 ### A third phone: Helio G99 with Mali-G57 MC2 (November 2026)
 
 A tester's Galaxy A24 (MT6789, Mali-G57 MC2, 3.7 GB of memory, Android 16):
