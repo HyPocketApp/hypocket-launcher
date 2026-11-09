@@ -18,8 +18,10 @@ jogo estão em [goal-ideas.md](goal-ideas.md).
 
 ## Estado
 
-Segunda rodada: o autor aprovou as propostas (ver "Decisões da segunda
-rodada") e pediu tudo de uma vez, um commit por parte, num APK só.
+Segunda rodada implementada (ver "Como ficou no jogo"): Nocturnes que
+arrastam, abrigos, ruínas com relatos, fendas, portal e o outro lado, num APK
+só. Falta testar no celular. Próxima rodada: o que as criaturas do amanhecer
+dão (couro, lã, carne, banha), e com isso fome e frio.
 
 ## A história, como foi contada
 
@@ -199,7 +201,24 @@ primeiro ato, como já acontece hoje, e mostra o tempo. O mundo continua, a
 névoa só volta à noite e longe dos faróis, e o portal principal fica aberto
 para quem quiser entrar na dimensão.
 
-## O que entra
+## Como ficou no jogo
+
+| Parte | Como funciona |
+|---|---|
+| Nocturnes | Não morrem: um golpe só atordoa por 2,5 s. Quem acha o jogador (22 blocos) não para até ele se afastar 48 blocos ou se abrigar. Andam a 3,6 (o jogador anda a 4,3), então dá para fugir. Também levam criaturas pacíficas, que voltam de dia. |
+| Ser arrastado | Encostar agarra e arrasta para a névoa. Para se soltar: apertar Pular várias vezes, golpear quem segura, ou luz perto (fora da névoa). Preso 9 s, o jogador é levado para o outro lado. A tela escurece e uma barra mostra o quanto falta para se soltar. |
+| Lâmpadas e névoa | Fora da névoa as lâmpadas afastam os Nocturnes. Dentro da névoa, não: por isso existem os abrigos. |
+| Abrigos | Um cômodo fechado (a névoa passa por folhas e água) com uma lâmpada nas paredes, chão ou teto. O jogo confere 4 vezes por segundo, até 600 blocos de ar. Dentro, a névoa não aparece, os Nocturnes perdem o jogador e não agarram, e o HUD mostra "Abrigado". |
+| Ruínas | Vilas (2, 3 ou 4, conforme o tamanho do mundo) de 4 casas entre o começo e os faróis, a partir da semente: paredes quebradas, restos de telhado, mesa caída, estante vazia, cama, entulho. Mundos antigos ganham as ruínas ao abrir, só onde não há nada construído. |
+| Relatos | 9, de pessoas diferentes, cada uma com seu nome para as criaturas: o texto do autor perto do começo; a Dona Lurdes ("demônios da névoa"); o celular do Caio com a mãe ("uma coisa"); o técnico das torres, que descobriu as fendas ("os de lá"); o grupo da rua, com as dicas de abrigo ("sombras"); o bilhete da Ana sobre o cachorro; o celular do Lucas, que voltou do outro lado e ensina a fugir de lá; o folheto de quem acha que eles são mensageiros; e um rabisco no outro lado sobre a "fila" dos levados. Três casas ficam vazias. Aponte e use Colocar para ler; o menu de pausa guarda os encontrados. |
+| Fendas | Ao lado de cada farol apagado, um rasgo escuro com bordas violeta que solta névoa. Acender o farol sela a fenda. |
+| Portal | Entre dois faróis, a moldura quebrada com a luz violeta por onde eles vieram. Nenhum farol fecha. Entrar nele leva ao outro lado de propósito. |
+| O outro lado | Mundo pequeno (6x6 chunks) de pedra-sombra, sempre noite e com névoa fechada, com pedaços do nosso mundo largados. Lá os Nocturnes são mais (12), mais rápidos (4,9), procuram o jogador e luz não os afasta: só abrigo. A volta é uma luz branca que zumbe em algum lugar da névoa. Pego de novo lá, o jogador acorda no começo do seu mundo. É refeito a cada visita. |
+| Save | HPBW versão 5: o mesmo formato, com bits novos para as ruínas, para "salvo no outro lado" e para os relatos encontrados. |
+| Pedra-sombra | Bloco novo, de lá. Pode ser quebrado e usado para construir (um abrigo, por exemplo). |
+| Inventário | Fica com o jogador quando é arrastado. |
+
+## O que entra (primeira rodada)
 
 | Parte | Já existe no jogo? | Observação |
 |---|---|---|
@@ -225,18 +244,15 @@ para quem quiser entrar na dimensão.
 
 ## Em aberto
 
-- Os faróis **selam** as fendas, ou só **seguram** a névoa enquanto estão
-  acesos? (Proposta: selam.)
-- Golpear um Nocturne faz alguma coisa? (Proposta: empurra e atordoa por
-  alguns segundos, sem matar.)
-- Ser arrastado leva sempre para a dimensão, ou só no fim de um tempo? E o
-  que acontece com o inventário?
-- O que fazer na dimensão: fugir de volta por um portal de saída, achar o
-  covil e descobrir para que servem os seres arrastados (talvez resgatá-los)?
-  Vai ter chefes?
-- Quantos relatos, e qual a ordem deles? Eles contam a história aos poucos
-  até a revelação de que a névoa e os Nocturnes são coisas diferentes?
-- Nome final: "Nocturnes" fica?
-- O jogador tem nome e passado?
-- O que se ganha das criaturas do amanhecer, e para quê: fome, fabricação,
-  ou os dois?
+- O covil: "lá no fundo, onde a névoa é mais grossa", com a "fila" dos
+  levados. Achar o covil, resgatar alguém, ter chefes?
+- A revelação de que a névoa e os Nocturnes são coisas diferentes: em qual
+  relato, ou num relato novo do outro lado?
+- Nome de trabalho para os Nocturnes (sugestões em "Decisões da segunda
+  rodada"); no jogo eles seguem sem nome oficial.
+- Criaturas do amanhecer: couro, lã, carne e banha para agasalhos, roupas,
+  utensílios e comida frita. Antes disso: o jogo terá fome? E frio (à noite,
+  do outro lado)?
+- Nome do jogador, quando houver multiplayer.
+- Animações e modelos (outra conta, com IA): hoje tudo é caixa; os pontos de
+  troca são os Nocturnes, as criaturas, os relatos, as fendas e o portal.

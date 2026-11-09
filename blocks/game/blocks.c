@@ -47,7 +47,13 @@
  * placing one uses it up; the inventory is kept in the save. With
  * HYPOCKET_BLOCKS_CREATIVE=1 blocks are unlimited and nothing is collected.
  * The app sends recipes (its table is BlocksRecipes.kt); the game checks that
- * the inputs are carried and makes the blocks. */
+ * the inputs are carried and makes the blocks.
+ *
+ * The story (blocks/docs/story.md): ruined villages with notes, night
+ * creatures that grab and drag the player, shelters, rifts by the beacons and
+ * the other side. HYPOCKET_BLOCKS_PEACEFUL=1 leaves the creatures out, and
+ * HYPOCKET_BLOCKS_TEST_ROOM=1 (2: with a doorway) builds a closed room with a
+ * lamp around the start, for testing shelters. */
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GL/glcorearb.h>
