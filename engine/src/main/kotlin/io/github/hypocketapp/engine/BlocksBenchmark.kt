@@ -4,8 +4,8 @@ import android.content.Context
 
 /**
  * Runs HyPocket Blocks in heavy mode several times with a fixed camera path,
- * each time with different Mesa or Box64 options or resolution, to find
- * which ones make draw calls and geometry cheaper on this phone.
+ * each time with different game or VirGL server options or resolution, to
+ * find which ones make draw calls and geometry cheaper on this phone.
  *
  * Blocking: call it from a background thread. All phases share one
  * [DirectDisplay], which accepts one VirGL server after another.
@@ -77,16 +77,22 @@ class BlocksBenchmark(private val context: Context) {
         /** Frames per phase, the first 60 left out of the averages. */
         const val FRAMES = 600
 
+        // Server options under test (declared before PHASES, which uses them).
+        private val EARLY_FENCES_OFF = "HYPOCKET_FENCES_ON_MAIN_THREAD" to "1"
+        private val ERROR_CHECK_EACH = "HYPOCKET_ERROR_CHECK_EACH" to "1"
+
         val PHASES = listOf(
-            // Upstream's fences: every fence is a round trip, and waiting for
-            // one waits for everything sent so far.
-            Phase("old fences", mapOf("HYPOCKET_FENCES" to "0")),
-            // HyPocket's: a fence is a command buffer number, resources are
-            // busy only while the command buffers that used them run.
-            Phase("HyPocket fences"),
-            // The server checks GL errors once per command buffer instead of
-            // after every command (each check is a call into the driver).
-            Phase("one error check", serverEnv = mapOf("HYPOCKET_ONE_ERROR_CHECK" to "1")),
+            // The server as it was before these options existed: fences
+            // reported by its main thread only, GL errors checked after every
+            // command.
+            Phase("before", serverEnv = mapOf(EARLY_FENCES_OFF, ERROR_CHECK_EACH)),
+            // GL errors checked after every command (each check is a call
+            // into the driver) instead of once per command buffer.
+            Phase("error check each", serverEnv = mapOf(ERROR_CHECK_EACH)),
+            // Fences reported between command buffers only: the game hears
+            // that a frame is done late and waits instead of preparing the next.
+            Phase("late fences", serverEnv = mapOf(EARLY_FENCES_OFF)),
+            Phase("default"),
             // A quarter of the pixels: tells pixel work from geometry and draw calls.
             Phase("half resolution", scalePercent = 50),
         )

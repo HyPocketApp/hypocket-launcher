@@ -1,5 +1,5 @@
 diff --git a/src/vrend/vrend_decode.c b/src/vrend/vrend_decode.c
-index 7774a25..54358a8 100644
+index 7774a25..0829676 100644
 --- a/src/vrend/vrend_decode.c
 +++ b/src/vrend/vrend_decode.c
 @@ -21,6 +21,7 @@
@@ -10,14 +10,15 @@ index 7774a25..54358a8 100644
  #include <stdint.h>
  #include <string.h>
  #include <stdio.h>
-@@ -2046,6 +2047,57 @@ static void dump_command_stream_to_file(const void *buffer, size_t size)
+@@ -2046,6 +2047,58 @@ static void dump_command_stream_to_file(const void *buffer, size_t size)
     }
  }
  
 +/* HyPocket: with HYPOCKET_PROFILE set, where command processing time goes,
-+ * logged every 600 command buffers. With HYPOCKET_ONE_ERROR_CHECK set, GL
-+ * errors are checked once per command buffer instead of after every
-+ * command (each check is a glGetError call into the driver). */
++ * logged every 600 command buffers. GL errors are checked once per command
++ * buffer instead of after every command (each check is a glGetError call
++ * into the driver); HYPOCKET_ERROR_CHECK_EACH brings back the check after
++ * every command, to find which one fails. */
 +static struct {
 +   int enabled, one_error_check;
 +   unsigned submits;
@@ -68,13 +69,13 @@ index 7774a25..54358a8 100644
  static int vrend_decode_ctx_submit_cmd(struct virgl_context *ctx,
                                         const void *buffer,
                                         size_t size)
-@@ -2055,11 +2107,21 @@ static int vrend_decode_ctx_submit_cmd(struct virgl_context *ctx,
+@@ -2055,11 +2108,21 @@ static int vrend_decode_ctx_submit_cmd(struct virgl_context *ctx,
     bool bret;
     int ret;
  
 +   if (hypocket_profile.enabled < 0) {
 +      hypocket_profile.enabled = getenv("HYPOCKET_PROFILE") != NULL;
-+      hypocket_profile.one_error_check = getenv("HYPOCKET_ONE_ERROR_CHECK") != NULL;
++      hypocket_profile.one_error_check = getenv("HYPOCKET_ERROR_CHECK_EACH") == NULL;
 +      hypocket_draw_profile = hypocket_profile.enabled;
 +   }
 +   const bool profile = hypocket_profile.enabled;
@@ -90,7 +91,7 @@ index 7774a25..54358a8 100644
  
     if (VREND_DEBUG_ENABLED &&
         vrend_debug(gdctx->grctx, dbg_dump_cmd_streams) &&
-@@ -2095,9 +2157,17 @@ static int vrend_decode_ctx_submit_cmd(struct virgl_context *ctx,
+@@ -2095,9 +2158,17 @@ static int vrend_decode_ctx_submit_cmd(struct virgl_context *ctx,
  
        TRACE_SCOPE_SLOW(vrend_get_comand_name(cmd));
  
@@ -109,7 +110,7 @@ index 7774a25..54358a8 100644
        if (ret) {
           virgl_error("context %d failed to dispatch %s: %d\n",
                 gdctx->base.ctx_id, vrend_get_comand_name(cmd), ret);
-@@ -2106,6 +2176,18 @@ static int vrend_decode_ctx_submit_cmd(struct virgl_context *ctx,
+@@ -2106,6 +2177,18 @@ static int vrend_decode_ctx_submit_cmd(struct virgl_context *ctx,
           return ret;
        }
     }
@@ -128,7 +129,7 @@ index 7774a25..54358a8 100644
     return 0;
  }
  
-@@ -2155,3 +2237,16 @@ static void vrend_decode_ctx_init_base(struct vrend_decode_ctx *dctx,
+@@ -2155,3 +2238,16 @@ static void vrend_decode_ctx_init_base(struct vrend_decode_ctx *dctx,
     ctx->retire_fences = vrend_decode_ctx_retire_fences;
     ctx->submit_fence = vrend_decode_ctx_submit_fence;
  }
