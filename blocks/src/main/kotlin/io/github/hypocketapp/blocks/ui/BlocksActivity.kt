@@ -366,7 +366,17 @@ private fun BlocksScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                if (stats.ready && stats.day > 0) Clock(stats)
+                if (stats.ready && stats.away) {
+                    Text(
+                        stringResource(R.string.blocks_away),
+                        color = Color(0xFFD9C8FF),
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                } else if (stats.ready && stats.day > 0) {
+                    Clock(stats)
+                }
                 if (stats.ready && stats.beacons > 0) BeaconCompass(stats)
                 if (stats.sheltered) {
                     Text(
@@ -380,6 +390,7 @@ private fun BlocksScreen(
                 if (world != null) SavedNotice(stats.saves, Modifier)
                 EventNotice(stats.deaths, R.string.blocks_fainted)
                 EventNotice(stats.takes, R.string.blocks_taken, Color(0xAA3A2466))
+                AwayNotice(stats.ready, stats.away)
             }
             if (stats.grabbed) GrabOverlay(stats.grabPercent)
             if (!options.creative) {
@@ -744,6 +755,30 @@ private fun EventNotice(count: Int, text: Int, background: Color = Color(0xAA6E1
             color = Color.White,
             style = MaterialTheme.typography.titleSmall,
             modifier = Modifier.background(background, RoundedCornerShape(4.dp)).padding(horizontal = 10.dp, vertical = 4.dp),
+        )
+    }
+}
+
+/** Says where the player woke up when they reach the other side, and when they get back. */
+@Composable
+private fun AwayNotice(ready: Boolean, away: Boolean) {
+    var was by remember { mutableStateOf<Boolean?>(null) }
+    var text by remember { mutableIntStateOf(0) }
+    LaunchedEffect(ready, away) {
+        if (!ready) return@LaunchedEffect
+        val before = was
+        was = away
+        if (before == null || before == away) return@LaunchedEffect
+        text = if (away) R.string.blocks_away_arrived else R.string.blocks_away_back
+        delay(7000)
+        text = 0
+    }
+    if (text != 0) {
+        Text(
+            stringResource(text),
+            color = Color.White,
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.background(Color(0xAA3A2466), RoundedCornerShape(4.dp)).padding(horizontal = 10.dp, vertical = 4.dp),
         )
     }
 }

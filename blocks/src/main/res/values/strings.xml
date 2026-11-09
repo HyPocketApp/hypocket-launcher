@@ -133,7 +133,7 @@
     <string name="blocks_status_failed">Failed: the translated program did not finish correctly.</string>
     <string name="blocks_status_not_available">The translator is not available on this device.</string>
     <string name="blocks_status_timed_out">Timed out: the translated program took too long.</string>
-    <string name="blocks_taken">Something dragged you into the mist… and you woke up at the start.</string>
+    <string name="blocks_taken">Something dragged you into the mist…</string>
     <string name="blocks_grabbed">It has you! Press jump again and again to break free</string>
     <string name="blocks_sheltered">Sheltered: the mist and the creatures stay outside</string>
 
@@ -203,4 +203,8 @@
     <string name="blocks_notes_title">Notes found</string>
     <string name="blocks_note_paper">Paper: %1$s</string>
     <string name="blocks_note_phone">Phone: %1$s</string>
+    <string name="block_shade">Shade stone</string>
+    <string name="blocks_away">The other side</string>
+    <string name="blocks_away_arrived">You woke up somewhere with no day. Don’t run: hide behind walls, and listen.</string>
+    <string name="blocks_away_back">You are back. The mist let you go.</string>
 </resources>

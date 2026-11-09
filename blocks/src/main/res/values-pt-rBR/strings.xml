@@ -131,7 +131,7 @@
     <string name="blocks_status_failed">Falhou: o programa traduzido não terminou corretamente.</string>
     <string name="blocks_status_not_available">O tradutor não está disponível neste aparelho.</string>
     <string name="blocks_status_timed_out">Tempo esgotado: o programa traduzido demorou demais.</string>
-    <string name="blocks_taken">Algo arrastou você para a névoa… e você acordou no começo.</string>
+    <string name="blocks_taken">Algo arrastou você para a névoa…</string>
     <string name="blocks_grabbed">Ele te pegou! Aperte Pular várias vezes para se soltar</string>
     <string name="blocks_sheltered">Abrigado: a névoa e as criaturas ficam do lado de fora</string>
 
@@ -201,4 +201,8 @@
     <string name="blocks_notes_title">Relatos encontrados</string>
     <string name="blocks_note_paper">Papel: %1$s</string>
     <string name="blocks_note_phone">Celular: %1$s</string>
+    <string name="block_shade">Pedra-sombra</string>
+    <string name="blocks_away">O outro lado</string>
+    <string name="blocks_away_arrived">Você acordou num lugar sem dia. Não corra: esconda-se atrás de paredes, e escute.</string>
+    <string name="blocks_away_back">Você voltou. A névoa deixou você ir.</string>
 </resources>

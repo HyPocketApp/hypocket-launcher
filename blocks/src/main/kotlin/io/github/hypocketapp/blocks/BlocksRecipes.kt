@@ -39,6 +39,7 @@ object BlocksRecipes {
         Recipe(listOf(BuildBlock.PLANKS to 2, BuildBlock.GLASS to 1), BuildBlock.LAMP, 1),
     )
 
-    /** Blocks found in the world: breaking them is the only other way to get blocks. */
-    val NATURAL: Set<BuildBlock> = setOf(BuildBlock.WOOD, BuildBlock.STONE, BuildBlock.DIRT, BuildBlock.SAND, BuildBlock.LEAVES)
+    /** Blocks found in the world (shade stone on the other side): breaking them is the only other way to get blocks. */
+    val NATURAL: Set<BuildBlock> =
+        setOf(BuildBlock.WOOD, BuildBlock.STONE, BuildBlock.DIRT, BuildBlock.SAND, BuildBlock.LEAVES, BuildBlock.SHADE)
 }

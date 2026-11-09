@@ -24,6 +24,7 @@ enum class BuildBlock(@param:StringRes val label: Int, val color: Color, val acc
     DIRT(R.string.block_dirt, Color(0xFF855E3D), Color(0xFF6B4B30)),
     SAND(R.string.block_sand, Color(0xFFDBCC94), Color(0xFFC9BA82)),
     LEAVES(R.string.block_leaves, Color(0xFF33732E), Color(0xFF285C24)),
+    SHADE(R.string.block_shade, Color(0xFF2B2138), Color(0xFF6B4D9E)),
 }
 
 /**
