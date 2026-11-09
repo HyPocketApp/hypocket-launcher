@@ -101,6 +101,8 @@ class BlocksSession(context: Context) : AutoCloseable {
                 scalePercent = io.getInt(OFF_SCALE),
                 creatures = io.getInt(OFF_CREATURES),
                 saves = io.getInt(OFF_SAVES),
+                clockMinutes = io.getInt(OFF_CLOCK),
+                day = io.getInt(OFF_DAY),
             )
         }
 
@@ -211,6 +213,8 @@ class BlocksSession(context: Context) : AutoCloseable {
         const val OFF_SCALE = 100
         const val OFF_CREATURES = 104
         const val OFF_SAVES = 108
+        const val OFF_CLOCK = 112
+        const val OFF_DAY = 116
     }
 }
 
@@ -234,6 +238,10 @@ data class BlocksStats(
     val creatures: Int = 0,
     /** Times the game wrote the world to its save file. */
     val saves: Int = 0,
+    /** Time of day in the game, in minutes after midnight. */
+    val clockMinutes: Int = 0,
+    /** Days passed in the world, from 1 (0 until the game reports it). */
+    val day: Int = 0,
 )
 
 /** What the game does beyond the defaults. */

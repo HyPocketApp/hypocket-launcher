@@ -32,7 +32,14 @@
  * HYPOCKET_BLOCKS_SEED. HYPOCKET_BLOCKS_CREATURES sets how many creatures
  * wander outside heavy mode. Creatures are drawn with one instanced draw call;
  * HYPOCKET_BLOCKS_SEPARATE_DRAWS=1 draws each box on its own instead, the
- * load of a game with many separate objects (the benchmark uses it). */
+ * load of a game with many separate objects (the benchmark uses it).
+ *
+ * Days pass: a full day takes 15 minutes (HYPOCKET_BLOCKS_DAY_SECONDS changes
+ * that), and the sky, fog and sunlight follow the sun. At night lamps light
+ * the blocks around them; that light is worked out per block when a chunk is
+ * meshed (see chunk_light), so it costs nothing per frame. The time of day is
+ * kept in the save. HYPOCKET_BLOCKS_TIME (0-1, 0.5 is noon) sets the starting
+ * time, which the benchmark keeps at noon. */
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GL/glcorearb.h>
@@ -82,6 +89,8 @@ typedef struct {
     int32_t scale_percent; /* dynamic resolution: share of width and height drawn */
     int32_t creatures;     /* drawn in the last frame */
     int32_t saves;         /* times the world was written to its save file */
+    int32_t clock_minutes; /* time of day in the game, minutes after midnight */
+    int32_t day;           /* days passed in this world, from 1 */
 } SharedIo;
 
 /* ---- OpenGL entry points ---------------------------------------------- */
@@ -114,6 +123,7 @@ typedef struct {
     X(PFNGLUNIFORM1IPROC, glUniform1i) \
     X(PFNGLUNIFORM2FPROC, glUniform2f) \
     X(PFNGLUNIFORM3FPROC, glUniform3f) \
+    X(PFNGLUNIFORM4FPROC, glUniform4f) \
     X(PFNGLUNIFORMMATRIX4FVPROC, glUniformMatrix4fv) \
     X(PFNGLGENVERTEXARRAYSPROC, glGenVertexArrays) \
     X(PFNGLBINDVERTEXARRAYPROC, glBindVertexArray) \
@@ -300,18 +310,19 @@ static void generate_world(void) {
 
 /* ---- Meshing ---------------------------------------------------------- */
 
-/* One vertex: position inside the chunk, normal index; texture u, v, layer,
- * ambient occlusion (0-3). 8 bytes. */
+/* One vertex: position inside the chunk, normal index; texture corner
+ * (u + 2 v), layer, ambient occlusion (0-3) and lamp light (0-LIGHT_MAX).
+ * 8 bytes. */
 typedef struct {
     uint8_t x, y, z, face;
-    uint8_t u, v, layer, ao;
+    uint8_t uv, layer, ao, light;
 } Vertex;
 
 typedef struct {
     GLuint vao, vbo;
     int quads;       /* opaque quads, first in the buffer */
     int water_quads; /* water and glass quads, after the opaque ones */
-    int dirty;
+    int dirty; /* 2: its blocks changed, mesh now; 1: only its lamp light did */
 } Chunk;
 
 static Chunk chunks[MAX_CHUNKS][MAX_CHUNKS];
@@ -347,6 +358,110 @@ static int corner_ao(int x, int y, int z, int face, const int* c) {
     return 3 - (s1 + s2 + corner);
 }
 
+/* ---- Lamp light ------------------------------------------------------- */
+
+/* A lamp lights its own cell at LIGHT_MAX, and each step through a block
+ * that is not opaque loses one level, so light reaches LIGHT_MAX - 1 blocks:
+ * less than a chunk, so only the chunks next to a lamp's chunk can see it. */
+#define LIGHT_MAX 12
+#define LIGHT_REACH (LIGHT_MAX - 1)
+#define LIGHT_SIDE (CHUNK + 2 * LIGHT_REACH)
+
+/* Lamps in each chunk, so chunks with no lamp near them skip the lighting. */
+static uint16_t chunk_lamps[MAX_CHUNKS][MAX_CHUNKS];
+
+static void count_lamps(void) {
+    memset(chunk_lamps, 0, sizeof chunk_lamps);
+    for (int x = 0; x < WX; x++)
+        for (int y = 0; y < WY; y++)
+            for (int z = 0; z < WZ; z++)
+                if (world[x][y][z] == LAMP) chunk_lamps[x / CHUNK][z / CHUNK]++;
+}
+
+static int lamps_near(int ci, int cj) {
+    for (int i = ci - 1; i <= ci + 1; i++)
+        for (int j = cj - 1; j <= cj + 1; j++)
+            if (i >= 0 && j >= 0 && i < CHUNKS && j < CHUNKS && chunk_lamps[i][j]) return 1;
+    return 0;
+}
+
+/* Lamp light around the chunk being meshed: the chunk plus LIGHT_REACH
+ * blocks on each side, enough for every lamp that can reach it. */
+static uint8_t light_grid[LIGHT_SIDE][WY][LIGHT_SIDE];
+static int light_x0, light_z0, light_on;
+
+static void chunk_light(int ci, int cj) {
+    light_on = lamps_near(ci, cj);
+    if (!light_on) return;
+    light_x0 = ci * CHUNK - LIGHT_REACH;
+    light_z0 = cj * CHUNK - LIGHT_REACH;
+    memset(light_grid, 0, sizeof light_grid);
+    /* Breadth first from every lamp at once: each cell is reached first at
+     * its brightest, so it is queued only once. */
+    static int32_t queue[LIGHT_SIDE * WY * LIGHT_SIDE];
+    int head = 0, tail = 0;
+    /* Lamps come only from the neighbouring chunks that have any. */
+    for (int i = ci - 1; i <= ci + 1; i++)
+        for (int j = cj - 1; j <= cj + 1; j++) {
+            if (i < 0 || j < 0 || i >= CHUNKS || j >= CHUNKS || !chunk_lamps[i][j]) continue;
+            int x0 = i * CHUNK > light_x0 ? i * CHUNK : light_x0;
+            int x1 = (i + 1) * CHUNK < light_x0 + LIGHT_SIDE ? (i + 1) * CHUNK : light_x0 + LIGHT_SIDE;
+            int z0 = j * CHUNK > light_z0 ? j * CHUNK : light_z0;
+            int z1 = (j + 1) * CHUNK < light_z0 + LIGHT_SIDE ? (j + 1) * CHUNK : light_z0 + LIGHT_SIDE;
+            for (int x = x0; x < x1; x++)
+                for (int y = 0; y < WY; y++)
+                    for (int z = z0; z < z1; z++)
+                        if (world[x][y][z] == LAMP) {
+                            int lx = x - light_x0, lz = z - light_z0;
+                            light_grid[lx][y][lz] = LIGHT_MAX;
+                            queue[tail++] = (lx * WY + y) * LIGHT_SIDE + lz;
+                        }
+        }
+    while (head < tail) {
+        int c = queue[head++];
+        int lz = c % LIGHT_SIDE, y = c / LIGHT_SIDE % WY, lx = c / LIGHT_SIDE / WY;
+        int next = light_grid[lx][y][lz] - 1;
+        if (next <= 0) continue;
+        for (int f = 0; f < 6; f++) {
+            int nx = lx + face_normal[f][0], ny = y + face_normal[f][1], nz = lz + face_normal[f][2];
+            if (nx < 0 || nz < 0 || ny < 0 || nx >= LIGHT_SIDE || nz >= LIGHT_SIDE || ny >= WY) continue;
+            if (light_grid[nx][ny][nz] >= next || is_opaque(block_at(light_x0 + nx, ny, light_z0 + nz))) continue;
+            light_grid[nx][ny][nz] = (uint8_t)next;
+            queue[tail++] = (nx * WY + ny) * LIGHT_SIDE + nz;
+        }
+    }
+}
+
+static int light_at(int x, int y, int z) {
+    int lx = x - light_x0, lz = z - light_z0;
+    if (!light_on || y < 0 || y >= WY || lx < 0 || lz < 0 || lx >= LIGHT_SIDE || lz >= LIGHT_SIDE) return 0;
+    return light_grid[lx][y][lz];
+}
+
+/* Smooth lamp light at a corner: the average over the open cells in front of
+ * the face that touch the corner (the same cells ambient occlusion looks at). */
+static int corner_light(int x, int y, int z, int face, const int* c) {
+    if (!light_on) return 0;
+    const int* n = face_normal[face];
+    int ox = x + n[0], oy = y + n[1], oz = z + n[2];
+    int a[3] = {0}, b[3] = {0}, have_a = 0;
+    for (int i = 0; i < 3; i++) {
+        if (n[i] != 0) continue;
+        int d = c[i] ? 1 : -1;
+        if (!have_a) { a[i] = d; have_a = 1; } else b[i] = d;
+    }
+    int open1 = !is_opaque(block_at(ox + a[0], oy + a[1], oz + a[2]));
+    int open2 = !is_opaque(block_at(ox + b[0], oy + b[1], oz + b[2]));
+    int sum = light_at(ox, oy, oz), count = 1;
+    if (open1) { sum += light_at(ox + a[0], oy + a[1], oz + a[2]); count++; }
+    if (open2) { sum += light_at(ox + b[0], oy + b[1], oz + b[2]); count++; }
+    if ((open1 || open2) && !is_opaque(block_at(ox + a[0] + b[0], oy + a[1] + b[1], oz + a[2] + b[2]))) {
+        sum += light_at(ox + a[0] + b[0], oy + a[1] + b[1], oz + a[2] + b[2]);
+        count++;
+    }
+    return (sum + count / 2) / count;
+}
+
 static Vertex* scratch;
 static int scratch_quads;
 static int max_quads; /* size of the shared index buffer */
@@ -362,10 +477,10 @@ static int emit(int count, int cx, int cz, int x, int y, int z, int face, int bl
         v[i].y = (uint8_t)(y + c[1]);
         v[i].z = (uint8_t)(z - cz + c[2]);
         v[i].face = (uint8_t)face;
-        v[i].u = corner_uv[i][0];
-        v[i].v = corner_uv[i][1];
+        v[i].uv = (uint8_t)(corner_uv[i][0] + 2 * corner_uv[i][1]);
         v[i].layer = (uint8_t)layer;
         v[i].ao = (uint8_t)(water ? 3 : corner_ao(x, y, z, face, c));
+        v[i].light = (uint8_t)corner_light(x, y, z, face, c);
     }
     scratch_quads++;
     return count + 1;
@@ -375,6 +490,7 @@ static void mesh_chunk(int ci, int cj) {
     Chunk* ch = &chunks[ci][cj];
     int cx = ci * CHUNK, cz = cj * CHUNK;
     scratch_quads = 0;
+    chunk_light(ci, cj);
     int opaque = 0, water = 0;
     for (int pass = 0; pass < 2; pass++)
         for (int x = cx; x < cx + CHUNK; x++)
@@ -498,20 +614,24 @@ static void make_textures(void) {
 static const char* world_vs =
     "#version 330 core\n"
     "layout(location = 0) in vec4 pos_face;\n"
-    "layout(location = 1) in vec4 uv_layer_ao;\n"
+    "layout(location = 1) in vec4 uv_layer_ao_light;\n"
     "uniform mat4 view_proj;\n"
     "uniform vec3 chunk_origin;\n"
     "uniform vec3 eye;\n"
     "uniform float glow_layer;\n"
+    "uniform vec3 ambient;\n" /* sunlight or moonlight, from the time of day */
     "out vec3 uvl;\n"
-    "out float light;\n"
+    "out vec3 light;\n"
     "out float dist;\n"
     "const float face_light[6] = float[](0.80, 0.80, 1.00, 0.50, 0.65, 0.65);\n"
     "void main() {\n"
     "    vec3 world = chunk_origin + pos_face.xyz;\n"
     "    gl_Position = view_proj * vec4(world, 1.0);\n"
-    "    uvl = uv_layer_ao.xyz;\n"
-    "    light = abs(uv_layer_ao.z - glow_layer) < 0.5 ? 1.2 : face_light[int(pos_face.w)] * (0.55 + 0.15 * uv_layer_ao.w);\n"
+    "    float corner = uv_layer_ao_light.x;\n"
+    "    uvl = vec3(mod(corner, 2.0), floor(corner * 0.5), uv_layer_ao_light.y);\n"
+    "    float shade = face_light[int(pos_face.w)] * (0.55 + 0.15 * uv_layer_ao_light.z);\n"
+    "    vec3 lamp = pow(uv_layer_ao_light.w / 12.0, 1.6) * 1.15 * (0.7 + 0.1 * uv_layer_ao_light.z) * vec3(1.0, 0.82, 0.56);\n"
+    "    light = abs(uv_layer_ao_light.y - glow_layer) < 0.5 ? vec3(1.2) : max(shade * ambient, lamp);\n"
     "    dist = length(world - eye);\n"
     "}\n";
 
@@ -521,7 +641,7 @@ static const char* world_fs =
     "uniform vec3 fog_color;\n"
     "uniform float fog_end;\n"
     "in vec3 uvl;\n"
-    "in float light;\n"
+    "in vec3 light;\n"
     "in float dist;\n"
     "out vec4 color;\n"
     "void main() {\n"
@@ -545,6 +665,43 @@ static const char* hud_fs =
     "#version 330 core\n"
     "out vec4 color;\n"
     "void main() { color = vec4(1.0, 1.0, 1.0, 0.85); }\n";
+
+/* Sun and moon: two discs far away, drawn behind everything right after the
+ * sky is cleared (no depth), in one draw call. A direction with w = 0 is not
+ * moved by the camera's position, only turned with it. */
+static const char* sky_vs =
+    "#version 330 core\n"
+    "uniform mat4 view_proj;\n"
+    "uniform vec3 sun_dir;\n"
+    "uniform float aspect;\n"
+    "const vec2 quad[6] = vec2[](vec2(-1,-1), vec2(1,-1), vec2(1,1), vec2(-1,-1), vec2(1,1), vec2(-1,1));\n"
+    "out vec2 q;\n"
+    "flat out int body;\n"
+    "void main() {\n"
+    "    body = gl_VertexID / 6;\n"
+    "    q = quad[gl_VertexID % 6];\n"
+    "    vec4 c = view_proj * vec4(body == 0 ? sun_dir : -sun_dir, 0.0);\n"
+    "    float size = body == 0 ? 0.11 : 0.075;\n"
+    "    gl_Position = c.w > 0.01 ? vec4(c.xy / c.w + q * size * vec2(1.0 / aspect, 1.0), 0.0, 1.0) : vec4(2.0, 2.0, 0.0, 1.0);\n"
+    "}\n";
+
+static const char* sky_fs =
+    "#version 330 core\n"
+    "uniform vec4 sun_color;\n"
+    "uniform vec4 moon_color;\n"
+    "in vec2 q;\n"
+    "flat in int body;\n"
+    "out vec4 color;\n"
+    "void main() {\n"
+    "    float r = length(q);\n"
+    "    if (body == 0) {\n" /* a bright core in a soft glow */
+    "        float a = smoothstep(1.0, 0.45, r) * 0.55 + smoothstep(0.5, 0.42, r) * 0.45;\n"
+    "        color = vec4(sun_color.rgb, sun_color.a * a);\n"
+    "    } else {\n" /* a pale disc with two darker patches */
+    "        float patch = smoothstep(0.32, 0.22, length(q - vec2(0.25, 0.2))) + smoothstep(0.22, 0.14, length(q + vec2(0.3, 0.1)));\n"
+    "        color = vec4(moon_color.rgb * (1.0 - 0.18 * patch), moon_color.a * smoothstep(0.62, 0.56, r));\n"
+    "    }\n"
+    "}\n";
 
 static GLuint compile(GLenum type, const char* source) {
     GLuint shader = p_glCreateShader(type);
@@ -646,21 +803,74 @@ static int raycast(const Player* p, int hit[3], int before[3]) {
 
 static void mark_dirty(int x, int z) {
     int ci = x / CHUNK, cj = z / CHUNK;
-    chunks[ci][cj].dirty = 1;
+    chunks[ci][cj].dirty = 2;
     /* Faces and ambient occlusion of the neighbours can change too. */
-    if (x % CHUNK == 0 && ci > 0) chunks[ci - 1][cj].dirty = 1;
-    if (x % CHUNK == CHUNK - 1 && ci < CHUNKS - 1) chunks[ci + 1][cj].dirty = 1;
-    if (z % CHUNK == 0 && cj > 0) chunks[ci][cj - 1].dirty = 1;
-    if (z % CHUNK == CHUNK - 1 && cj < CHUNKS - 1) chunks[ci][cj + 1].dirty = 1;
+    if (x % CHUNK == 0 && ci > 0) chunks[ci - 1][cj].dirty = 2;
+    if (x % CHUNK == CHUNK - 1 && ci < CHUNKS - 1) chunks[ci + 1][cj].dirty = 2;
+    if (z % CHUNK == 0 && cj > 0) chunks[ci][cj - 1].dirty = 2;
+    if (z % CHUNK == CHUNK - 1 && cj < CHUNKS - 1) chunks[ci][cj + 1].dirty = 2;
 }
 
 static int world_changed; /* since the last save */
 
 static void set_block(int x, int y, int z, int b) {
     if (x < 0 || z < 0 || x >= WX || z >= WZ || y < 0 || y >= WY) return;
+    int old = world[x][y][z], ci = x / CHUNK, cj = z / CHUNK;
     world[x][y][z] = (uint8_t)b;
     world_changed = 1;
+    if (old == LAMP) chunk_lamps[ci][cj]--;
+    if (b == LAMP) chunk_lamps[ci][cj]++;
     mark_dirty(x, z);
+    /* Near a lamp, any change can move light up to LIGHT_REACH blocks away. */
+    if (old == LAMP || b == LAMP || lamps_near(ci, cj))
+        for (int i = (x - LIGHT_REACH) / CHUNK; i <= (x + LIGHT_REACH) / CHUNK; i++)
+            for (int j = (z - LIGHT_REACH) / CHUNK; j <= (z + LIGHT_REACH) / CHUNK; j++)
+                if (i >= 0 && j >= 0 && i < CHUNKS && j < CHUNKS && !chunks[i][j].dirty) chunks[i][j].dirty = 1;
+}
+
+/* ---- Time of day ------------------------------------------------------ */
+
+/* 0 is midnight, 0.25 sunrise, 0.5 noon, 0.75 sunset. */
+static float day_time = 0.3f;
+static uint32_t day_count; /* full days passed */
+
+typedef struct {
+    float sky[3];      /* clear and fog colour */
+    float ambient[3];  /* sun or moon light on blocks and creatures */
+    float sun_dir[3];  /* towards the sun; the moon is opposite */
+    float sun_color[4], moon_color[4];
+} Sky;
+
+static float mixf(float a, float b, float t) { return a + (b - a) * t; }
+static float smooth01(float e0, float e1, float x) {
+    float t = (x - e0) / (e1 - e0);
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    return t * t * (3 - 2 * t);
+}
+
+static Sky sky_at(float t) {
+    Sky s;
+    float a = (t - 0.25f) * 6.2831853f;
+    float dx = cosf(a), dy = sinf(a), dz = 0.35f, len = sqrtf(dx * dx + dy * dy + dz * dz);
+    s.sun_dir[0] = dx / len; s.sun_dir[1] = dy / len; s.sun_dir[2] = dz / len;
+    float e = s.sun_dir[1];                /* the sun's height, -1 to 1 */
+    float day = smooth01(-0.12f, 0.22f, e); /* 0 at night, 1 in the day */
+    /* Sunrise and sunset: strongest with the sun on the horizon, fading as
+     * it climbs and soon after it sets. */
+    float dusk = (1.0f - smooth01(0.0f, 0.2f, fabsf(e))) * smooth01(-0.16f, 0.0f, e);
+    static const float day_sky[3] = {0.55f, 0.73f, 0.92f}, night_sky[3] = {0.035f, 0.045f, 0.11f};
+    static const float dusk_sky[3] = {0.92f, 0.55f, 0.38f};
+    static const float day_light[3] = {1.0f, 1.0f, 1.0f}, night_light[3] = {0.13f, 0.15f, 0.24f};
+    static const float dusk_light[3] = {1.0f, 0.78f, 0.62f};
+    for (int k = 0; k < 3; k++) {
+        s.sky[k] = mixf(mixf(night_sky[k], day_sky[k], day), dusk_sky[k], dusk * 0.6f);
+        s.ambient[k] = mixf(mixf(night_light[k], day_light[k], day), dusk_light[k] * day, dusk * 0.5f);
+    }
+    s.sun_color[0] = 1.0f; s.sun_color[1] = mixf(0.95f, 0.62f, dusk); s.sun_color[2] = mixf(0.78f, 0.35f, dusk);
+    s.sun_color[3] = smooth01(-0.12f, 0.02f, e);
+    s.moon_color[0] = 0.86f; s.moon_color[1] = 0.88f; s.moon_color[2] = 0.95f;
+    s.moon_color[3] = smooth01(-0.12f, 0.02f, -e) * (1.0f - 0.6f * day);
+    return s;
 }
 
 /* ---- Saved worlds ----------------------------------------------------- */
@@ -669,7 +879,9 @@ static void set_block(int x, int y, int z, int b) {
  * encoded as (count 1-255, block id) byte pairs, x outermost, then y, then z.
  * Must match BlocksWorlds.kt, which reads the header. */
 #define SAVE_MAGIC 0x57425048u /* "HPBW" */
-#define SAVE_VERSION 1
+#define SAVE_VERSION 2
+/* Version 1 had no time of day (those fields were reserved and zero); it is
+ * still read, starting in the morning. */
 typedef struct {
     uint32_t magic;
     uint32_t version;
@@ -677,7 +889,9 @@ typedef struct {
     int32_t seed;
     float x, y, z, yaw, pitch; /* the player */
     uint32_t data_size;        /* bytes of block data after the header */
-    uint32_t reserved[6];
+    float time_of_day;         /* version 2: 0-1, 0.5 is noon */
+    uint32_t days;             /* version 2: full days passed */
+    uint32_t reserved[4];
 } SaveHeader;
 
 /* Writes to a temporary file and renames it over the old save, so a save
@@ -699,7 +913,7 @@ static int save_world(const char* path, const Player* p) {
             }
     if (run) { data[size++] = (uint8_t)run; data[size++] = (uint8_t)run_block; }
     SaveHeader h = {SAVE_MAGIC, SAVE_VERSION, world_chunks, world_seed, p->x, p->y, p->z, p->yaw, p->pitch,
-                    (uint32_t)size, {0}};
+                    (uint32_t)size, day_time, day_count, {0}};
     char tmp[4096];
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
     FILE* f = fopen(tmp, "wb");
@@ -724,7 +938,7 @@ static int load_world(const char* path, Player* p) {
     FILE* f = fopen(path, "rb");
     if (!f) return 0;
     SaveHeader h;
-    int ok = fread(&h, sizeof h, 1, f) == 1 && h.magic == SAVE_MAGIC && h.version == SAVE_VERSION &&
+    int ok = fread(&h, sizeof h, 1, f) == 1 && h.magic == SAVE_MAGIC && (h.version == 1 || h.version == 2) &&
              h.chunks >= 4 && h.chunks <= MAX_CHUNKS && h.data_size <= (uint32_t)MAX_W * WY * MAX_W * 2;
     uint8_t* data = ok ? malloc(h.data_size ? h.data_size : 1) : NULL;
     ok = ok && data && fread(data, 1, h.data_size, f) == h.data_size;
@@ -752,6 +966,10 @@ static int load_world(const char* path, Player* p) {
             p->x = h.x; p->y = h.y; p->z = h.z;
             p->yaw = h.yaw; p->pitch = h.pitch;
             p->vy = 0;
+            if (h.version >= 2 && h.time_of_day >= 0 && h.time_of_day < 1) {
+                day_time = h.time_of_day;
+                day_count = h.days;
+            }
         }
         free(cellv);
     }
@@ -947,12 +1165,13 @@ static const char* box_fs =
     "uniform vec3 color;\n"
     "uniform vec3 fog_color;\n"
     "uniform float fog_end;\n"
+    "uniform vec3 ambient;\n"
     "in float light;\n"
     "in float dist;\n"
     "out vec4 frag;\n"
     "void main() {\n"
     "    float fog = clamp((dist - fog_end * 0.6) / (fog_end * 0.4), 0.0, 1.0);\n"
-    "    frag = vec4(mix(color * light, fog_color, fog), 1.0);\n"
+    "    frag = vec4(mix(color * light * ambient, fog_color, fog), 1.0);\n"
     "}\n";
 
 /* Per instance: center (3 floats), half size (3), yaw (1), colour (3). */
@@ -973,13 +1192,14 @@ static const char* instanced_fs =
     "#version 330 core\n"
     "uniform vec3 fog_color;\n"
     "uniform float fog_end;\n"
+    "uniform vec3 ambient;\n"
     "in vec3 v_color;\n"
     "in float light;\n"
     "in float dist;\n"
     "out vec4 frag;\n"
     "void main() {\n"
     "    float fog = clamp((dist - fog_end * 0.6) / (fog_end * 0.4), 0.0, 1.0);\n"
-    "    frag = vec4(mix(v_color * light, fog_color, fog), 1.0);\n"
+    "    frag = vec4(mix(v_color * light * ambient, fog_color, fog), 1.0);\n"
     "}\n";
 
 /* ---- Matrices --------------------------------------------------------- */
@@ -1341,6 +1561,14 @@ int main(int argc, char** argv) {
     GLint u_eye = p_glGetUniformLocation(world_program, "eye");
     GLint u_fog_color = p_glGetUniformLocation(world_program, "fog_color");
     GLint u_fog_end = p_glGetUniformLocation(world_program, "fog_end");
+    GLint u_ambient = p_glGetUniformLocation(world_program, "ambient");
+    GLuint sky_program = link_program(sky_vs, sky_fs);
+    GLint us_view_proj = p_glGetUniformLocation(sky_program, "view_proj");
+    GLint us_sun_dir = p_glGetUniformLocation(sky_program, "sun_dir");
+    GLint us_sun_color = p_glGetUniformLocation(sky_program, "sun_color");
+    GLint us_moon_color = p_glGetUniformLocation(sky_program, "moon_color");
+    p_glUseProgram(sky_program);
+    p_glUniform1f(p_glGetUniformLocation(sky_program, "aspect"), (float)w / h);
     p_glUseProgram(world_program);
     p_glUniform1i(p_glGetUniformLocation(world_program, "tex"), 0);
     p_glUniform1f(p_glGetUniformLocation(world_program, "glow_layer"), (float)T_LAMP);
@@ -1365,11 +1593,13 @@ int main(int argc, char** argv) {
     GLint ub_color = p_glGetUniformLocation(box_program, "color");
     GLint ub_fog_color = p_glGetUniformLocation(box_program, "fog_color");
     GLint ub_fog_end = p_glGetUniformLocation(box_program, "fog_end");
+    GLint ub_ambient = p_glGetUniformLocation(box_program, "ambient");
     GLuint inst_program = link_program(instanced_vs, instanced_fs);
     GLint ui_view_proj = p_glGetUniformLocation(inst_program, "view_proj");
     GLint ui_eye = p_glGetUniformLocation(inst_program, "eye");
     GLint ui_fog_color = p_glGetUniformLocation(inst_program, "fog_color");
     GLint ui_fog_end = p_glGetUniformLocation(inst_program, "fog_end");
+    GLint ui_ambient = p_glGetUniformLocation(inst_program, "ambient");
     /* Instances: two boxes per creature, one per particle. */
     enum { MAX_INSTANCES = MAX_CREATURES * 2 + MAX_PARTICLES };
     static float instances[MAX_INSTANCES][INSTANCE_FLOATS];
@@ -1392,7 +1622,15 @@ int main(int argc, char** argv) {
     double build_start = now_ms();
     Player player = {0};
     int loaded = save_path && load_world(save_path, &player);
+    if (!loaded && save_path && access(save_path, F_OK) == 0) {
+        /* A save this version cannot read (damaged, or from a newer version):
+         * keep it aside instead of writing a new world over it. */
+        char aside[4096];
+        snprintf(aside, sizeof aside, "%s.unreadable", save_path);
+        if (rename(save_path, aside) == 0) printf("blocks: kept the unreadable save as %s\n", aside);
+    }
     if (!loaded) generate_world();
+    count_lamps();
     GLuint ebo;
     p_glGenBuffers(1, &ebo);
     scratch = malloc((size_t)CHUNK * CHUNK * WY * 3 * 4 * sizeof(Vertex));
@@ -1443,7 +1681,12 @@ int main(int argc, char** argv) {
     float base_yaw = io->look_yaw - player.yaw, base_pitch = io->look_pitch;
     int seen_breaks = io->breaks, seen_places = io->places;
 
-    const float sky[3] = {0.55f, 0.73f, 0.92f};
+    /* Time of day: the save's, or HYPOCKET_BLOCKS_TIME, or the morning. */
+    const char* time_env = getenv("HYPOCKET_BLOCKS_TIME");
+    if (time_env && (!loaded || max_frames)) day_time = fmodf(fabsf((float)atof(time_env)), 1.0f);
+    float day_seconds = 15 * 60;
+    if (getenv("HYPOCKET_BLOCKS_DAY_SECONDS") && atof(getenv("HYPOCKET_BLOCKS_DAY_SECONDS")) >= 10)
+        day_seconds = (float)atof(getenv("HYPOCKET_BLOCKS_DAY_SECONDS"));
     const float far = heavy ? 128.0f : 72.0f;
     if (heavy) spawn_creatures(MAX_CREATURES);
     else if (getenv("HYPOCKET_BLOCKS_CREATURES")) {
@@ -1469,6 +1712,7 @@ int main(int argc, char** argv) {
     start_audio();
     float step_timer = 0, rate_yaw = 0, rate_pitch = 0;
     int bench = max_frames > 0 && getenv("HYPOCKET_BLOCKS_BENCH") != NULL;
+    if (bench && !time_env) day_time = 0.5f; /* the same light on every run */
     const float bench_x = player.x, bench_y = player.y + 10, bench_z = player.z;
     double stats_wait = 0, bench_start = 0, bench_work = 0, bench_wait = 0;
     int bench_frames = 0;
@@ -1561,11 +1805,20 @@ int main(int argc, char** argv) {
             seen_breaks = breaks;
             seen_places = places;
         }
+        if (!bench) {
+            day_time += dt / day_seconds;
+            if (day_time >= 1.0f) { day_time -= 1.0f; day_count++; }
+        }
+        const Sky sk = sky_at(day_time);
+        const float* sky = sk.sky;
         update_creatures(dt, (uint32_t)frames);
         update_particles(dt);
+        /* Chunks whose blocks changed are meshed now; those where only lamp
+         * light moved wait their turn, two a frame, to avoid a hitch. */
+        int light_only = 2;
         for (int i = 0; i < CHUNKS; i++)
             for (int j = 0; j < CHUNKS; j++) {
-                if (!chunks[i][j].dirty) continue;
+                if (!chunks[i][j].dirty || (chunks[i][j].dirty == 1 && light_only-- <= 0)) continue;
                 p_glBindVertexArray(chunks[i][j].vao);
                 mesh_chunk(i, j);
             }
@@ -1577,12 +1830,25 @@ int main(int argc, char** argv) {
         p_glViewport(0, 0, sw, sh);
         p_glClearColor(sky[0], sky[1], sky[2], 1.0f);
         p_glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        float vp[16];
+        view_projection(vp, &player, (float)w / h, far);
+        if (sk.sun_color[3] > 0.01f || sk.moon_color[3] > 0.01f) { /* behind everything */
+            p_glEnable(GL_BLEND);
+            p_glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            p_glUseProgram(sky_program);
+            p_glUniformMatrix4fv(us_view_proj, 1, GL_FALSE, vp);
+            p_glUniform3f(us_sun_dir, sk.sun_dir[0], sk.sun_dir[1], sk.sun_dir[2]);
+            p_glUniform4f(us_sun_color, sk.sun_color[0], sk.sun_color[1], sk.sun_color[2], sk.sun_color[3]);
+            p_glUniform4f(us_moon_color, sk.moon_color[0], sk.moon_color[1], sk.moon_color[2], sk.moon_color[3]);
+            p_glBindVertexArray(hud_vao);
+            p_glDrawArrays(GL_TRIANGLES, 0, 12);
+            p_glDisable(GL_BLEND);
+        }
         p_glEnable(GL_DEPTH_TEST);
         p_glEnable(GL_CULL_FACE);
         p_glUseProgram(world_program);
-        float vp[16];
-        view_projection(vp, &player, (float)w / h, far);
         p_glUniformMatrix4fv(u_view_proj, 1, GL_FALSE, vp);
+        p_glUniform3f(u_ambient, sk.ambient[0], sk.ambient[1], sk.ambient[2]);
         p_glUniform3f(u_eye, player.x, player.y + EYE_HEIGHT, player.z);
         p_glUniform3f(u_fog_color, sky[0], sky[1], sky[2]);
         p_glUniform1f(u_fog_end, far);
@@ -1617,6 +1883,7 @@ int main(int argc, char** argv) {
             p_glUniform3f(ub_eye, player.x, player.y + EYE_HEIGHT, player.z);
             p_glUniform3f(ub_fog_color, sky[0], sky[1], sky[2]);
             p_glUniform1f(ub_fog_end, far);
+            p_glUniform3f(ub_ambient, sk.ambient[0], sk.ambient[1], sk.ambient[2]);
             p_glBindVertexArray(hud_vao); /* no attributes: corners come from gl_VertexID */
             for (int i = 0; i < creature_count; i++) {
                 const Creature* c = &creatures[i];
@@ -1679,6 +1946,7 @@ int main(int argc, char** argv) {
                 p_glUniform3f(ui_eye, player.x, player.y + EYE_HEIGHT, player.z);
                 p_glUniform3f(ui_fog_color, sky[0], sky[1], sky[2]);
                 p_glUniform1f(ui_fog_end, far);
+                p_glUniform3f(ui_ambient, sk.ambient[0], sk.ambient[1], sk.ambient[2]);
                 p_glBindVertexArray(inst_vao);
                 p_glBindBuffer(GL_ARRAY_BUFFER, inst_vbo);
                 /* A fresh buffer each frame, so the GPU never waits for the last one. */
@@ -1822,6 +2090,8 @@ int main(int argc, char** argv) {
         }
         io->scale_percent = (int)(scale * 100.0f + 0.5f);
         io->creatures = creatures_drawn;
+        io->clock_minutes = (int)(day_time * 1440.0f) % 1440;
+        io->day = (int)day_count + 1;
         frames++;
         stats_frames++;
         io->frames = frames;

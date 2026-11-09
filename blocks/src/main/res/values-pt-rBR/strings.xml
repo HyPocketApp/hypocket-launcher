@@ -26,7 +26,7 @@
     <string name="blocks_delete">Apagar</string>
     <string name="blocks_delete_text">O mundo e tudo o que foi construído nele serão apagados para sempre.</string>
     <string name="blocks_delete_title">Apagar “%1$s”?</string>
-    <string name="blocks_description">Um jogo de blocos original feito para o HyPocket, de código aberto e sem relação com nenhum outro jogo. Construa com 12 tipos de blocos e guarde seus mundos. Ele roda pelo mesmo caminho que um jogo de verdade vai rodar (tradutor x86-64, OpenGL de PC e exibição direta). Funciona com toque, controle, teclado e mouse (clique para prender o ponteiro). A escala de renderização, o limite de FPS, a resolução dinâmica e a sensibilidade da câmera ficam nas Configurações.</string>
+    <string name="blocks_description">Um jogo de blocos original feito para o HyPocket, de código aberto e sem relação com nenhum outro jogo. Construa com 12 tipos de blocos e guarde seus mundos. Os dias passam e as noites são escuras: ilumine-as com lâmpadas. Ele roda pelo mesmo caminho que um jogo de verdade vai rodar (tradutor x86-64, OpenGL de PC e exibição direta). Funciona com toque, controle, teclado e mouse (clique para prender o ponteiro). A escala de renderização, o limite de FPS, a resolução dinâmica e a sensibilidade da câmera ficam nas Configurações.</string>
     <string name="blocks_exit">Sair</string>
     <string name="blocks_heavy">Modo pesado: 300 criaturas andando e visão mais longa (e mundo quatro vezes maior no jogo rápido)</string>
     <string name="blocks_hint">Esquerda: andar · Direita: arraste para olhar, toque para quebrar · Embaixo: escolha o bloco</string>
@@ -64,6 +64,7 @@
     <string name="probe_status_failed">Falhou: o programa traduzido não terminou corretamente.</string>
     <string name="probe_status_not_available">O tradutor não está disponível neste aparelho.</string>
     <string name="probe_status_timed_out">Tempo esgotado: o programa traduzido demorou demais.</string>
+    <string name="blocks_clock">Dia %1$d · %2$02d:%3$02d</string>
     <string name="blocks_close">Fechar</string>
     <string name="blocks_copy_report">Copiar relatório</string>
     <string name="blocks_status_server_failed">Falhou: o servidor de gráficos não iniciou.</string>

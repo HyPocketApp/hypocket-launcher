@@ -264,7 +264,14 @@ private fun BlocksScreen(
             TouchControls(session, lookSensitivity)
             Hud(stats, session, controller.used.value, mouse.captured.value, onExit = { session.stop() })
             Hotbar(selection, Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp))
-            if (world != null) SavedNotice(stats.saves, Modifier.align(Alignment.TopCenter).padding(top = 16.dp))
+            Column(
+                Modifier.align(Alignment.TopCenter).padding(top = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (stats.ready && stats.day > 0) Clock(stats)
+                if (world != null) SavedNotice(stats.saves, Modifier)
+            }
         } else {
             // The pointer works normally again on the report.
             LaunchedEffect(Unit) { mouse.stop() }
@@ -461,6 +468,18 @@ private fun Hotbar(selection: BlockSelection, modifier: Modifier) {
     }
 }
 
+/** The game's day and time, like "Day 2 · 18:40". */
+@Composable
+private fun Clock(stats: BlocksStats) {
+    Text(
+        stringResource(R.string.blocks_clock, stats.day, stats.clockMinutes / 60, stats.clockMinutes % 60),
+        color = Color.White,
+        style = MaterialTheme.typography.labelLarge,
+        modifier = Modifier.background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    )
+}
+
 /** A short "world saved" notice each time the game writes the save file. */
 @Composable
 private fun SavedNotice(saves: Int, modifier: Modifier) {
@@ -552,6 +571,7 @@ private fun BlocksReport.toShareText(versionLine: String, inputLines: List<Strin
     appendLine("World built in: %.0f ms".format(stats.buildMillis))
     appendLine("Heavy mode: ${options.heavy}, dynamic resolution: ${options.dynamicResolution}")
     appendLine("Frames: ${stats.frames} in %.1f s".format(seconds))
+    appendLine("Time in the game at the end: day ${stats.day}, %02d:%02d".format(stats.clockMinutes / 60, stats.clockMinutes % 60))
     appendLine("Exit code: ${exitCode ?: "-"}")
     memory?.toLines()?.forEach { appendLine("Memory: $it") }
     appendLine("Audio: $audioInfo")

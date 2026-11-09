@@ -39,9 +39,11 @@ class BlocksWorldsTest {
         val worlds = BlocksWorlds(folder.root)
         val world = worlds.create("A", 24)
         world.saveFile.writeBytes(ByteArray(64))
+        val unreadable = java.io.File(folder.root, "${world.id}.hpw.unreadable").apply { writeBytes(ByteArray(64)) }
         worlds.delete(world.id)
         assertTrue(worlds.list().isEmpty())
         assertFalse(world.saveFile.exists())
+        assertFalse(unreadable.exists())
     }
 
     @Test

@@ -57,6 +57,7 @@ class BlocksWorlds(private val directory: File) {
     fun delete(id: String) {
         if (!ID.matches(id)) return
         File(directory, "$id$SAVE.tmp").delete()
+        File(directory, "$id$SAVE.unreadable").delete()
         File(directory, id + SAVE).delete()
         File(directory, id + META).delete()
     }
