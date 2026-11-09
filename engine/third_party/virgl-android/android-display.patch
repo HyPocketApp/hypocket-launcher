@@ -1,5 +1,5 @@
 diff --git a/src/vrend/vrend_decode.c b/src/vrend/vrend_decode.c
-index 7774a25..6242823 100644
+index 7774a25..54358a8 100644
 --- a/src/vrend/vrend_decode.c
 +++ b/src/vrend/vrend_decode.c
 @@ -21,6 +21,7 @@
@@ -10,7 +10,7 @@ index 7774a25..6242823 100644
  #include <stdint.h>
  #include <string.h>
  #include <stdio.h>
-@@ -2046,6 +2047,50 @@ static void dump_command_stream_to_file(const void *buffer, size_t size)
+@@ -2046,6 +2047,57 @@ static void dump_command_stream_to_file(const void *buffer, size_t size)
     }
  }
  
@@ -52,6 +52,13 @@ index 7774a25..6242823 100644
 +              1000.0 * hypocket_profile.cmd_ms[best] / hypocket_profile.cmd_count[best]);
 +      hypocket_profile.cmd_count[best] = 0; /* left out of the next round */
 +   }
++   static const char *const step_names[HYPOCKET_DRAW_STEPS] = {
++      "state", "select", "use program", "objects", "vertices", "misc", "draw call", "after",
++   };
++   fprintf(stderr, "hypocket-profile:   draw steps (ms):");
++   for (int i = 0; i < HYPOCKET_DRAW_STEPS; i++)
++      fprintf(stderr, " %s %.1f%s", step_names[i], hypocket_draw_ms[i], i + 1 < HYPOCKET_DRAW_STEPS ? "," : "\n");
++   memset(hypocket_draw_ms, 0, sizeof(hypocket_draw_ms));
 +   memset(hypocket_profile.cmd_ms, 0, sizeof(hypocket_profile.cmd_ms));
 +   memset(hypocket_profile.cmd_count, 0, sizeof(hypocket_profile.cmd_count));
 +   hypocket_profile.error_check_ms = hypocket_profile.switch_ms = 0;
@@ -61,13 +68,14 @@ index 7774a25..6242823 100644
  static int vrend_decode_ctx_submit_cmd(struct virgl_context *ctx,
                                         const void *buffer,
                                         size_t size)
-@@ -2055,11 +2100,20 @@ static int vrend_decode_ctx_submit_cmd(struct virgl_context *ctx,
+@@ -2055,11 +2107,21 @@ static int vrend_decode_ctx_submit_cmd(struct virgl_context *ctx,
     bool bret;
     int ret;
  
 +   if (hypocket_profile.enabled < 0) {
 +      hypocket_profile.enabled = getenv("HYPOCKET_PROFILE") != NULL;
 +      hypocket_profile.one_error_check = getenv("HYPOCKET_ONE_ERROR_CHECK") != NULL;
++      hypocket_draw_profile = hypocket_profile.enabled;
 +   }
 +   const bool profile = hypocket_profile.enabled;
 +   double t_start = profile ? hypocket_profile_now() : 0;
@@ -82,7 +90,7 @@ index 7774a25..6242823 100644
  
     if (VREND_DEBUG_ENABLED &&
         vrend_debug(gdctx->grctx, dbg_dump_cmd_streams) &&
-@@ -2095,9 +2149,17 @@ static int vrend_decode_ctx_submit_cmd(struct virgl_context *ctx,
+@@ -2095,9 +2157,17 @@ static int vrend_decode_ctx_submit_cmd(struct virgl_context *ctx,
  
        TRACE_SCOPE_SLOW(vrend_get_comand_name(cmd));
  
@@ -101,7 +109,7 @@ index 7774a25..6242823 100644
        if (ret) {
           virgl_error("context %d failed to dispatch %s: %d\n",
                 gdctx->base.ctx_id, vrend_get_comand_name(cmd), ret);
-@@ -2106,6 +2168,18 @@ static int vrend_decode_ctx_submit_cmd(struct virgl_context *ctx,
+@@ -2106,6 +2176,18 @@ static int vrend_decode_ctx_submit_cmd(struct virgl_context *ctx,
           return ret;
        }
     }
@@ -120,7 +128,7 @@ index 7774a25..6242823 100644
     return 0;
  }
  
-@@ -2155,3 +2229,16 @@ static void vrend_decode_ctx_init_base(struct vrend_decode_ctx *dctx,
+@@ -2155,3 +2237,16 @@ static void vrend_decode_ctx_init_base(struct vrend_decode_ctx *dctx,
     ctx->retire_fences = vrend_decode_ctx_retire_fences;
     ctx->submit_fence = vrend_decode_ctx_submit_fence;
  }
@@ -138,10 +146,194 @@ index 7774a25..6242823 100644
 +   return vrend_hw_switch_context(dctx->grctx, true);
 +}
 diff --git a/src/vrend/vrend_renderer.c b/src/vrend/vrend_renderer.c
-index 4bf88e0..34341b6 100644
+index 4bf88e0..8988797 100644
 --- a/src/vrend/vrend_renderer.c
 +++ b/src/vrend/vrend_renderer.c
-@@ -13789,3 +13789,30 @@ vrend_renderer_pipe_resource_get_layout(UNUSED struct vrend_context *ctx,
+@@ -26,6 +26,7 @@
+ #endif
+ 
+ #include <unistd.h>
++#include <time.h>
+ #include <stdatomic.h>
+ #include <stdio.h>
+ #include <errno.h>
+@@ -699,6 +700,13 @@ struct vrend_sub_context {
+ 
+    virgl_gl_context gl_context;
+ 
++   /* HyPocket: GL state this context's draws last set, to skip setting it
++    * again (each call costs CPU time in the phone's driver). 0 is unknown. */
++   int hypocket_front_face;
++   const struct vrend_linked_shader_program *hypocket_program;
++   GLuint hypocket_program_id;
++   unsigned hypocket_program_epoch;
++
+    int sub_ctx_id;
+ 
+    GLuint vaoid;
+@@ -1450,8 +1458,13 @@ static bool vrend_is_timer_query(GLenum gltype)
+       gltype == GL_TIME_ELAPSED;
+ }
+ 
++/* HyPocket: counts vrend_use_program calls, so that a draw knows whether
++ * the program it bound last is still the one in use. */
++static unsigned hypocket_use_program_epoch;
++
+ static void vrend_use_program(struct vrend_linked_shader_program *program)
+ {
++   hypocket_use_program_epoch++;
+    GLuint id = !program ? 0 :
+                           program->is_pipeline ? program->id.pipeline :
+                                                  program->id.program;
+@@ -5241,6 +5254,7 @@ static GLuint vrend_draw_bind_samplers_shader(struct vrend_sub_context *sub_ctx,
+    int sampler_index = 0;
+    uint32_t dirty = shader_view->dirty_mask;
+    uint32_t mask = sprog->samplers_used_mask[shader_type];
++   bool changed_unit = false;
+ 
+    while (mask) {
+       int i = u_bit_scan(&mask);
+@@ -5248,6 +5262,7 @@ static GLuint vrend_draw_bind_samplers_shader(struct vrend_sub_context *sub_ctx,
+ 
+       if ((dirty & (1 << i)) && tview) {
+          glActiveTexture(GL_TEXTURE0 + next_sampler_id);
++         changed_unit = true;
+          glUniform1i(sprog->sampler_locs[shader_type][sampler_index], next_sampler_id);
+ 
+          if (sprog->shadow_samp_mask[shader_type] & (1 << i)) {
+@@ -5313,7 +5328,10 @@ static GLuint vrend_draw_bind_samplers_shader(struct vrend_sub_context *sub_ctx,
+    // Since we use a dirty mask to elide some unnecessary state update API
+    // calls, we must ensure that a later glBindTexture() used for another reason
+    // (such as texture allocation) doesn't affect our fragile sampler bindings.
+-   glActiveTexture(GL_TEXTURE0 + vrend_state.max_texture_units - 1);
++   // HyPocket: only this function changes the unit, so when it did not, the
++   // last unit is still active.
++   if (changed_unit)
++      glActiveTexture(GL_TEXTURE0 + vrend_state.max_texture_units - 1);
+ 
+    return next_sampler_id;
+ }
+@@ -5886,6 +5904,27 @@ void vrend_link_program_hook(struct vrend_context *ctx, uint32_t *handles)
+    ctx->sub->prog = prev_prog;
+ }
+ 
++/* HyPocket: with HYPOCKET_PROFILE set, where the time inside DRAW_VBO goes
++ * (vrend_decode.c logs it with the command profile). */
++bool hypocket_draw_profile;
++double hypocket_draw_ms[HYPOCKET_DRAW_STEPS];
++
++static inline double hypocket_draw_now(void)
++{
++   struct timespec ts;
++   clock_gettime(CLOCK_MONOTONIC, &ts);
++   return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
++}
++
++/* Adds the time since the last mark to a step. */
++#define HYPOCKET_DRAW_MARK(step) do { \
++      if (hypocket_draw_profile) { \
++         double hp_now = hypocket_draw_now(); \
++         hypocket_draw_ms[step] += hp_now - hp_last; \
++         hp_last = hp_now; \
++      } \
++   } while (0)
++
+ int vrend_draw_vbo(struct vrend_context *ctx,
+                    const struct pipe_draw_info *info,
+                    uint32_t cso, uint32_t indirect_handle,
+@@ -5895,6 +5934,7 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+    struct vrend_resource *indirect_res = NULL;
+    struct vrend_resource *indirect_params_res = NULL;
+    struct vrend_sub_context *sub_ctx = ctx->sub;
++   double hp_last = hypocket_draw_profile ? hypocket_draw_now() : 0;
+ 
+    if (ctx->in_error)
+       return ENOTRECOVERABLE;
+@@ -5945,6 +5985,8 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+    if (ctx->sub->blend_state_dirty)
+       vrend_patch_blend_state(sub_ctx);
+ 
++   HYPOCKET_DRAW_MARK(HYPOCKET_DRAW_STATE);
++
+    // enable primitive-mode-dependent shader variants
+    if (sub_ctx->prim_mode != (int)info->mode) {
+       // Only refresh shader program when switching in/out of GL_POINTS primitive mode
+@@ -5964,7 +6006,17 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+       return 0;
+    }
+ 
+-   vrend_use_program(sub_ctx->prog);
++   HYPOCKET_DRAW_MARK(HYPOCKET_DRAW_SELECT);
++   /* Skipped when this context's last draw bound the same program and no
++    * other code bound one since. */
++   GLuint program_id = sub_ctx->prog->is_pipeline ? sub_ctx->prog->id.pipeline : sub_ctx->prog->id.program;
++   if (sub_ctx->hypocket_program != sub_ctx->prog || sub_ctx->hypocket_program_id != program_id ||
++       sub_ctx->hypocket_program_epoch != hypocket_use_program_epoch) {
++      vrend_use_program(sub_ctx->prog);
++      sub_ctx->hypocket_program = sub_ctx->prog;
++      sub_ctx->hypocket_program_id = program_id;
++      sub_ctx->hypocket_program_epoch = hypocket_use_program_epoch;
++   }
+ 
+    if (has_feature(feat_draw_parameters) &&
+        sub_ctx->prog->reads_drawid &&
+@@ -5989,7 +6041,9 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+       }
+    }
+ 
++   HYPOCKET_DRAW_MARK(HYPOCKET_DRAW_USE);
+    vrend_draw_bind_objects(sub_ctx, program_select_result == PROGRAMM_NEW);
++   HYPOCKET_DRAW_MARK(HYPOCKET_DRAW_OBJECTS);
+    vrend_fill_sysval_uniform_block(sub_ctx);
+ 
+    if (has_feature(feat_gles31_vertex_attrib_binding)) {
+@@ -6008,6 +6062,8 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+       }
+    }
+ 
++   HYPOCKET_DRAW_MARK(HYPOCKET_DRAW_VERTICES);
++
+    if (info->indexed) {
+       struct vrend_resource *res = (struct vrend_resource *)sub_ctx->ib.buffer;
+       if (!res) {
+@@ -6088,6 +6144,8 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+       glEnable(GL_BLEND);
+    }
+ 
++   HYPOCKET_DRAW_MARK(HYPOCKET_DRAW_MISC);
++
+    /* set the vertex state up now on a delay */
+    if (!info->indexed) {
+       GLenum mode = info->mode;
+@@ -6157,6 +6215,8 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+          glDrawElements(mode, info->count, elsz, (void *)(uintptr_t)sub_ctx->ib.offset);
+    }
+ 
++   HYPOCKET_DRAW_MARK(HYPOCKET_DRAW_CALL);
++
+    if (info->primitive_restart) {
+       if (vrend_state.use_gles) {
+          glDisable(GL_PRIMITIVE_RESTART_FIXED_INDEX);
+@@ -6176,6 +6236,7 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+ 
+    if (use_advanced_blending)
+       glDisable(GL_BLEND);
++   HYPOCKET_DRAW_MARK(HYPOCKET_DRAW_AFTER);
+    return 0;
+ }
+ 
+@@ -6676,6 +6737,10 @@ static void vrend_update_frontface_state(struct vrend_sub_context *sub_ctx)
+    int front_ccw = state->front_ccw;
+ 
+    front_ccw ^= (sub_ctx->fbo_origin_upper_left ? 0 : 1);
++   int face = front_ccw ? 2 : 1;
++   if (sub_ctx->hypocket_front_face == face)
++      return;
++   sub_ctx->hypocket_front_face = face;
+    if (front_ccw)
+       glFrontFace(GL_CCW);
+    else
+@@ -13789,3 +13854,30 @@ vrend_renderer_pipe_resource_get_layout(UNUSED struct vrend_context *ctx,
     return EINVAL;
  }
  #endif
@@ -172,6 +364,32 @@ index 4bf88e0..34341b6 100644
 +   glDeleteTextures(1, &old_id);
 +   return gr->gl_id;
 +}
+diff --git a/src/vrend/vrend_renderer.h b/src/vrend/vrend_renderer.h
+index adb1213..616f7d4 100644
+--- a/src/vrend/vrend_renderer.h
++++ b/src/vrend/vrend_renderer.h
+@@ -246,6 +246,21 @@ void vrend_clear_surface(struct vrend_context *ctx,
+                          unsigned width, unsigned height,
+                          bool render_condition_enabled);
+ 
++/* HyPocket: steps of vrend_draw_vbo, timed with HYPOCKET_PROFILE. */
++enum hypocket_draw_step {
++   HYPOCKET_DRAW_STATE,    /* checks, front face, stencil, scissor, viewport, blend */
++   HYPOCKET_DRAW_SELECT,   /* shader program selection */
++   HYPOCKET_DRAW_USE,      /* glUseProgram and texture-level uniforms */
++   HYPOCKET_DRAW_OBJECTS,  /* uniform buffers, constants, samplers, images */
++   HYPOCKET_DRAW_VERTICES, /* system values and vertex buffers */
++   HYPOCKET_DRAW_MISC,     /* index buffer, transform feedback, indirect buffers */
++   HYPOCKET_DRAW_CALL,     /* the glDraw* call itself */
++   HYPOCKET_DRAW_AFTER,
++   HYPOCKET_DRAW_STEPS
++};
++extern bool hypocket_draw_profile;
++extern double hypocket_draw_ms[HYPOCKET_DRAW_STEPS];
++
+ int vrend_draw_vbo(struct vrend_context *ctx,
+                    const struct pipe_draw_info *info,
+                    uint32_t cso, uint32_t indirect_handle, uint32_t indirect_draw_count_handle);
 diff --git a/src/vrend/vrend_winsys_egl.c b/src/vrend/vrend_winsys_egl.c
 index 4ddcd0d..0b196c3 100644
 --- a/src/vrend/vrend_winsys_egl.c
