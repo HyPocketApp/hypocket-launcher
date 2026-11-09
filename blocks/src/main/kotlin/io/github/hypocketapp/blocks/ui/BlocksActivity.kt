@@ -361,8 +361,10 @@ private fun BlocksScreen(
                 if (stats.ready && stats.day > 0) Clock(stats)
                 if (stats.ready && stats.beacons > 0) BeaconCompass(stats)
                 if (world != null) SavedNotice(stats.saves, Modifier)
-                FaintedNotice(stats.deaths)
+                EventNotice(stats.deaths, R.string.blocks_fainted)
+                EventNotice(stats.takes, R.string.blocks_taken, Color(0xAA3A2466))
             }
+            if (stats.grabbed) GrabOverlay(stats.grabPercent)
             if (!options.creative) {
                 HealthBar(stats.healthTenths, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp))
                 HurtFlash(stats.hurts)
@@ -696,26 +698,58 @@ private fun HurtFlash(hurts: Int) {
     if (visible) Box(Modifier.fillMaxSize().background(Color(0x55D02020)))
 }
 
-/** Says what happened when the player fainted and woke up at the start. */
+/** Says for a few seconds what happened, each time [count] goes up. */
 @Composable
-private fun FaintedNotice(deaths: Int) {
-    var seen by remember { mutableIntStateOf(deaths) }
+private fun EventNotice(count: Int, text: Int, background: Color = Color(0xAA6E1A1A)) {
+    var seen by remember { mutableIntStateOf(count) }
     var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(deaths) {
-        if (deaths > seen) {
-            seen = deaths
+    LaunchedEffect(count) {
+        if (count > seen) {
+            seen = count
             visible = true
-            delay(4000)
+            delay(5000)
             visible = false
         }
     }
     if (visible) {
         Text(
-            stringResource(R.string.blocks_fainted),
+            stringResource(text),
             color = Color.White,
             style = MaterialTheme.typography.titleSmall,
-            modifier = Modifier.background(Color(0xAA6E1A1A), RoundedCornerShape(4.dp)).padding(horizontal = 10.dp, vertical = 4.dp),
+            modifier = Modifier.background(background, RoundedCornerShape(4.dp)).padding(horizontal = 10.dp, vertical = 4.dp),
         )
+    }
+}
+
+/**
+ * While a night creature drags the player: the screen closes in, and a bar
+ * shows how far they have got free (each press of jump helps).
+ */
+@Composable
+private fun GrabOverlay(percent: Int) {
+    Box(
+        Modifier.fillMaxSize().background(
+            androidx.compose.ui.graphics.Brush.radialGradient(
+                0.35f to Color.Transparent,
+                1f to Color(0xE0100818),
+            ),
+        ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            Modifier.padding(top = 140.dp).background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(stringResource(R.string.blocks_grabbed), color = Color.White, style = MaterialTheme.typography.titleSmall)
+            Box(Modifier.size(width = 160.dp, height = 8.dp).background(Color(0xFF3A2466), RoundedCornerShape(3.dp))) {
+                Box(
+                    Modifier.fillMaxHeight().fillMaxWidth((percent / 100f).coerceIn(0f, 1f))
+                        .background(Color(0xFFD9C8FF), RoundedCornerShape(3.dp)),
+                )
+            }
+        }
     }
 }
 

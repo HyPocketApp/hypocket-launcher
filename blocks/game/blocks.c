@@ -123,7 +123,19 @@ typedef struct {
     int32_t done_seconds;  /* time played when the last beacon was lit */
     int32_t mist_percent;  /* how thick the mist is where the player stands */
     int32_t aiming_beacon; /* 1: the crosshair is on an unlit beacon */
+    /* Written by the game: the story (grabs, shelters, notes, the other side). */
+    int32_t story_flags;   /* STORY_* bits below */
+    int32_t grab_percent;  /* while grabbed: how far the player has got free, 0-100 */
+    int32_t notes_opened;  /* incremented each time the player opens a note */
+    int32_t note_id;       /* the note opened last */
+    int32_t notes_found;   /* one bit per note found */
+    int32_t takes;         /* times the player was dragged away */
 } SharedIo;
+
+#define STORY_GRABBED 1   /* a night creature holds the player */
+#define STORY_SHELTERED 2 /* in a closed, lit room */
+#define STORY_AIM_NOTE 4  /* the crosshair is on a note */
+#define STORY_AWAY 8      /* on the other side */
 
 /* ---- OpenGL entry points ---------------------------------------------- */
 
@@ -1201,16 +1213,23 @@ static int calm_at(float x, float z) {
 /* ---- Creatures and particles ----------------------------------------- */
 
 /* Two kinds of creatures. Peaceful ones wander (heavy mode fills the world
- * with them) and run away when touched or hit. Night ones come out in the
- * dark away from lamps, chase and hurt the player, and vanish at daybreak or
- * near a lamp. All of them think and move on the CPU and are drawn together
- * with one instanced draw call (see the drawing in main). */
+ * with them) and run away when touched or hit. Night ones (the story calls
+ * them Nocturnes; people in it call them many things) come out in the dark
+ * and the mist, away from lamps. Once one finds the player it does not stop:
+ * it follows, grabs and drags them into the mist (see the grab in main). A
+ * blow only dazes it; they cannot be killed. They also take any peaceful
+ * creature they find. They vanish at daybreak (outside the mist), near a
+ * lamp (outside the mist) and near a lit beacon. All creatures think and move
+ * on the CPU and are drawn together with one instanced draw call. */
 enum { KIND_PEACEFUL, KIND_NIGHT };
 
 typedef struct {
     float x, y, z, vy, yaw, target_yaw, speed, timer, phase;
     int on_ground, color, kind, alive;
-    float hp, flee, cooldown, check; /* hits left; seconds to keep fleeing, until the next bite, the next lamp check */
+    float hp, flee, cooldown, check; /* unused; seconds to keep fleeing, until the next grab, the next lamp check */
+    float stun;                      /* seconds it stays dazed after a blow */
+    int hunting;                     /* it found the player and follows them */
+    int prey;                        /* 1 + the peaceful creature it goes after, or 0 */
 } Creature;
 
 #define MAX_CREATURES 300
@@ -1225,6 +1244,15 @@ static const float creature_colors[6][3] = {
     {0.70f, 0.55f, 0.85f}, {0.60f, 0.82f, 0.60f}, {0.90f, 0.60f, 0.70f},
 };
 static const float night_color[3] = {0.50f, 0.40f, 0.72f}; /* dim purple at night, lit only by the moon */
+
+/* The grab: which night creature holds the player (-1: none), for how long,
+ * how far they have got free (0-1), and seconds of safety after getting free. */
+static int grab_by = -1;
+static float grab_time, grab_escape, grab_grace, drag_yaw;
+#define GRAB_SECONDS 9.0f  /* held this long, the player is taken */
+#define CHASE_SPEED 3.6f   /* the player walks at 4.3 */
+#define NIGHT_SIGHT 22.0f  /* how far they notice the player */
+#define NIGHT_LOSE 48.0f   /* how far the player must get to lose them */
 
 static void spawn_puff(float x, float y, float z, const float* color, int count, uint32_t tick);
 
@@ -1267,6 +1295,32 @@ static void spawn_creatures(int count) {
         c->timer = rand01(tries, 19, 9) * 3;
         c->kind = KIND_PEACEFUL;
         c->alive = 1;
+    }
+}
+
+/* Peaceful creatures taken in the night come back by day, far from the player. */
+static void respawn_creatures(float dt, int is_night, float px, float pz, uint32_t tick) {
+    static float timer = 15;
+    if (is_night || (timer -= dt) > 0) return;
+    timer = 15;
+    for (int i = 0; i < creature_count; i++) {
+        Creature* c = &creatures[i];
+        if (c->alive) continue;
+        int x = 2 + (int)(rand01((int)tick, i, 61) * (WX - 4)), z = 2 + (int)(rand01((int)tick, i, 63) * (WZ - 4));
+        float dx = x - px, dz = z - pz;
+        if (dx * dx + dz * dz < 24 * 24) return;
+        int y = WY - 1;
+        while (y > 0 && world[x][y][z] == AIR) y--;
+        if (world[x][y][z] != GRASS) return;
+        int color = c->color;
+        memset(c, 0, sizeof *c);
+        c->x = x + 0.5f;
+        c->y = y + 1.0f;
+        c->z = z + 0.5f;
+        c->color = color;
+        c->kind = KIND_PEACEFUL;
+        c->alive = 1;
+        return;
     }
 }
 
@@ -1324,6 +1378,7 @@ static void scare(Creature* c, float x, float z, float seconds) {
 static void update_creatures(float dt, uint32_t tick, float px, float pz) {
     for (int i = 0; i < creature_count; i++) {
         Creature* c = &creatures[i];
+        if (!c->alive) continue;
         float dx = c->x - px, dz = c->z - pz;
         /* Bumping into one sends it running. */
         if (c->flee <= 0 && dx * dx + dz * dz < 0.8f) scare(c, px, pz, 2.0f);
@@ -1343,11 +1398,13 @@ static void update_creatures(float dt, uint32_t tick, float px, float pz) {
     }
 }
 
-/* Night creatures: come out in the dark, chase and bite. Returns the damage
- * done to the player at px, py, pz this frame. is_night: the sun is down. */
-static int update_night(float dt, uint32_t tick, int is_night, float px, float py, float pz) {
+/* Night creatures: come out in the dark and the mist, hunt the player and
+ * grab them (grab_by). is_night: the sun is down; sheltered: the player is in
+ * a closed, lit room, where they cannot be found or reached. Returns 1 when
+ * one grabs the player this frame. */
+static int update_night(float dt, uint32_t tick, int is_night, float px, float py, float pz, int sheltered) {
     static float spawn_timer;
-    int damage = 0, alive = 0;
+    int grabbed = 0, alive = 0;
     for (int i = 0; i < MAX_NIGHT; i++) alive += night[i].alive;
     /* A new one now and then, out of sight range, never near a lamp. */
     spawn_timer -= dt;
@@ -1363,7 +1420,8 @@ static int update_night(float dt, uint32_t tick, int is_night, float px, float p
             int y = WY - 3;
             while (y > 0 && !is_solid(world[x][y][z])) y--;
             if (world[x][y][z] == WATER || world[x][y][z] == LEAVES || is_solid(world[x][y + 1][z]) ||
-                is_solid(world[x][y + 2][z]) || lamp_near(x + 0.5f, y + 1.0f, z + 0.5f, 9) || calm_at(x + 0.5f, z + 0.5f))
+                is_solid(world[x][y + 2][z]) || calm_at(x + 0.5f, z + 0.5f) ||
+                (mist_at(x + 0.5f, z + 0.5f) < 0.5f && lamp_near(x + 0.5f, y + 1.0f, z + 0.5f, 9)))
                 break;
             Creature* c = &night[k];
             memset(c, 0, sizeof *c);
@@ -1372,7 +1430,6 @@ static int update_night(float dt, uint32_t tick, int is_night, float px, float p
             c->z = z + 0.5f;
             c->kind = KIND_NIGHT;
             c->alive = 1;
-            c->hp = 3;
             c->yaw = c->target_yaw = a + 3.1416f;
             c->check = rand01(k, (int)tick, 57);
             break;
@@ -1381,41 +1438,87 @@ static int update_night(float dt, uint32_t tick, int is_night, float px, float p
     for (int i = 0; i < MAX_NIGHT; i++) {
         Creature* c = &night[i];
         if (!c->alive) continue;
-        /* Daylight (outside the mist), lamps and lit beacons drive them away:
-         * they fade into smoke. */
+        /* Daylight (outside the mist), lamps (outside the mist) and lit
+         * beacons drive them away: they fade into smoke. In the mist a lamp
+         * is not enough, which is what shelters are for. */
         c->check -= dt;
-        int fade = 0;
+        int fade = 0, look = 0;
         if (c->check <= 0) {
             c->check = 0.5f;
-            fade = (!is_night && mist_at(c->x, c->z) < 0.3f) || calm_at(c->x, c->z) || lamp_near(c->x, c->y + 1, c->z, 7);
+            look = 1;
+            float m = mist_at(c->x, c->z);
+            fade = (!is_night && m < 0.3f) || calm_at(c->x, c->z) || (m < 0.5f && lamp_near(c->x, c->y + 1, c->z, 6));
         }
         if (fade) {
             spawn_puff(c->x, c->y + 0.9f, c->z, night_color, 12, tick + i);
             c->alive = 0;
+            if (grab_by == i) grab_by = -1; /* the player drops free */
+            continue;
+        }
+        if (grab_by == i) { /* dragging the player into the mist */
+            c->target_yaw = drag_yaw;
+            c->speed = 2.3f;
+            c->phase += dt * 6;
+            step_creature(c, dt);
             continue;
         }
         float dx = px - c->x, dz = pz - c->z, d = sqrtf(dx * dx + dz * dz);
+        if (sheltered || d > NIGHT_LOSE) c->hunting = 0;
+        else if (d < NIGHT_SIGHT) c->hunting = 1;
+        if (c->stun > 0) c->stun -= dt;
         if (c->flee > 0) {
             c->flee -= dt;
-        } else if (d < 28) { /* chase */
+        } else if (c->hunting) { /* it does not stop */
             c->target_yaw = atan2f(dx, -dz);
-            c->speed = d < 1.1f ? 0 : 2.7f; /* slower than the player, who can get away */
+            c->speed = d < 0.9f ? 0 : CHASE_SPEED;
+            c->prey = 0;
         } else {
-            c->timer -= dt;
-            if (c->timer <= 0) {
-                c->target_yaw = c->yaw + (rand01(i, (int)tick, 59) - 0.5f) * 3;
-                c->speed = 1.0f;
-                c->timer = 2;
+            /* Any living thing will do: the nearest peaceful creature. */
+            if (look && !c->prey) {
+                float best = 12 * 12;
+                for (int k = 0; k < creature_count; k++) {
+                    const Creature* q = &creatures[k];
+                    float qx = q->x - c->x, qz = q->z - c->z;
+                    if (q->alive && qx * qx + qz * qz < best) { best = qx * qx + qz * qz; c->prey = k + 1; }
+                }
+            }
+            Creature* q = c->prey ? &creatures[c->prey - 1] : NULL;
+            if (q && !q->alive) q = NULL, c->prey = 0;
+            if (q) {
+                float qx = q->x - c->x, qz = q->z - c->z;
+                c->target_yaw = atan2f(qx, -qz);
+                c->speed = 2.6f;
+                if (qx * qx + qz * qz < 1.0f) { /* taken into the mist, both gone */
+                    static const float fur[3] = {0.8f, 0.7f, 0.6f};
+                    spawn_puff(q->x, q->y + 0.5f, q->z, fur, 6, tick + i);
+                    spawn_puff(c->x, c->y + 0.9f, c->z, night_color, 12, tick + i + 3);
+                    q->alive = 0;
+                    c->alive = 0;
+                    continue;
+                }
+            } else {
+                c->timer -= dt;
+                if (c->timer <= 0) {
+                    c->target_yaw = c->yaw + (rand01(i, (int)tick, 59) - 0.5f) * 3;
+                    c->speed = 1.0f;
+                    c->timer = 2;
+                }
             }
         }
         c->cooldown -= dt;
-        if (d < 1.4f && fabsf(py - c->y) < 1.6f && c->cooldown <= 0) {
-            damage += 2;
-            c->cooldown = 1.3f;
+        if (c->hunting && d < 1.25f && fabsf(py - c->y) < 1.6f && c->stun <= 0 && c->cooldown <= 0 && grab_by < 0 &&
+            grab_grace <= 0 && !sheltered) {
+            grab_by = i;
+            grab_time = grab_escape = 0;
+            /* Off towards the nearest mist, or simply away the way it came. */
+            float bd;
+            int k = nearest_unlit(c->x, c->z, &bd);
+            drag_yaw = k >= 0 ? atan2f(beacon_x[k] + 0.5f - c->x, -(beacon_z[k] + 0.5f - c->z)) : c->yaw + 3.1416f;
+            grabbed = 1;
         }
         step_creature(c, dt);
     }
-    return damage;
+    return grabbed;
 }
 
 /* The nearest creature along a ray within max_t, with the distance in *t:
@@ -1926,6 +2029,8 @@ int main(int argc, char** argv) {
     _Static_assert(__builtin_offsetof(SharedIo, health_tenths) == 160, "must match BlocksSession.kt");
     _Static_assert(__builtin_offsetof(SharedIo, paused) == 176, "must match BlocksSession.kt");
     _Static_assert(__builtin_offsetof(SharedIo, beacons) == 196, "must match BlocksSession.kt");
+    _Static_assert(__builtin_offsetof(SharedIo, story_flags) == 232 && sizeof(SharedIo) == IO_SIZE,
+                   "must match BlocksSession.kt");
     _Static_assert(__builtin_offsetof(SharedIo, crafts) == 52 && __builtin_offsetof(SharedIo, craft) == 56,
                    "must match BlocksSession.kt");
     int w = argc > 1 ? atoi(argv[1]) : 1200;
@@ -2184,7 +2289,7 @@ int main(int argc, char** argv) {
     double stats_wait = 0, bench_start = 0, bench_work = 0, bench_wait = 0;
     int bench_frames = 0;
     const int bench_warmup = 60; /* frames left out: shaders, caches, ramp-up */
-    int step_variant = 0, was_in_water = 0;
+    int step_variant = 0, was_in_water = 0, jump_was = 0, sheltered = 0;
     double last_save = last;
     if (bench) save_path = NULL; /* the benchmark never touches saves */
 
@@ -2221,13 +2326,22 @@ int main(int argc, char** argv) {
         player.pitch = io->look_pitch - base_pitch - 0.25f + rate_pitch;
         if (player.pitch > 1.5f) { rate_pitch -= player.pitch - 1.5f; player.pitch = 1.5f; }
         if (player.pitch < -1.5f) { rate_pitch -= player.pitch + 1.5f; player.pitch = -1.5f; }
+        /* Held by a night creature: no walking, and each new press of
+         * jump is a struggle to get free. */
+        int jump_held = io->jump != 0, jump_pressed = jump_held && !jump_was;
+        jump_was = jump_held;
+        if (grab_by >= 0) {
+            mx = my = 0;
+            jump_held = 0;
+            if (jump_pressed && !paused) grab_escape += 0.13f;
+        }
         float len = sqrtf(mx * mx + my * my);
         if (len > 1) { mx /= len; my /= len; }
         float speed = 4.3f;
         float sy = sinf(player.yaw), cy = cosf(player.yaw);
         float vx = (mx * cy + my * sy) * speed, vz = (mx * sy - my * cy) * speed;
         int in_water = block_at((int)floorf(player.x), (int)floorf(player.y + 0.5f), (int)floorf(player.z)) == WATER;
-        if ((io->jump || (max_frames && player.on_ground)) && (player.on_ground || in_water)) {
+        if ((jump_held || (max_frames && player.on_ground && grab_by < 0)) && (player.on_ground || in_water)) {
             if (player.on_ground && !in_water) play_sound(SND_JUMP, 0.25f, 0, 1.0f);
             player.vy = in_water ? 3.5f : 8.2f;
             player.on_ground = 0;
@@ -2290,12 +2404,14 @@ int main(int argc, char** argv) {
                 const float* col = is_night_kind ? night_color : creature_colors[c->color];
                 spawn_puff(c->x, c->y + (is_night_kind ? 1.0f : 0.45f), c->z, col, 6, (uint32_t)frames);
                 play_at(SND_BREAK, &player, c->x, c->y + 0.5f, c->z, is_night_kind ? 0.7f : 1.5f);
-                scare(c, player.x, player.z, is_night_kind ? 0.5f : 3.0f);
-                c->vy = 4.0f; /* knocked back */
-                c->on_ground = 0;
-                if (is_night_kind && --c->hp <= 0) {
-                    spawn_puff(c->x, c->y + 0.9f, c->z, night_color, 16, (uint32_t)frames + 7);
-                    c->alive = 0;
+                if (is_night_kind && grab_by == target) {
+                    grab_escape += 0.22f; /* hitting the one that holds you loosens its grip */
+                } else {
+                    /* A night creature is only dazed: they cannot be killed. */
+                    scare(c, player.x, player.z, is_night_kind ? 1.5f : 3.0f);
+                    if (is_night_kind) c->stun = 2.5f;
+                    c->vy = 4.0f; /* knocked back */
+                    c->on_ground = 0;
                 }
                 block_hit = 0; /* the blow went to the creature */
             }
@@ -2401,8 +2517,60 @@ int main(int argc, char** argv) {
         int is_night = sk.sun_dir[1] < -0.04f;
         if (!paused) {
             update_creatures(dt, (uint32_t)frames, player.x, player.z);
-            damage += update_night(dt, (uint32_t)frames, is_night, player.x, player.y, player.z);
+            respawn_creatures(dt, is_night, player.x, player.z, (uint32_t)frames);
+            if (update_night(dt, (uint32_t)frames, is_night, player.x, player.y, player.z, sheltered)) {
+                io->hurts++; /* the screen flashes */
+                play_sound(SND_STEP, 0.9f, 0, 0.45f);
+                printf("blocks: grabbed by a night creature\n");
+            }
+            if (grab_grace > 0) grab_grace -= dt;
         }
+
+        /* ---- The grab ---- */
+        int taken = 0;
+        if (grab_by >= 0 && !paused) {
+            Creature* g = &night[grab_by];
+            grab_time += dt;
+            grab_escape -= 0.04f * dt; /* the grip tightens again */
+            if (grab_escape < 0) grab_escape = 0;
+            /* Pulled along behind it: the player follows its path, hopping up
+             * where it climbs. Caught on a wall, the grip slips. */
+            float tx = g->x - sinf(g->yaw) * 0.8f, tz = g->z + cosf(g->yaw) * 0.8f;
+            float gx = tx - player.x, gz = tz - player.z, gap = sqrtf(gx * gx + gz * gz);
+            float pull = dt * 6 < 1 ? dt * 6 : 1;
+            move_player(&player, gx * pull, 0, gz * pull);
+            if (player.on_ground && g->y > player.y + 0.5f) { player.vy = 7.5f; player.on_ground = 0; }
+            if (gap > 3.0f) grab_escape = 1;
+            /* Light close by (not in the mist) makes it let go. */
+            if (mist_at(player.x, player.z) < 0.5f && lamp_near(player.x, player.y + 1, player.z, 3)) grab_escape = 1;
+            if (grab_escape >= 1) {
+                spawn_puff(g->x, g->y + 1.0f, g->z, night_color, 10, (uint32_t)frames);
+                scare(g, player.x, player.z, 3.0f);
+                g->stun = 3.0f;
+                g->vy = 4.0f;
+                g->on_ground = 0;
+                g->cooldown = 3.0f;
+                grab_by = -1;
+                grab_grace = 2.5f;
+                play_sound(SND_JUMP, 0.6f, 0, 0.7f);
+                printf("blocks: got free\n");
+            } else if (grab_time >= GRAB_SECONDS) {
+                taken = 1;
+            }
+        }
+        if (taken) { /* dragged into the mist */
+            io->takes++;
+            grab_by = -1;
+            for (int i = 0; i < MAX_NIGHT; i++) night[i].alive = 0;
+            grab_grace = 4.0f;
+            health = MAX_HEALTH;
+            player.x = spawn_x;
+            player.y = spawn_y;
+            player.z = spawn_z;
+            player.vy = 0;
+            printf("blocks: the player was taken\n");
+        }
+        io->grab_percent = grab_by >= 0 ? (int)(grab_escape * 100) : 0;
 
         /* ---- Health ---- */
         if (damage > 0 && !creative) {
@@ -2418,6 +2586,7 @@ int main(int argc, char** argv) {
                 player.z = spawn_z;
                 player.vy = 0;
                 for (int i = 0; i < MAX_NIGHT; i++) night[i].alive = 0;
+                grab_by = -1;
                 printf("blocks: the player fainted and woke up at the start\n");
             }
         } else if (!paused && (calm -= dt) <= 0 && health < MAX_HEALTH) {
@@ -2425,6 +2594,7 @@ int main(int argc, char** argv) {
             if (health > MAX_HEALTH) health = MAX_HEALTH;
         }
         io->health_tenths = (int)ceilf(health * 10 - 0.01f);
+        io->story_flags = (grab_by >= 0 ? STORY_GRABBED : 0) | (sheltered ? STORY_SHELTERED : 0);
         update_particles(dt);
         /* Chunks whose blocks changed are meshed now; those where only lamp
          * light moved wait their turn, two a frame, to avoid a hitch. */

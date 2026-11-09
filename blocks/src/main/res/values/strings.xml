@@ -84,8 +84,8 @@
     <string name="blocks_inventory_hint_recipes">Choose a place in the bar, then the block to put there, or tap a recipe to make it. Controller: d-pad and A, B closes. Keyboard: arrows and Enter, I closes.</string>
     <string name="blocks_recipe_arrow" translatable="false">→</string>
     <string name="blocks_peaceful">Peaceful</string>
-    <string name="blocks_peaceful_on">No creatures that attack. Falls still hurt.</string>
-    <string name="blocks_peaceful_off">At night, creatures come out in the dark and attack. Lamps keep them away.</string>
+    <string name="blocks_peaceful_on">No creatures come for you. Falls still hurt.</string>
+    <string name="blocks_peaceful_off">At night, creatures come out of the dark and the mist to drag you away. Run: they cannot be killed. Lamps keep them away, outside the mist.</string>
     <string name="blocks_mode_peaceful">peaceful</string>
     <string name="blocks_fainted">You fainted and woke up at the start. What you carried is still with you.</string>
     <string name="blocks_paused">Paused</string>
@@ -133,4 +133,6 @@
     <string name="blocks_status_failed">Failed: the translated program did not finish correctly.</string>
     <string name="blocks_status_not_available">The translator is not available on this device.</string>
     <string name="blocks_status_timed_out">Timed out: the translated program took too long.</string>
+    <string name="blocks_taken">Something dragged you into the mist… and you woke up at the start.</string>
+    <string name="blocks_grabbed">It has you! Press jump again and again to break free</string>
 </resources>

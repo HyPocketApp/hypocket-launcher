@@ -144,6 +144,12 @@ class BlocksSession(context: Context) : AutoCloseable {
                 doneSeconds = io.getInt(OFF_BEACONS + 24),
                 mistPercent = io.getInt(OFF_BEACONS + 28),
                 aimingBeacon = io.getInt(OFF_BEACONS + 32) != 0,
+                storyFlags = io.getInt(OFF_STORY),
+                grabPercent = io.getInt(OFF_STORY + 4),
+                notesOpened = io.getInt(OFF_STORY + 8),
+                noteId = io.getInt(OFF_STORY + 12),
+                notesFound = io.getInt(OFF_STORY + 16),
+                takes = io.getInt(OFF_STORY + 20),
             )
         }
 
@@ -285,6 +291,7 @@ class BlocksSession(context: Context) : AutoCloseable {
         const val OFF_FPS_SETTING = 188
         const val OFF_SCALE_MAX = 192
         const val OFF_BEACONS = 196
+        const val OFF_STORY = 232
     }
 }
 
@@ -340,9 +347,31 @@ data class BlocksStats(
     val mistPercent: Int = 0,
     /** The crosshair is on an unlit beacon. */
     val aimingBeacon: Boolean = false,
+    /** The story's state: [GRABBED], [SHELTERED], [AIMING_NOTE] and [AWAY] bits. */
+    val storyFlags: Int = 0,
+    /** While grabbed: how far the player has got free, 0 to 100. */
+    val grabPercent: Int = 0,
+    /** Goes up each time the player opens a note; [noteId] is the one opened last. */
+    val notesOpened: Int = 0,
+    val noteId: Int = 0,
+    /** One bit per note found (see StoryNotes). */
+    val notesFound: Int = 0,
+    /** Times the player was dragged away by a night creature. */
+    val takes: Int = 0,
 ) {
+    val grabbed: Boolean get() = storyFlags and GRABBED != 0
+    val sheltered: Boolean get() = storyFlags and SHELTERED != 0
+    val aimingNote: Boolean get() = storyFlags and AIMING_NOTE != 0
+    val away: Boolean get() = storyFlags and AWAY != 0
+
     companion object {
         const val MAX_HEALTH_TENTHS = 100
+
+        // Must match STORY_* in blocks.c.
+        const val GRABBED = 1
+        const val SHELTERED = 2
+        const val AIMING_NOTE = 4
+        const val AWAY = 8
     }
 }
 
