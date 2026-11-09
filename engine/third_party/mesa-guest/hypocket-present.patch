@@ -1,6 +1,8 @@
+diff --git a/src/egl/drivers/dri2/egl_dri2.h b/src/egl/drivers/dri2/egl_dri2.h
+index aa5692a..7f47819 100644
 --- a/src/egl/drivers/dri2/egl_dri2.h
 +++ b/src/egl/drivers/dri2/egl_dri2.h
-@@ -388,6 +388,10 @@
+@@ -388,6 +388,10 @@ struct dri2_egl_surface {
     /* surfaceless and device */
     struct dri_image *front;
     enum pipe_format visual;
@@ -11,6 +13,8 @@
  
     int out_fence_fd;
     EGLBoolean enable_out_fence;
+diff --git a/src/egl/drivers/dri2/platform_surfaceless.c b/src/egl/drivers/dri2/platform_surfaceless.c
+index e85cae5..8c535b8 100644
 --- a/src/egl/drivers/dri2/platform_surfaceless.c
 +++ b/src/egl/drivers/dri2/platform_surfaceless.c
 @@ -41,6 +41,13 @@
@@ -27,7 +31,7 @@
  
  static struct dri_image *
  surfaceless_alloc_image(struct dri2_egl_display *dri2_dpy,
-@@ -54,6 +61,15 @@
+@@ -54,6 +61,15 @@ surfaceless_alloc_image(struct dri2_egl_display *dri2_dpy,
  static void
  surfaceless_free_images(struct dri2_egl_surface *dri2_surf)
  {
@@ -43,7 +47,7 @@
     if (dri2_surf->front) {
        dri2_destroy_image(dri2_surf->front);
        dri2_surf->front = NULL;
-@@ -173,8 +189,70 @@
+@@ -173,8 +189,70 @@ dri2_surfaceless_create_pbuffer_surface(_EGLDisplay *disp, _EGLConfig *conf,
                                            attrib_list);
  }
  
@@ -114,9 +118,11 @@
     .destroy_surface = surfaceless_destroy_surface,
     .create_image = dri2_create_image_khr,
     .get_dri_drawable = dri2_surface_get_dri_drawable,
+diff --git a/src/egl/main/eglapi.c b/src/egl/main/eglapi.c
+index a6c6f95..ea3dac2 100644
 --- a/src/egl/main/eglapi.c
 +++ b/src/egl/main/eglapi.c
-@@ -1432,7 +1432,10 @@
+@@ -1432,7 +1432,10 @@ eglSwapBuffers(EGLDisplay dpy, EGLSurface surface)
        RETURN_EGL_ERROR(disp, EGL_BAD_SURFACE, EGL_FALSE);
  #endif
  
@@ -128,6 +134,8 @@
        RETURN_EGL_EVAL(disp, EGL_TRUE);
  
     /* From the EGL 1.5 spec:
+diff --git a/src/gallium/winsys/virgl/vtest/virgl_vtest_socket.c b/src/gallium/winsys/virgl/vtest/virgl_vtest_socket.c
+index a74b4c6..622eff0 100644
 --- a/src/gallium/winsys/virgl/vtest/virgl_vtest_socket.c
 +++ b/src/gallium/winsys/virgl/vtest/virgl_vtest_socket.c
 @@ -22,6 +22,10 @@
@@ -141,7 +149,7 @@
  #include <errno.h>
  #include <stdio.h>
  #include <netinet/in.h>
-@@ -390,9 +394,95 @@
+@@ -390,9 +394,110 @@ int virgl_vtest_submit_cmd(struct virgl_vtest_winsys *vws,
  
     virgl_block_write(vws->sock_fd, &vtest_hdr, sizeof(vtest_hdr));
     virgl_block_write(vws->sock_fd, buf, 4 * buf_len);
@@ -154,6 +162,7 @@
 +#define VCMD_HYPOCKET_PRESENT 64
 +#define VCMD_HYPOCKET_ADOPT 65
 +#define VCMD_HYPOCKET_FENCE_WAIT 66
++#define VCMD_HYPOCKET_FENCE_PAGE 67
 +
 +static int virgl_vtest_send_hypocket(struct virgl_vtest_winsys *vws,
 +                                     uint32_t id, uint32_t handle)
@@ -177,6 +186,20 @@
 +                                    uint32_t handle)
 +{
 +   return virgl_vtest_send_hypocket(vws, VCMD_HYPOCKET_ADOPT, handle);
++}
++
++/* The fd of the server's shared fence page (memory, not a file), or -1. */
++int virgl_vtest_hypocket_fence_page_fd(struct virgl_vtest_winsys *vws)
++{
++   uint32_t vtest_hdr[VTEST_HDR_SIZE];
++   uint32_t result[1] = { 0 };
++   vtest_hdr[VTEST_CMD_LEN] = 0;
++   vtest_hdr[VTEST_CMD_ID] = VCMD_HYPOCKET_FENCE_PAGE;
++   virgl_block_write(vws->sock_fd, &vtest_hdr, sizeof(vtest_hdr));
++   if (virgl_block_read(vws->sock_fd, vtest_hdr, sizeof(vtest_hdr)) <= 0 ||
++       virgl_block_read(vws->sock_fd, result, sizeof(result)) <= 0 || !result[0])
++      return -1;
++   return virgl_vtest_receive_fd(vws->sock_fd);
 +}
 +
 +/* Through the shared page: no round trip, so no waiting behind our own
@@ -237,6 +260,8 @@
  int virgl_vtest_send_resource_unref(struct virgl_vtest_winsys *vws,
                                      uint32_t handle)
  {
+diff --git a/src/gallium/winsys/virgl/vtest/virgl_vtest_winsys.c b/src/gallium/winsys/virgl/vtest/virgl_vtest_winsys.c
+index bea4d19..bde5a18 100644
 --- a/src/gallium/winsys/virgl/vtest/virgl_vtest_winsys.c
 +++ b/src/gallium/winsys/virgl/vtest/virgl_vtest_winsys.c
 @@ -21,6 +21,11 @@
@@ -262,7 +287,7 @@
  #include "virgl_vtest_public.h"
  #include "virtio-gpu/virgl_protocol.h"
  
-@@ -176,6 +185,10 @@
+@@ -176,6 +185,10 @@ virgl_vtest_transfer_get(struct virgl_winsys *vws,
  static void virgl_hw_res_destroy(struct virgl_vtest_winsys *vtws,
                                   struct virgl_hw_res *res)
  {
@@ -273,7 +298,7 @@
     virgl_vtest_send_resource_unref(vtws, res->res_handle);
     if (res->dt)
        vtws->sws->displaytarget_destroy(vtws->sws, res->dt);
-@@ -194,6 +207,11 @@
+@@ -194,6 +207,11 @@ static bool virgl_vtest_resource_is_busy(struct virgl_winsys *vws,
  {
     struct virgl_vtest_winsys *vtws = virgl_vtest_winsys(vws);
  
@@ -285,7 +310,7 @@
     /* implement busy check */
     int ret;
     ret = virgl_vtest_busy_wait(vtws, res->res_handle, 0);
-@@ -423,6 +441,11 @@
+@@ -423,6 +441,11 @@ static void virgl_vtest_resource_wait(struct virgl_winsys *vws,
  {
     struct virgl_vtest_winsys *vtws = virgl_vtest_winsys(vws);
  
@@ -297,7 +322,7 @@
     virgl_vtest_busy_wait(vtws, res->res_handle, VCMD_BUSY_WAIT_FLAG_WAIT);
  }
  
-@@ -572,6 +595,19 @@
+@@ -572,6 +595,19 @@ static struct pipe_fence_handle *
  virgl_vtest_fence_create(struct virgl_winsys *vws)
  {
     struct virgl_hw_res *res;
@@ -317,7 +342,7 @@
  
     /* Resources for fences should not be from the cache, since we are basing
      * the fence status on the resource creation busy status.
-@@ -598,6 +634,12 @@
+@@ -598,6 +634,12 @@ static int virgl_vtest_winsys_submit_cmd(struct virgl_winsys *vws,
        return 0;
  
     ret = virgl_vtest_submit_cmd(vtws, cbuf->base.buf, cbuf->base.cdw);
@@ -330,7 +355,7 @@
     if (fence && ret == 0)
        *fence = virgl_vtest_fence_create(vws);
  
-@@ -652,6 +694,15 @@
+@@ -652,6 +694,15 @@ static bool virgl_fence_wait(struct virgl_winsys *vws,
                               struct pipe_fence_handle *fence,
                               uint64_t timeout)
  {
@@ -346,7 +371,7 @@
     struct virgl_hw_res *res = virgl_hw_res(fence);
  
     if (timeout == 0)
-@@ -690,6 +741,16 @@
+@@ -690,6 +741,16 @@ static void virgl_vtest_flush_frontbuffer(struct virgl_winsys *vws,
     struct virgl_vtest_winsys *vtws = virgl_vtest_winsys(vws);
     struct pipe_box box;
     uint32_t offset = 0;
@@ -363,7 +388,7 @@
     if (!res->dt)
        return;
  
-@@ -757,6 +818,25 @@
+@@ -757,6 +818,24 @@ virgl_vtest_winsys_wrap(struct sw_winsys *sws)
  
     virgl_vtest_connect(vtws);
     vtws->sws = sws;
@@ -371,9 +396,8 @@
 +    * says with HYPOCKET_FENCES=1. */
 +   const char *hypocket_fences = getenv("HYPOCKET_FENCES");
 +   vtws->hypocket_fences = hypocket_fences && strcmp(hypocket_fences, "0") != 0;
-+   const char *page_path = getenv("HYPOCKET_FENCE_PATH");
-+   if (vtws->hypocket_fences && page_path) {
-+      int fd = open(page_path, O_RDWR | O_CLOEXEC);
++   if (vtws->hypocket_fences) {
++      int fd = virgl_vtest_hypocket_fence_page_fd(vtws);
 +      if (fd >= 0) {
 +         void *map = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 +         close(fd);
@@ -389,9 +413,11 @@
  
     virgl_resource_cache_init(&vtws->cache, CACHE_TIMEOUT_USEC,
                               virgl_vtest_resource_cache_entry_is_busy,
+diff --git a/src/gallium/winsys/virgl/vtest/virgl_vtest_winsys.h b/src/gallium/winsys/virgl/vtest/virgl_vtest_winsys.h
+index 8ad4060..6d731fc 100644
 --- a/src/gallium/winsys/virgl/vtest/virgl_vtest_winsys.h
 +++ b/src/gallium/winsys/virgl/vtest/virgl_vtest_winsys.h
-@@ -51,6 +51,20 @@
+@@ -51,6 +51,20 @@ struct virgl_vtest_winsys {
  
     int32_t blob_id;
     unsigned protocol_version;
@@ -412,7 +438,7 @@
  };
  
  struct virgl_hw_res {
-@@ -71,6 +85,11 @@
+@@ -71,6 +85,11 @@ struct virgl_hw_res {
  
     uint32_t bind;
     struct virgl_resource_cache_entry cache_entry;
@@ -424,7 +450,7 @@
  };
  
  struct virgl_vtest_cmd_buf {
-@@ -119,6 +138,20 @@
+@@ -119,6 +138,23 @@ uint32_t virgl_vtest_send_resource_create(struct virgl_vtest_winsys *vws,
                                            uint32_t size,
                                            int *out_fd);
  
@@ -436,6 +462,9 @@
 + * so it can back it with a buffer the phone's screen shows directly. */
 +int virgl_vtest_send_hypocket_adopt(struct virgl_vtest_winsys *vws,
 +                                    uint32_t handle);
++
++/* HyPocket: the fd of the server's shared fence page, or -1. */
++int virgl_vtest_hypocket_fence_page_fd(struct virgl_vtest_winsys *vws);
 +
 +/* HyPocket: whether command buffer seq is still being worked on, waiting up
 + * to timeout_us microseconds for it to finish (0: just ask; ~0u: forever). */

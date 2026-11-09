@@ -26,3 +26,7 @@ Licenses: Mesa, libdrm and expat are MIT; zlib is under the zlib license.
   server before it is used (`VCMD_HYPOCKET_ADOPT`, id 65), so the server can
   back it with a buffer the screen shows directly and no copy is needed.
   Without the variable nothing changes.
+- Same patch: with `HYPOCKET_FENCES=1`, precise fences. A fence is the number
+  of a command buffer, and the guest checks and waits for it in a page the
+  server shares (it asks for the page's fd with `VCMD_HYPOCKET_FENCE_PAGE`,
+  67), sleeping on a futex the server wakes, with no round trip.

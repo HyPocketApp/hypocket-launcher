@@ -1,6 +1,7 @@
 package io.github.hypocketapp.engine
 
 import android.content.Context
+import android.os.Build
 import java.io.File
 
 /**
@@ -61,27 +62,32 @@ class GuestGame(context: Context) {
      */
     fun run(launch: Launch): Result {
         if (!isAvailable) return Result(DisplayStatus.NOT_AVAILABLE)
-        // A fresh page each run: the server numbers command buffers from 1.
-        val fenceFile = File(runtime.cacheDir, "hypocket-fences.bin")
-        fenceFile.writeBytes(ByteArray(FENCE_PAGE_SIZE))
-        val fenceEnv = mapOf("HYPOCKET_FENCE_PATH" to fenceFile.absolutePath)
         val display = launch.display
-        val serverEnv = fenceEnv +
+        val serverEnv =
             (if (display != null) mapOf("HYPOCKET_DISPLAY_SOCKET" to display.socketName) else emptyMap()) +
-            launch.serverEnv
-        val (server, failureLog) = VirglServer.start(runtime, serverEnv)
+                launch.serverEnv
+        // The audio ring in memory rather than in a file: a shared file is
+        // written back to storage now and then, and writing to it meanwhile
+        // can stall the game's audio thread on a phone with slow storage.
+        val memfds = if (launch.audioFile != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            mapOf(AUDIO_MEMFD to AudioOutput.RING_BYTES)
+        } else {
+            emptyMap()
+        }
+        val (server, failureLog) = VirglServer.start(runtime, serverEnv, memfds)
         if (server == null) return Result(DisplayStatus.SERVER_FAILED, serverOutput = failureLog)
-        val audio = launch.audioFile?.let { AudioOutput.create(it) }
+        val audio = launch.audioFile?.let { file ->
+            server.memfdPath(AUDIO_MEMFD)?.let { AudioOutput.create(file, memoryPath = it) } ?: AudioOutput.create(file)
+        }
         val gameEnv = buildMap {
             putAll(server.guestEnvironment)
             put("MESA_GL_VERSION_OVERRIDE", "4.1")
             put("MESA_GLSL_VERSION_OVERRIDE", "410")
-            putAll(fenceEnv)
             // Precise fences between our Mesa and our VirGL server (see
             // engine/third_party/mesa-guest).
             put("HYPOCKET_FENCES", if (launch.preciseFences) "1" else "0")
             if (display != null) put("HYPOCKET_PRESENT", "1")
-            if (audio != null) put("HYPOCKET_AUDIO_PATH", audio.file.absolutePath)
+            if (audio != null) put("HYPOCKET_AUDIO_PATH", audio.path)
             putAll(launch.env)
         }
         try {
@@ -117,11 +123,10 @@ class GuestGame(context: Context) {
             }
         } finally {
             audio?.close()
-            fenceFile.delete()
         }
     }
 
     private companion object {
-        const val FENCE_PAGE_SIZE = 4096
+        const val AUDIO_MEMFD = "audio"
     }
 }

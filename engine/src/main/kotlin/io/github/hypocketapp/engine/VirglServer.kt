@@ -18,6 +18,22 @@ internal class VirglServer private constructor(
 
     val log: String get() = synchronized(output) { output.toString() }
 
+    /**
+     * The path of the shared memory [name] the server made (see [start]'s
+     * `memfds`), or null. The app and the game open it like a file.
+     */
+    fun memfdPath(name: String): String? {
+        val prefix = "$MEMFD_LOG$name "
+        // The server prints the lines before its socket exists, but they can
+        // still be on their way through the output pipe.
+        repeat(20) {
+            log.lineSequence().firstOrNull { it.startsWith(prefix) }?.let { return it.removePrefix(prefix).trim() }
+            if (!process.isAlive) return null
+            Thread.sleep(25)
+        }
+        return null
+    }
+
     /** Environment the guest needs to reach this server through Mesa's virgl driver. */
     val guestEnvironment: Map<String, String>
         get() = mapOf(
@@ -40,11 +56,21 @@ internal class VirglServer private constructor(
 
     companion object {
         private const val MAX_OUTPUT_CHARS = 32 * 1024
+        private const val MEMFD_LOG = "hypocket-memfd: "
 
         fun binary(runtime: GuestRuntime) = File(runtime.nativeLibDir, "libvirgl_server.so")
 
-        /** Starts the server, or returns null and the server's log if it did not come up. */
-        fun start(runtime: GuestRuntime, extraEnv: Map<String, String> = emptyMap()): Pair<VirglServer?, String> {
+        /**
+         * Starts the server, or returns null and the server's log if it did not
+         * come up. [memfds] (name to bytes) are pieces of shared memory the
+         * server makes for the app and the game: see [memfdPath]. They need
+         * memfd_create, which apps may only call from Android 11 on.
+         */
+        fun start(
+            runtime: GuestRuntime,
+            extraEnv: Map<String, String> = emptyMap(),
+            memfds: Map<String, Int> = emptyMap(),
+        ): Pair<VirglServer?, String> {
             val socket = File(runtime.cacheDir, "virgl.sock")
             socket.delete()
             val process = ProcessBuilder(
@@ -62,6 +88,9 @@ internal class VirglServer private constructor(
                     environment()["VREND_DEBUG"] = "feat"
                     environment()["VIRGL_LOG_LEVEL"] = "debug"
                     environment().putAll(extraEnv)
+                    if (memfds.isNotEmpty()) {
+                        environment()["HYPOCKET_MEMFDS"] = memfds.entries.joinToString(",") { "${it.key}:${it.value}" }
+                    }
                 }
                 .start()
             val output = StringBuilder()
