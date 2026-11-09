@@ -329,6 +329,14 @@ private fun BlocksScreen(
             delay(250)
         }
     }
+    // A note picked up in the world opens at once.
+    var notesSeen by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(stats.ready, stats.notesOpened) {
+        if (!stats.ready) return@LaunchedEffect
+        val seen = notesSeen
+        if (seen != null && stats.notesOpened > seen) pause.showNote(stats.noteId)
+        notesSeen = stats.notesOpened
+    }
     // Survival: blocks just collected get a place in the hotbar.
     LaunchedEffect(stats.counts) { if (stats.ready) selection.fill(stats.counts) }
 
@@ -389,7 +397,17 @@ private fun BlocksScreen(
                 )
             }
             GoalDone(stats)
-            if (pause.open.value) PausePanel(pause, settings, onSettings, onSaveAndExit = { session.stop() })
+            if (stats.aimingNote && !stats.aimingBeacon) {
+                Text(
+                    stringResource(R.string.blocks_note_aim),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.align(Alignment.Center).padding(top = 72.dp)
+                        .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                )
+            }
+            if (pause.open.value) PausePanel(pause, settings, onSettings, onSaveAndExit = { session.stop() }, notesFound = stats.notesFound)
         }
         if (finished != null) {
             // The pointer works normally again on the report.

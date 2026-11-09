@@ -984,14 +984,16 @@ static Sky sky_at(float t) {
  * encoded as (count 1-255, block id) byte pairs, x outermost, then y, then z.
  * Must match BlocksWorlds.kt, which reads the header. */
 #define SAVE_MAGIC 0x57425048u /* "HPBW" */
-#define SAVE_VERSION 4
+#define SAVE_VERSION 5
 /* Version 1 had no time of day (those fields were reserved and zero) and
  * starts in the morning; versions 1 and 2 had no inventory and start with an
  * empty one. Version 3 adds the inventory after the block data: one 16-bit
  * count per block id, inventory_size bytes in all (block ids only ever grow,
  * so a longer list comes from a newer game and its extra counts are dropped).
  * Version 4 keeps the time played and the goal's state (beacons); earlier
- * versions get their beacons on load. */
+ * versions get their beacons on load. Version 5 keeps the same layout and
+ * adds goal_flags bits: GOAL_RUINS, GOAL_AWAY and, from NOTE_SHIFT up, the
+ * notes found; earlier versions get their ruins on load. */
 typedef struct {
     uint32_t magic;
     uint32_t version;
@@ -1003,12 +1005,15 @@ typedef struct {
     uint32_t days;             /* version 2: full days passed */
     uint32_t inventory_size;   /* version 3: bytes of inventory after the block data */
     float play_seconds;        /* version 4: time played in this world */
-    uint32_t goal_flags;       /* version 4: GOAL_PLACED | GOAL_DONE */
+    uint32_t goal_flags;       /* version 4: GOAL_PLACED | GOAL_DONE; version 5: see below */
     float done_seconds;        /* version 4: time played when the last beacon was lit */
 } SaveHeader;
 
 #define GOAL_PLACED 1u /* the beacons were put in the world */
 #define GOAL_DONE 2u   /* every beacon is lit */
+#define GOAL_RUINS 4u  /* version 5: the ruins were put in the world */
+#define GOAL_AWAY 8u   /* version 5: saved on the other side (the position is where the player was taken) */
+#define NOTE_SHIFT 16  /* version 5: goal_flags bit NOTE_SHIFT + n: note n was found */
 static float play_seconds, done_seconds;
 static uint32_t goal_flags;
 
@@ -1208,6 +1213,191 @@ static int calm_at(float x, float z) {
         if (dx * dx + dz * dz < BEACON_CALM * BEACON_CALM) return 1;
     }
     return 0;
+}
+
+/* ---- Ruins and notes ----------------------------------------------------- */
+
+/* Villages wrecked by the night creatures stand between the start and the
+ * beacons, where the seed puts them. Each house belonged to someone: some
+ * left a note or a phone behind, some only broken furniture. Notes lie in the
+ * open too. They are not blocks: they are drawn as small boxes where the
+ * seed puts them (the lowest air in that column, so on the floor), and found
+ * ones are kept in goal_flags. Their words are in the app (StoryNotes.kt):
+ * the game only says which one was opened. Note NOTES - 1 lies on the other
+ * side. */
+#define NOTES 9
+#define NOTE_AWAY (NOTES - 1)
+#define HOUSES_PER_VILLAGE 4
+enum { NOTE_PAPER, NOTE_PHONE };
+static const int note_kind[NOTES] = {NOTE_PAPER, NOTE_PAPER, NOTE_PHONE, NOTE_PAPER, NOTE_PHONE,
+                                     NOTE_PAPER, NOTE_PHONE, NOTE_PAPER, NOTE_PAPER};
+static float note_x[NOTES], note_y[NOTES], note_z[NOTES], note_yaw[NOTES];
+static int note_here[NOTES]; /* in the world being shown */
+
+static int villages(void) { return CHUNKS >= 24 ? 4 : CHUNKS >= 16 ? 3 : 2; }
+
+static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+static void village_center(int v, int* x, int* z) {
+    float a = (v + 0.5f) * 6.2831853f / villages() + rand01(world_seed, 9, 41) * 6.2831853f, r = WX * 0.2f;
+    *x = clampi((int)(WX / 2 + cosf(a) * r), 10, WX - 11);
+    *z = clampi((int)(WZ / 2 + sinf(a) * r), 10, WZ - 11);
+}
+
+static void house_spot(int h, int* x, int* z) {
+    static const int off[HOUSES_PER_VILLAGE][2] = {{-8, -7}, {7, -8}, {-7, 8}, {8, 7}};
+    int cx, cz;
+    village_center(h / HOUSES_PER_VILLAGE, &cx, &cz);
+    int jx = (int)(rand01(world_seed + h, 11, 43) * 5) - 2, jz = (int)(rand01(world_seed + h, 13, 47) * 5) - 2;
+    *x = clampi(cx + off[h % HOUSES_PER_VILLAGE][0] + jx, 6, WX - 7);
+    *z = clampi(cz + off[h % HOUSES_PER_VILLAGE][1] + jz, 6, WZ - 7);
+}
+
+/* The lowest air in a column: the floor a note lies on. */
+static int lowest_air(int x, int z) {
+    for (int y = 0; y < WY; y++)
+        if (world[x][y][z] == AIR) return y;
+    return WY - 1;
+}
+
+/* The ground under trees: the highest block that is not air, leaves or wood. */
+static int ground_top(int x, int z) {
+    int y = WY - 1;
+    while (y > 0 && (world[x][y][z] == AIR || world[x][y][z] == LEAVES || world[x][y][z] == WOOD)) y--;
+    return y;
+}
+
+static int is_natural(int b) {
+    return b == AIR || b == GRASS || b == DIRT || b == STONE || b == SAND || b == WOOD || b == LEAVES || b == WATER;
+}
+
+/* One ruined house: a floor, broken walls, what is left of the roof and of
+ * the furniture, and rubble outside. Skipped on water, and where anything
+ * not natural stands (an old world's buildings are never touched). */
+static void build_house(int h) {
+    int cx, cz;
+    house_spot(h, &cx, &cz);
+    int half = rand01(world_seed, h, 45) < 0.5f ? 2 : 3, g = ground_top(cx, cz);
+    if (g <= WATER_LEVEL + 1 || g > WY - 9) return;
+    for (int dx = -half - 1; dx <= half + 1; dx++)
+        for (int dz = -half - 1; dz <= half + 1; dz++)
+            for (int dy = -1; dy <= 6; dy++)
+                if (!is_natural(world[cx + dx][g + dy][cz + dz])) return;
+    static const int walls[4] = {PLASTER, BRICKS, PLANKS, STONE_BRICKS};
+    int mat = walls[hash3(world_seed, h, 49) % 4];
+    for (int dx = -half; dx <= half; dx++)
+        for (int dz = -half; dz <= half; dz++) {
+            int x = cx + dx, z = cz + dz;
+            for (int dy = -3; dy <= -1; dy++)
+                if (world[x][g + dy][z] == AIR || world[x][g + dy][z] == WATER) world[x][g + dy][z] = DIRT;
+            world[x][g][z] = PLANKS;
+            for (int dy = 1; dy <= 6; dy++) world[x][g + dy][z] = AIR;
+            int edge = abs(dx) == half || abs(dz) == half, corner = abs(dx) == half && abs(dz) == half;
+            if (edge)
+                for (int dy = 1; dy <= 3; dy++) {
+                    float r = rand01(x, g + dy, z + world_seed);
+                    int b = r > 0.1f + 0.24f * (dy - 1) || (corner && dy < 3) ? mat : AIR;
+                    if (dz == half && dx == 0 && dy <= 2) b = AIR; /* the doorway */
+                    else if (dy == 2 && (dx == 0 || dz == 0) && !corner) b = r > 0.6f ? GLASS : AIR;
+                    world[x][g + dy][z] = (uint8_t)b;
+                }
+            if (rand01(x, g + 4, z + world_seed) < 0.45f) world[x][g + 4][z] = ROOF;
+        }
+    /* Furniture, broken: a table on its side, an emptied shelf, a bed. */
+    world[cx - half + 1][g + 1][cz - half + 1] = PLANKS;
+    world[cx - half + 2][g + 1][cz - half + 1] = WOOD;
+    world[cx + half - 1][g + 1][cz - half + 1] = PLANKS;
+    if (rand01(cx, g, cz) < 0.5f) world[cx + half - 1][g + 2][cz - half + 1] = PLANKS;
+    world[cx - half + 1][g + 1][cz + half - 1] = PLASTER;
+    /* Rubble outside. */
+    for (int k = 0; k < 5; k++) {
+        float a = rand01(h, k, 51 + world_seed) * 6.2831853f, d = half + 1.5f + 2 * rand01(h, k, 53);
+        int x = clampi((int)(cx + cosf(a) * d), 1, WX - 2), z = clampi((int)(cz + sinf(a) * d), 1, WZ - 2);
+        int y = lowest_air(x, z);
+        if (y < WY - 1 && is_natural(world[x][y - 1][z]) && world[x][y - 1][z] != WATER) world[x][y][z] = (uint8_t)mat;
+    }
+}
+
+static void place_ruins(void) {
+    for (int h = 0; h < villages() * HOUSES_PER_VILLAGE; h++) build_house(h);
+}
+
+/* Where the notes of this world lie: one near the start, five in houses
+ * (others stay empty), one dropped in the open, one at a beacon. */
+static void find_notes(float spawn_x, float spawn_z) {
+    static const int in_house[5] = {0, 2, 3, 5, 6};
+    for (int n = 0; n < NOTES; n++) {
+        int x, z;
+        if (n == 0) {
+            x = clampi((int)spawn_x + 4, 1, WX - 2);
+            z = clampi((int)spawn_z + 3, 1, WZ - 2);
+        } else if (n <= 5) {
+            house_spot(in_house[n - 1], &x, &z);
+            x += 1;
+        } else if (n == 6) {
+            int vx, vz, bx, bz;
+            village_center(0, &vx, &vz);
+            beacon_spot(0, &bx, &bz);
+            x = vx + (bx - vx) * 3 / 5;
+            z = vz + (bz - vz) * 3 / 5;
+        } else if (n == 7) {
+            beacon_spot(1, &x, &z);
+            x += 1;
+        } else {
+            note_here[n] = 0; /* on the other side */
+            continue;
+        }
+        x = clampi(x, 1, WX - 2);
+        z = clampi(z, 1, WZ - 2);
+        if (n == 0 || n >= 6) { /* in the open: the nearest spot with only sky above, off the water */
+            for (int r = 0, found = 0; r <= 5 && !found; r++)
+                for (int dx = -r; dx <= r && !found; dx++)
+                    for (int dz = -r; dz <= r && !found; dz++) {
+                        int cx = clampi(x + dx, 2, WX - 3), cz = clampi(z + dz, 2, WZ - 3), y = lowest_air(cx, cz), open = 1;
+                        for (int k = y; k < WY && open; k++) open = world[cx][k][cz] == AIR;
+                        for (int k = 0; k < 9 && open; k++) /* and room around it */
+                            for (int h = 0; h < 3 && open && y + h < WY; h++)
+                                open = !is_solid(world[cx + k % 3 - 1][y + h][cz + k / 3 - 1]);
+                        if (open && y > 0 && world[cx][y - 1][cz] != WATER) { x = cx; z = cz; found = 1; }
+                    }
+        }
+        note_x[n] = x + 0.5f;
+        note_z[n] = z + 0.5f;
+        note_y[n] = (float)lowest_air(x, z);
+        note_yaw[n] = rand01(world_seed, n, 55) * 6.2831853f;
+        note_here[n] = 1;
+    }
+}
+
+/* Where a ray from o along d meets the box lo-hi within max_t (in *t), or 0. */
+static int ray_box(const float* o, const float* d, const float* lo, const float* hi, float max_t, float* t) {
+    float t0 = 0, t1 = max_t;
+    for (int k = 0; k < 3; k++) {
+        if (fabsf(d[k]) < 1e-6f) {
+            if (o[k] < lo[k] || o[k] > hi[k]) return 0;
+            continue;
+        }
+        float a = (lo[k] - o[k]) / d[k], b = (hi[k] - o[k]) / d[k];
+        if (a > b) { float tmp = a; a = b; b = tmp; }
+        if (a > t0) t0 = a;
+        if (b < t1) t1 = b;
+        if (t0 > t1) return 0;
+    }
+    *t = t0;
+    return 1;
+}
+
+/* The note under the crosshair within max_t (a generous box: they are small), or -1. */
+static int note_on_ray(const float* o, const float* d, float max_t, float* t) {
+    int best = -1;
+    *t = max_t;
+    for (int n = 0; n < NOTES; n++) {
+        if (!note_here[n]) continue;
+        float lo[3] = {note_x[n] - 0.35f, note_y[n], note_z[n] - 0.35f};
+        float hi[3] = {note_x[n] + 0.35f, note_y[n] + 0.3f, note_z[n] + 0.35f}, tn;
+        if (ray_box(o, d, lo, hi, *t, &tn)) { *t = tn; best = n; }
+    }
+    return best;
 }
 
 /* ---- Shelters ---------------------------------------------------------- */
@@ -2204,7 +2394,7 @@ int main(int argc, char** argv) {
     GLint ui_fog_end = p_glGetUniformLocation(inst_program, "fog_end");
     GLint ui_ambient = p_glGetUniformLocation(inst_program, "ambient");
     /* Instances: two boxes per creature, one per particle. */
-    enum { MAX_INSTANCES = MAX_CREATURES * 2 + MAX_NIGHT * 4 + MAX_PARTICLES };
+    enum { MAX_INSTANCES = MAX_CREATURES * 2 + MAX_NIGHT * 4 + MAX_PARTICLES + 64 };
     static float instances[MAX_INSTANCES][INSTANCE_FLOATS];
     GLuint inst_vao, inst_vbo;
     p_glGenVertexArrays(1, &inst_vao);
@@ -2237,6 +2427,11 @@ int main(int argc, char** argv) {
     if (!(max_frames && getenv("HYPOCKET_BLOCKS_BENCH")) && !(goal_flags & GOAL_PLACED)) {
         place_beacons();
         goal_flags |= GOAL_PLACED;
+        world_changed = 1;
+    }
+    if (!(max_frames && getenv("HYPOCKET_BLOCKS_BENCH")) && !(goal_flags & GOAL_RUINS)) {
+        place_ruins();
+        goal_flags |= GOAL_RUINS;
         world_changed = 1;
     }
     find_beacons();
@@ -2286,6 +2481,11 @@ int main(int argc, char** argv) {
             }
     while (spawn_y > 1 && !collides(spawn_x, spawn_y - 1, spawn_z)) spawn_y -= 1;
     if (!loaded) player = (Player){spawn_x, spawn_y, spawn_z, 0, 0, -0.25f, 0};
+    if (goal_flags & GOAL_RUINS) {
+        find_notes(spawn_x, spawn_z);
+        printf("blocks: start at %.1f %.1f %.1f, first note at %.1f %.1f %.1f\n", spawn_x, spawn_y, spawn_z, note_x[0],
+               note_y[0], note_z[0]);
+    }
     if (getenv("HYPOCKET_BLOCKS_TEST_ROOM")) { /* testing: a closed room with a lamp around the start */
         int rx = (int)spawn_x, ry = (int)spawn_y, rz = (int)spawn_z, open = atoi(getenv("HYPOCKET_BLOCKS_TEST_ROOM")) == 2;
         for (int dx = -2; dx <= 2; dx++)
@@ -2353,7 +2553,7 @@ int main(int argc, char** argv) {
     double stats_wait = 0, bench_start = 0, bench_work = 0, bench_wait = 0;
     int bench_frames = 0;
     const int bench_warmup = 60; /* frames left out: shaders, caches, ramp-up */
-    int step_variant = 0, was_in_water = 0, jump_was = 0, sheltered = 0;
+    int step_variant = 0, was_in_water = 0, jump_was = 0, sheltered = 0, aiming_note = 0;
     double last_save = last;
     if (bench) save_path = NULL; /* the benchmark never touches saves */
 
@@ -2462,6 +2662,28 @@ int main(int argc, char** argv) {
                 float bx = hit[0] + 0.5f - ex, by = hit[1] + 0.5f - ey, bz = hit[2] + 0.5f - ez;
                 block_t = sqrtf(bx * bx + by * by + bz * bz) - 0.5f;
             }
+            /* A note under the crosshair, nearer than the block, is picked up and read. */
+            {
+                float o[3] = {ex, ey, ez}, d[3] = {rdx, rdy, rdz}, note_t, face_t = 1e9f;
+                if (block_hit) {
+                    float lo[3] = {(float)hit[0], (float)hit[1], (float)hit[2]}, hi[3] = {hit[0] + 1.0f, hit[1] + 1.0f, hit[2] + 1.0f};
+                    if (!ray_box(o, d, lo, hi, 10.0f, &face_t)) face_t = 1e9f;
+                }
+                int note = note_on_ray(o, d, 3.5f, &note_t);
+                if (note >= 0 && note_t < face_t) {
+                    io->note_id = note;
+                    io->notes_opened++;
+                    if (!(goal_flags & (1u << (NOTE_SHIFT + note)))) {
+                        goal_flags |= 1u << (NOTE_SHIFT + note);
+                        world_changed = 1;
+                    }
+                    play_sound(SND_PLACE, 0.4f, 0, 1.8f);
+                    printf("blocks: note %d opened\n", note);
+                    block_hit = 0;
+                    breaks = seen_breaks; /* nothing else happens with this press */
+                    places = seen_places;
+                }
+            }
             if (breaks != seen_breaks) target = creature_on_ray(ex, ey, ez, rdx, rdy, rdz, 3.5f, &creature_t, &is_night_kind);
             if (target >= 0 && creature_t < block_t) {
                 Creature* c = is_night_kind ? &night[target] : &creatures[target];
@@ -2529,8 +2751,8 @@ int main(int argc, char** argv) {
                     }
                 }
             }
-            seen_breaks = breaks;
-            seen_places = places;
+            seen_breaks = io->breaks;
+            seen_places = io->places;
         }
         if (!bench) {
             if (time_lock < 0) day_time += dt / day_seconds;
@@ -2563,7 +2785,17 @@ int main(int argc, char** argv) {
             io->done_seconds = (int)done_seconds;
             io->mist_percent = (int)(mist * 100);
             int aim[3], aim_before[3];
-            io->aiming_beacon = raycast(&player, aim, aim_before) && block_at(aim[0], aim[1], aim[2]) == BEACON_OFF;
+            int aimed = raycast(&player, aim, aim_before);
+            io->aiming_beacon = aimed && block_at(aim[0], aim[1], aim[2]) == BEACON_OFF;
+            float o[3] = {player.x, player.y + EYE_HEIGHT, player.z};
+            float dir[3] = {cosf(player.pitch) * sinf(player.yaw), sinf(player.pitch), -cosf(player.pitch) * cosf(player.yaw)};
+            float note_t, block_t = 1e9f;
+            if (aimed) {
+                float lo[3] = {(float)aim[0], (float)aim[1], (float)aim[2]}, hi[3] = {aim[0] + 1.0f, aim[1] + 1.0f, aim[2] + 1.0f};
+                if (!ray_box(o, dir, lo, hi, 10.0f, &block_t)) block_t = 1e9f;
+            }
+            aiming_note = note_on_ray(o, dir, 3.5f, &note_t) >= 0 && note_t < block_t;
+            io->notes_found = (int)(goal_flags >> NOTE_SHIFT);
         }
         /* ---- Recipes ---- */
         int crafts = io->crafts;
@@ -2666,7 +2898,8 @@ int main(int argc, char** argv) {
             if (health > MAX_HEALTH) health = MAX_HEALTH;
         }
         io->health_tenths = (int)ceilf(health * 10 - 0.01f);
-        io->story_flags = (grab_by >= 0 ? STORY_GRABBED : 0) | (sheltered ? STORY_SHELTERED : 0);
+        io->story_flags = (grab_by >= 0 ? STORY_GRABBED : 0) | (sheltered ? STORY_SHELTERED : 0) |
+                          (aiming_note ? STORY_AIM_NOTE : 0);
         update_particles(dt);
         /* Chunks whose blocks changed are meshed now; those where only lamp
          * light moved wait their turn, two a frame, to avoid a hitch. */
@@ -2775,6 +3008,26 @@ int main(int argc, char** argv) {
                     triangles += 48;
                 }
                 creatures_drawn++;
+            }
+        }
+        /* Notes: a sheet of paper, or a phone whose screen still glows. */
+        for (int k = 0; k < NOTES; k++) {
+            if (!note_here[k]) continue;
+            float dx = note_x[k] - player.x, dz = note_z[k] - player.z;
+            if (dx * dx + dz * dz > far * far) continue;
+            if (note_kind[k] == NOTE_PAPER) {
+                float paper[INSTANCE_FLOATS] = {note_x[k], note_y[k] + 0.012f, note_z[k], 0.2f, 0.012f, 0.27f, note_yaw[k],
+                                                0.92f, 0.9f, 0.82f};
+                memcpy(instances[n++], paper, sizeof paper);
+                triangles += 12;
+            } else {
+                float body[INSTANCE_FLOATS] = {note_x[k], note_y[k] + 0.02f, note_z[k], 0.07f, 0.02f, 0.13f, note_yaw[k],
+                                               0.12f, 0.12f, 0.14f};
+                float screen[INSTANCE_FLOATS] = {note_x[k], note_y[k] + 0.042f, note_z[k], 0.055f, 0.003f, 0.11f, note_yaw[k],
+                                                 2.45f, 2.7f, 2.95f};
+                memcpy(instances[n++], body, sizeof body);
+                memcpy(instances[n++], screen, sizeof screen);
+                triangles += 24;
             }
         }
         for (int i = 0; i < MAX_PARTICLES; i++) {

@@ -136,4 +136,71 @@
     <string name="blocks_taken">Something dragged you into the mist… and you woke up at the start.</string>
     <string name="blocks_grabbed">It has you! Press jump again and again to break free</string>
     <string name="blocks_sheltered">Sheltered: the mist and the creatures stay outside</string>
+
+    <!-- The story's notes (see StoryNotes.kt and blocks/docs/story.md). -->
+    <string name="story_note_0_title">To whoever comes</string>
+    <string name="story_note_0_text">They come with the mist and the dark. Whether they are one with the mist, or use it at night to hide from the light, we don’t know. The only thing those still alive know is that they don’t stop once they find you. They are clever, and they will do anything to drag you away. Where to? We have no idea either.\n\nAll we know is that they don’t seem to eat human flesh. So why take survivors and drag them to wherever their lair is? Again, we don’t know. The why is a frightening mystery. They take any living thing they find and drag it through the mist.\n\nThey are hard to kill. If you see one, don’t shoot and don’t try to fight: just run. That is the last desperate thing you can do to save your life. It is how I lived long enough to write this for those who will come here.\n\nAnd know this: if you are reading it, I am probably already dead.</string>
+    <string name="story_note_1_title">Mrs. Lurdes’s notebook</string>
+    <string name="story_note_1_text">Day 3. The mist demons came back. The priest used to say the end would come with fire, but it came with mist. I left the candle burning in the window. God will see it.\n\nDay 5. The neighbours left down the road. I am staying. This house has been mine for forty years.\n\nDay 6. The mist touched the window today. The candle flickered but did not go out. They stood outside, watching. They don’t come in where there is light and a closed door. Not yet.\n\nDay 9. The candles are gone.</string>
+    <string name="story_note_2_title">Mom</string>
+    <string-array name="story_note_2_chat">
+        <item>|mom where are u</item>
+        <item>|the mist got to school, they sent everyone home</item>
+        <item>Mom|Stay home, lock the door and turn on every light. I’m coming</item>
+        <item>|mom there’s something in the street</item>
+        <item>|tall, standing still, eyes glowing</item>
+        <item>|it’s looking at the window</item>
+        <item>Mom|Don’t open the door for anyone</item>
+        <item>|it’s not knocking. it’s waiting</item>
+        <item>|the kitchen light just died</item>
+        <item>|mom</item>
+        <item>Mom|Caio?</item>
+        <item>Mom|Caio answer me</item>
+        <item>Mom|I’m almost there, son</item>
+        <item>Mom|Caio</item>
+    </string-array>
+    <string name="story_note_3_title">Notes of R. Teixeira, tower technician</string>
+    <string name="story_note_3_text">The beacon towers were built before I was born. Nobody remembered what they were for. Now I know.\n\nThe mist is not smoke and not gas. It comes out of cracks in the air, one next to each dark tower. The air is torn there, and the other side is dark. I think the ones from over there come through them.\n\nWith the tower’s crystal lit, the crack closes. Relighting a crystal takes two lamps and three panes of glass. I relit one tower and the mist drew back at once.\n\nI’ll try the next one. If anyone finds this: light the towers.</string>
+    <string name="story_note_4_title">Acacia Street</string>
+    <string-array name="story_note_4_chat">
+        <item>Mr. Jorge|Folks, if anyone has spare bricks let me know</item>
+        <item>Bia|what for?</item>
+        <item>Mr. Jorge|To close up the back room. No window, no gap. The mist doesn’t get in where it’s sealed tight</item>
+        <item>Marta|and leave a light in there. they hate light</item>
+        <item>Bia|at home we call them shadows. my grandma says they’re souls</item>
+        <item>Mr. Jorge|Souls don’t drag people away, Bia</item>
+        <item>Marta|they took Toninho’s horse yesterday. pulled it into the mist and it was gone. not even blood</item>
+        <item>Bia|has anyone seen Toninho?</item>
+        <item>Mr. Jorge|Stay in the closed rooms. We’ll talk early tomorrow</item>
+        <item>Bia|guys?</item>
+        <item>Bia|is anyone there?</item>
+    </string-array>
+    <string name="story_note_5_title">Ana’s note</string>
+    <string name="story_note_5_text">Dad, Biscuit went out to bark at the mist and the shadows took him. I saw it. They didn’t bite him, they just pulled.\n\nHe’s coming back, right? I left his food by the door.\n\nI’m sorry I opened the door.\n\nAna</string>
+    <string name="story_note_6_title">Pedro</string>
+    <string-array name="story_note_6_chat">
+        <item>|Pedro, it’s me, Lucas</item>
+        <item>|I know it’s been two weeks</item>
+        <item>|I came back</item>
+        <item>Pedro|Lucas??? everyone thought you were dead</item>
+        <item>|they took me. dragged me through the mist and I blacked out</item>
+        <item>|I woke up somewhere with no day. dark ground, everything violet, and dozens of them walking around</item>
+        <item>|over there they run faster than us. running is no use</item>
+        <item>|light is no use either. I hid in a hole in the rock and closed it with whatever I found. they walked past and didn’t see me</item>
+        <item>|then I heard a hum. I followed it slowly and found a light. I walked into it and woke up in the woods</item>
+        <item>Pedro|where are you? I’ll come get you</item>
+        <item>|don’t come at night</item>
+        <item>|Pedro, there were other people there. alive. standing still</item>
+        <item>|I don’t think they want to kill us. I think they want something else</item>
+        <item>Pedro|Lucas?</item>
+    </string-array>
+    <string name="story_note_7_title">Torn leaflet</string>
+    <string name="story_note_7_text">THEY ARE NOT DEMONS. They are messengers.\n\nThose who are taken are chosen. The mist is a passage, not a plague.\n\nDO NOT LIGHT THE TOWERS. The light drives them away, and drives us away from the passage.\n\nI will wait for the mist with open arms. Come with me.</string>
+    <string name="story_note_8_title">Scratched on a stone</string>
+    <string name="story_note_8_text">I don’t know how many days. there is no day here.\n\nthey bring people and animals and leave them down deep, where the mist is thickest. nobody eats, nobody sleeps, nobody dies. they just stand there.\n\nI got out of the line. if you are reading this, you got out too.\n\ndon’t run. hide. light is no use here, only walls. and listen.</string>
+    <string name="blocks_note_aim">Read: use place</string>
+    <string name="blocks_notes">Notes found (%1$d of %2$d)</string>
+    <string name="blocks_notes_title">Notes found</string>
+    <string name="blocks_note_paper">Paper: %1$s</string>
+    <string name="blocks_note_phone">Phone: %1$s</string>
 </resources>

@@ -27,7 +27,7 @@ data class BlocksWorld(
 
     /**
      * Seconds played when the last beacon was lit, read from the save's header
-     * (HPBW version 4, see SaveHeader in blocks.c); null until then.
+     * (HPBW version 4 and later, see SaveHeader in blocks.c); null until then.
      */
     val completedSeconds: Int?
         get() = runCatching {
