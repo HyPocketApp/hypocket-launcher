@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="bench_hint">Cerca de 2 a 3 minutos. Deixe o app aberto.</string>
     <string name="bench_legend">Jogo: o trabalho do próprio jogo por quadro, pelo tradutor. Espera: pela GPU e pelo servidor VirGL. Servidor: tempo rodando os comandos gráficos do jogo por quadro.</string>
     <string name="bench_row">%1$s: %2$.1f fps · jogo %3$.1f ms · espera %4$.1f ms · servidor %5$.1f ms</string>
@@ -141,7 +141,7 @@
     <string name="story_note_1_title">Caderno da Dona Lurdes</string>
     <string name="story_note_1_text">Dia 3. Os demônios da névoa voltaram. O padre dizia que o fim viria com fogo, mas veio com névoa. Deixei a vela acesa na janela. Deus há de ver.\n\nDia 5. Os vizinhos foram embora pela estrada. Eu fico. Esta casa é minha há quarenta anos.\n\nDia 6. A névoa encostou na janela hoje. A vela tremeu, mas não apagou. Eles ficaram parados lá fora, olhando. Não entram onde tem luz e porta fechada. Ainda não.\n\nDia 9. Acabaram as velas.</string>
     <string name="story_note_2_title">Mãe</string>
-    <string-array name="story_note_2_chat">
+    <string-array name="story_note_2_chat" tools:ignore="Typos">
         <item>|mãe cadê vc</item>
         <item>|a névoa chegou na escola, mandaram todo mundo pra casa</item>
         <item>Mãe|Filho, fica em casa, tranca a porta e acende todas as luzes. Tô indo</item>
@@ -176,7 +176,7 @@
     <string name="story_note_5_title">Bilhete da Ana</string>
     <string name="story_note_5_text">Pai, o Biscoito saiu pra latir pra névoa e as sombras levaram ele. Eu vi. Elas não morderam ele, só puxaram.\n\nEle vai voltar, né? Deixei a ração na porta.\n\nDesculpa eu ter aberto a porta.\n\nAna</string>
     <string name="story_note_6_title">Pedro</string>
-    <string-array name="story_note_6_chat">
+    <string-array name="story_note_6_chat" tools:ignore="Typos">
         <item>|Pedro, sou eu, o Lucas</item>
         <item>|eu sei que faz duas semanas</item>
         <item>|eu voltei</item>
