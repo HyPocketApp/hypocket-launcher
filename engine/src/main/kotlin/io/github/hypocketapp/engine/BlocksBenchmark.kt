@@ -28,6 +28,8 @@ class BlocksBenchmark(private val context: Context) {
         val serverEnv: Map<String, String> = emptyMap(),
         /** Share of the screen's width and height. */
         val scalePercent: Int = 100,
+        /** Runs [WARM_UP_FRAMES] frames and is left out of the results. */
+        val warmUp: Boolean = false,
     )
 
     data class PhaseResult(
@@ -55,7 +57,8 @@ class BlocksBenchmark(private val context: Context) {
                 session.run(
                     width, height, fpsLimit = 0, display = display,
                     options = BlocksOptions(
-                        heavy = true, benchmarkFrames = FRAMES, extraEnv = phase.env, serverEnv = phase.serverEnv,
+                        heavy = true, benchmarkFrames = if (phase.warmUp) WARM_UP_FRAMES else FRAMES,
+                        extraEnv = phase.env, serverEnv = phase.serverEnv,
                     ),
                 )
             }
@@ -71,17 +74,21 @@ class BlocksBenchmark(private val context: Context) {
                 serverBusyPercent = server?.groupValues?.get(2)?.toDoubleOrNull(),
                 report = report,
             )
-        }.toList()
+        }.filterNot { it.phase.warmUp }.toList()
 
     companion object {
         /** Frames per phase, the first 60 left out of the averages. */
         const val FRAMES = 600
+        const val WARM_UP_FRAMES = 300
 
         // Server options under test (declared before PHASES, which uses them).
         private val EARLY_FENCES_OFF = "HYPOCKET_FENCES_ON_MAIN_THREAD" to "1"
         private val ERROR_CHECK_EACH = "HYPOCKET_ERROR_CHECK_EACH" to "1"
 
         val PHASES = listOf(
+            // The first run on a cold phone is slower (CPU and GPU clocks
+            // still low, driver caches empty), which skewed the first phase.
+            Phase("warm-up", warmUp = true),
             // The server as it was before these options existed: fences
             // reported by its main thread only, GL errors checked after every
             // command.
