@@ -119,9 +119,9 @@ fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) 
 
     if (creating) {
         NewWorldDialog(
-            onCreate = { name, chunks, creative ->
+            onCreate = { name, chunks, creative, peaceful ->
                 creating = false
-                val world = store.create(name, chunks, creative)
+                val world = store.create(name, chunks, creative, peaceful)
                 worlds = store.list()
                 BlocksActivity.start(context, config(), heavy, world, dayMode)
             },
@@ -167,7 +167,13 @@ private fun WorldCard(world: BlocksWorld, onPlay: () -> Unit, onDelete: () -> Un
                     stringResource(
                         R.string.blocks_world_info_mode,
                         stringResource(sizeLabel(world.chunks)),
-                        stringResource(if (world.creative) R.string.blocks_mode_creative else R.string.blocks_mode_survival),
+                        stringResource(
+                            when {
+                                world.creative -> R.string.blocks_mode_creative
+                                world.peaceful -> R.string.blocks_mode_peaceful
+                                else -> R.string.blocks_mode_survival
+                            },
+                        ),
                         played,
                     ),
                     style = MaterialTheme.typography.bodySmall,
@@ -180,11 +186,12 @@ private fun WorldCard(world: BlocksWorld, onPlay: () -> Unit, onDelete: () -> Un
 }
 
 @Composable
-private fun NewWorldDialog(onCreate: (String, Int, Boolean) -> Unit, onDismiss: () -> Unit) {
+private fun NewWorldDialog(onCreate: (String, Int, Boolean, Boolean) -> Unit, onDismiss: () -> Unit) {
     val defaultName = stringResource(R.string.blocks_default_world_name)
     var name by rememberSaveable { mutableStateOf(defaultName) }
     var chunks by rememberSaveable { mutableIntStateOf(BlocksWorlds.SIZES[1]) }
     var creative by rememberSaveable { mutableStateOf(false) }
+    var peaceful by rememberSaveable { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.blocks_new_world)) },
@@ -215,10 +222,22 @@ private fun NewWorldDialog(onCreate: (String, Int, Boolean) -> Unit, onDismiss: 
                     stringResource(if (creative) R.string.blocks_creative_on else R.string.blocks_creative_off),
                     style = MaterialTheme.typography.bodySmall,
                 )
+                if (!creative) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(stringResource(R.string.blocks_peaceful), modifier = Modifier.weight(1f))
+                        Switch(checked = peaceful, onCheckedChange = { peaceful = it })
+                    }
+                    Text(
+                        stringResource(if (peaceful) R.string.blocks_peaceful_on else R.string.blocks_peaceful_off),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onCreate(name, chunks, creative) }) { Text(stringResource(R.string.blocks_create)) }
+            TextButton(onClick = { onCreate(name, chunks, creative, peaceful && !creative) }) {
+                Text(stringResource(R.string.blocks_create))
+            }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.blocks_cancel)) } },
     )

@@ -17,6 +17,8 @@ data class BlocksWorld(
     val saveFile: File,
     /** Unlimited blocks and nothing to collect. Worlds made before this choice existed are creative. */
     val creative: Boolean = true,
+    /** No creatures that attack. */
+    val peaceful: Boolean = false,
     /** The hotbar's blocks, as indices into the building palette; empty for the default. */
     val hotbar: List<Int> = emptyList(),
 ) {
@@ -41,7 +43,13 @@ class BlocksWorlds(private val directory: File) {
         if (ID.matches(id)) File(directory, id + META).takeIf { it.exists() }?.let { read(it) } else null
 
     /** A new world; the game generates its terrain the first time it is played. */
-    fun create(name: String, chunks: Int, creative: Boolean = false, random: Random = Random.Default): BlocksWorld {
+    fun create(
+        name: String,
+        chunks: Int,
+        creative: Boolean = false,
+        peaceful: Boolean = false,
+        random: Random = Random.Default,
+    ): BlocksWorld {
         require(chunks in SIZES) { "unsupported world size $chunks" }
         directory.mkdirs()
         val created = System.currentTimeMillis()
@@ -53,6 +61,7 @@ class BlocksWorlds(private val directory: File) {
             setProperty(KEY_SEED, random.nextInt(0, 1_000_000).toString())
             setProperty(KEY_CREATED, created.toString())
             setProperty(KEY_CREATIVE, creative.toString())
+            setProperty(KEY_PEACEFUL, peaceful.toString())
         }
         File(directory, id + META).outputStream().use { properties.store(it, "HyPocket Blocks world") }
         return checkNotNull(get(id))
@@ -94,6 +103,7 @@ class BlocksWorlds(private val directory: File) {
             createdMillis = properties.getProperty(KEY_CREATED)?.toLongOrNull() ?: meta.lastModified(),
             saveFile = File(directory, id + SAVE),
             creative = properties.getProperty(KEY_CREATIVE)?.toBooleanStrictOrNull() ?: true,
+            peaceful = properties.getProperty(KEY_PEACEFUL)?.toBooleanStrictOrNull() ?: false,
             hotbar = properties.getProperty(KEY_HOTBAR).orEmpty().split(",").mapNotNull { it.trim().toIntOrNull() },
         )
     }
@@ -111,6 +121,7 @@ class BlocksWorlds(private val directory: File) {
         private const val KEY_CREATED = "created"
         private const val KEY_CREATIVE = "creative"
         private const val KEY_HOTBAR = "hotbar"
+        private const val KEY_PEACEFUL = "peaceful"
         private val ID = Regex("w[0-9]+x*")
     }
 }

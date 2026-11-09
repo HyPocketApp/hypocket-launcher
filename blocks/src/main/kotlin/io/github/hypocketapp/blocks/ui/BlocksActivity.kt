@@ -19,7 +19,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -157,6 +159,7 @@ class BlocksActivity : ComponentActivity() {
                         heavy = heavy,
                         world = world,
                         creative = creative,
+                        peaceful = world?.peaceful ?: false,
                         dayMode = dayMode,
                         creatures = if (heavy) 0 else NORMAL_CREATURES,
                     ),
@@ -307,6 +310,11 @@ private fun BlocksScreen(
             ) {
                 if (stats.ready && stats.day > 0) Clock(stats)
                 if (world != null) SavedNotice(stats.saves, Modifier)
+                FaintedNotice(stats.deaths)
+            }
+            if (!options.creative) {
+                HealthBar(stats.healthTenths, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp))
+                HurtFlash(stats.hurts)
             }
         }
         if (finished != null) {
@@ -317,6 +325,8 @@ private fun BlocksScreen(
                 versionLine,
                 listOfNotNull(
                     world?.let { "World: ${it.chunks}x${it.chunks} chunks, saved ${finished.stats.saves} times" },
+                    "Health: ${finished.stats.healthTenths / 10.0}, fainted ${finished.stats.deaths} times, " +
+                        "hurt ${finished.stats.hurts} times, peaceful: ${options.peaceful}",
                     "Mode: ${if (options.creative) "creative" else "survival"}, carrying " +
                         BuildBlock.entries.mapIndexedNotNull { i, block ->
                             finished.stats.counts.getOrElse(i) { 0 }.takeIf { it > 0 }?.let { "${block.name.lowercase()} $it" }
@@ -521,6 +531,62 @@ private fun Clock(stats: BlocksStats) {
         modifier = Modifier.background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
             .padding(horizontal = 8.dp, vertical = 3.dp),
     )
+}
+
+/** Ten bars of health, red ones lost; it only shows when health is not full. */
+@Composable
+private fun HealthBar(tenths: Int, modifier: Modifier) {
+    if (tenths >= BlocksStats.MAX_HEALTH_TENTHS) return
+    Row(
+        modifier.background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(4.dp)).padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        repeat(BlocksStats.MAX_HEALTH_TENTHS / 10) { i ->
+            val fill = ((tenths - i * 10) / 10f).coerceIn(0f, 1f)
+            Box(Modifier.size(width = 14.dp, height = 8.dp).background(Color(0xFF5A1E1E), RoundedCornerShape(2.dp))) {
+                Box(Modifier.fillMaxHeight().fillMaxWidth(fill).background(Color(0xFFE8574A), RoundedCornerShape(2.dp)))
+            }
+        }
+    }
+}
+
+/** A short red flash over the screen each time the player is hurt. */
+@Composable
+private fun HurtFlash(hurts: Int) {
+    var seen by remember { mutableIntStateOf(hurts) }
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(hurts) {
+        if (hurts > seen) {
+            seen = hurts
+            visible = true
+            delay(250)
+            visible = false
+        }
+    }
+    if (visible) Box(Modifier.fillMaxSize().background(Color(0x55D02020)))
+}
+
+/** Says what happened when the player fainted and woke up at the start. */
+@Composable
+private fun FaintedNotice(deaths: Int) {
+    var seen by remember { mutableIntStateOf(deaths) }
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(deaths) {
+        if (deaths > seen) {
+            seen = deaths
+            visible = true
+            delay(4000)
+            visible = false
+        }
+    }
+    if (visible) {
+        Text(
+            stringResource(R.string.blocks_fainted),
+            color = Color.White,
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.background(Color(0xAA6E1A1A), RoundedCornerShape(4.dp)).padding(horizontal = 10.dp, vertical = 4.dp),
+        )
+    }
 }
 
 /** A short "world saved" notice each time the game writes the save file. */

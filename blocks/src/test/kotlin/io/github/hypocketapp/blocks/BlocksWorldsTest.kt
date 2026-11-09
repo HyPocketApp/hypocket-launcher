@@ -66,6 +66,15 @@ class BlocksWorldsTest {
     }
 
     @Test
+    fun peacefulIsChosenWhenCreated() {
+        val worlds = BlocksWorlds(folder.root)
+        assertFalse(worlds.create("A", 8).peaceful)
+        assertTrue(worlds.create("B", 8, peaceful = true).peaceful)
+        java.io.File(folder.root, "w1.properties").writeText("name=Old\nchunks=8\nseed=3\ncreated=1\n")
+        assertFalse(checkNotNull(worlds.get("w1")).peaceful)
+    }
+
+    @Test
     fun worldsFromBeforeTheChoiceAreCreative() {
         val worlds = BlocksWorlds(folder.root)
         java.io.File(folder.root, "w1.properties").writeText("name=Old\nchunks=8\nseed=3\ncreated=1\n")

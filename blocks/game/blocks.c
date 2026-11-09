@@ -103,6 +103,10 @@ typedef struct {
     int32_t finished;      /* 1 once the game has saved and is about to exit normally */
     int32_t reserved_out;
     int16_t counts[16];    /* blocks carried, in palette order (unlimited in creative mode) */
+    int32_t health_tenths; /* the player's health, 0-100 (MAX_HEALTH is 10 points) */
+    int32_t deaths;        /* times the player fainted and woke up at the start */
+    int32_t hurts;         /* incremented each time the player is hurt */
+    int32_t night_near;    /* night creatures within 24 blocks */
 } SharedIo;
 
 /* ---- OpenGL entry points ---------------------------------------------- */
@@ -828,6 +832,7 @@ static int world_changed; /* since the last save */
 /* ---- Inventory -------------------------------------------------------- */
 
 #define MAX_CARRIED 9999
+#define MAX_HEALTH 10.0f
 static uint16_t inventory[BLOCK_TYPES]; /* blocks carried, by block id */
 static int creative;                    /* unlimited blocks, nothing collected */
 
@@ -1042,28 +1047,53 @@ static int load_world(const char* path, Player* p) {
 
 /* ---- Creatures and particles ----------------------------------------- */
 
-/* Heavy mode fills the world with small wandering creatures. Each is two
- * boxes drawn with their own draw calls and uniforms, like the separate
- * objects of a real game, and each thinks and moves on the CPU. */
+/* Two kinds of creatures. Peaceful ones wander (heavy mode fills the world
+ * with them) and run away when touched or hit. Night ones come out in the
+ * dark away from lamps, chase and hurt the player, and vanish at daybreak or
+ * near a lamp. All of them think and move on the CPU and are drawn together
+ * with one instanced draw call (see the drawing in main). */
+enum { KIND_PEACEFUL, KIND_NIGHT };
+
 typedef struct {
     float x, y, z, vy, yaw, target_yaw, speed, timer, phase;
-    int on_ground, color;
+    int on_ground, color, kind, alive;
+    float hp, flee, cooldown, check; /* hits left; seconds to keep fleeing, until the next bite, the next lamp check */
 } Creature;
 
 #define MAX_CREATURES 300
+#define MAX_NIGHT 16
 static Creature creatures[MAX_CREATURES];
 static int creature_count;
+static Creature night[MAX_NIGHT];
+static int night_limit = 10; /* at once; 0 when nothing may attack */
 
 static const float creature_colors[6][3] = {
     {0.86f, 0.62f, 0.45f}, {0.55f, 0.72f, 0.88f}, {0.92f, 0.85f, 0.55f},
     {0.70f, 0.55f, 0.85f}, {0.60f, 0.82f, 0.60f}, {0.90f, 0.60f, 0.70f},
 };
+static const float night_color[3] = {0.50f, 0.40f, 0.72f}; /* dim purple at night, lit only by the moon */
+
+static void spawn_puff(float x, float y, float z, const float* color, int count, uint32_t tick);
 
 /* Top of the highest solid block at or below height y in column x, z. */
 static float ground_below(float x, float y, float z) {
     int bx = (int)floorf(x), bz = (int)floorf(z);
     for (int by = (int)floorf(y + 0.5f); by >= 0; by--)
         if (is_solid(block_at(bx, by, bz))) return by + 1.0f;
+    return 0;
+}
+
+/* Whether a lamp is within r blocks (a box) of x, y, z. Cheap away from lamps. */
+static int lamp_near(float x, float y, float z, int r) {
+    int bx = (int)floorf(x), by = (int)floorf(y), bz = (int)floorf(z), any = 0;
+    for (int i = (bx - r) / CHUNK; i <= (bx + r) / CHUNK && !any; i++)
+        for (int j = (bz - r) / CHUNK; j <= (bz + r) / CHUNK && !any; j++)
+            if (i >= 0 && j >= 0 && i < CHUNKS && j < CHUNKS && chunk_lamps[i][j]) any = 1;
+    if (!any) return 0;
+    for (int dx = -r; dx <= r; dx++)
+        for (int dy = -r / 2; dy <= r / 2; dy++)
+            for (int dz = -r; dz <= r; dz++)
+                if (block_at(bx + dx, by + dy, bz + dz) == LAMP) return 1;
     return 0;
 }
 
@@ -1082,51 +1112,190 @@ static void spawn_creatures(int count) {
         c->yaw = c->target_yaw = rand01(tries, 17, 7) * 6.2832f;
         c->color = creature_count % 6;
         c->timer = rand01(tries, 19, 9) * 3;
+        c->kind = KIND_PEACEFUL;
+        c->alive = 1;
     }
 }
 
-static void update_creatures(float dt, uint32_t tick) {
+static float wrap_angle(float a) {
+    while (a > 3.14159265f) a -= 6.2831853f;
+    while (a < -3.14159265f) a += 6.2831853f;
+    return a;
+}
+
+/* Turns towards target_yaw and moves at speed: hops up single blocks and
+ * turns back from water and the world's edge. Then falls onto the ground. */
+static void step_creature(Creature* c, float dt) {
+    c->yaw += wrap_angle(c->target_yaw - c->yaw) * (dt * 4 < 1 ? dt * 4 : 1);
+    float nx = c->x + sinf(c->yaw) * c->speed * dt, nz = c->z - cosf(c->yaw) * c->speed * dt;
+    int feet = (int)floorf(c->y + 0.1f);
+    int ahead = block_at((int)floorf(nx), feet, (int)floorf(nz));
+    if (nx < 1 || nz < 1 || nx > WX - 1 || nz > WZ - 1 || ahead == WATER ||
+        block_at((int)floorf(nx), feet - 1, (int)floorf(nz)) == WATER) {
+        c->target_yaw = c->yaw + 3.1416f; /* turn back from edges and water */
+        c->timer = 1.5f;
+    } else if (is_solid(ahead)) {
+        int tall = c->kind == KIND_NIGHT ? 2 : 1; /* room above the step for its height */
+        int room = 1;
+        for (int k = 1; k <= tall; k++) room &= !is_solid(block_at((int)floorf(nx), feet + k, (int)floorf(nz)));
+        if (c->on_ground && room) {
+            c->vy = 6.5f; /* hop up one block */
+            c->on_ground = 0;
+        } else {
+            c->target_yaw = c->yaw + 1.6f;
+        }
+    } else {
+        c->x = nx;
+        c->z = nz;
+    }
+    c->vy -= 20.0f * dt;
+    c->y += c->vy * dt;
+    float ground = ground_below(c->x, c->y, c->z);
+    if (c->y <= ground) {
+        c->y = ground;
+        c->vy = 0;
+        c->on_ground = 1;
+    } else {
+        c->on_ground = 0;
+    }
+    if (c->speed > 0) c->phase += dt * c->speed * 8;
+}
+
+/* Makes c run away from x, z for a while. */
+static void scare(Creature* c, float x, float z, float seconds) {
+    c->target_yaw = atan2f(c->x - x, -(c->z - z));
+    c->flee = seconds;
+    c->speed = c->kind == KIND_NIGHT ? 3.0f : 3.4f;
+}
+
+static void update_creatures(float dt, uint32_t tick, float px, float pz) {
     for (int i = 0; i < creature_count; i++) {
         Creature* c = &creatures[i];
-        c->timer -= dt;
-        if (c->timer <= 0) { /* wander somewhere else, or rest */
-            float r = rand01(i, (int)tick, 23);
-            c->target_yaw = c->yaw + (r - 0.5f) * 4.0f;
-            c->speed = r < 0.25f ? 0 : 0.6f + 1.2f * rand01(i, (int)tick, 29);
-            c->timer = 1.0f + 3.0f * rand01(i, (int)tick, 31);
-        }
-        float turn = c->target_yaw - c->yaw;
-        c->yaw += turn * (dt * 3 < 1 ? dt * 3 : 1);
-        float nx = c->x + sinf(c->yaw) * c->speed * dt, nz = c->z - cosf(c->yaw) * c->speed * dt;
-        int feet = (int)floorf(c->y + 0.1f);
-        int ahead = block_at((int)floorf(nx), feet, (int)floorf(nz));
-        if (nx < 1 || nz < 1 || nx > WX - 1 || nz > WZ - 1 || ahead == WATER ||
-            block_at((int)floorf(nx), feet - 1, (int)floorf(nz)) == WATER) {
-            c->target_yaw = c->yaw + 3.1416f; /* turn back from edges and water */
-            c->timer = 1.5f;
-        } else if (is_solid(ahead)) {
-            if (c->on_ground && !is_solid(block_at((int)floorf(nx), feet + 1, (int)floorf(nz)))) {
-                c->vy = 6.5f; /* hop up one block */
-                c->on_ground = 0;
-            } else {
-                c->target_yaw = c->yaw + 1.6f;
+        float dx = c->x - px, dz = c->z - pz;
+        /* Bumping into one sends it running. */
+        if (c->flee <= 0 && dx * dx + dz * dz < 0.8f) scare(c, px, pz, 2.0f);
+        if (c->flee > 0) {
+            c->flee -= dt;
+            if (c->flee <= 0) c->timer = 0;
+        } else {
+            c->timer -= dt;
+            if (c->timer <= 0) { /* wander somewhere else, or rest */
+                float r = rand01(i, (int)tick, 23);
+                c->target_yaw = c->yaw + (r - 0.5f) * 4.0f;
+                c->speed = r < 0.25f ? 0 : 0.6f + 1.2f * rand01(i, (int)tick, 29);
+                c->timer = 1.0f + 3.0f * rand01(i, (int)tick, 31);
             }
-        } else {
-            c->x = nx;
-            c->z = nz;
         }
-        c->vy -= 20.0f * dt;
-        c->y += c->vy * dt;
-        float ground = ground_below(c->x, c->y, c->z);
-        if (c->y <= ground) {
-            c->y = ground;
-            c->vy = 0;
-            c->on_ground = 1;
-        } else {
-            c->on_ground = 0;
-        }
-        if (c->speed > 0) c->phase += dt * c->speed * 8;
+        step_creature(c, dt);
     }
+}
+
+/* Night creatures: come out in the dark, chase and bite. Returns the damage
+ * done to the player at px, py, pz this frame. is_night: the sun is down. */
+static int update_night(float dt, uint32_t tick, int is_night, float px, float py, float pz) {
+    static float spawn_timer;
+    int damage = 0, alive = 0;
+    for (int i = 0; i < MAX_NIGHT; i++) alive += night[i].alive;
+    /* A new one now and then, out of sight range, never near a lamp. */
+    spawn_timer -= dt;
+    if (is_night && alive < night_limit && spawn_timer <= 0) {
+        spawn_timer = 3.0f;
+        for (int k = 0; k < MAX_NIGHT; k++) {
+            if (night[k].alive) continue;
+            float a = rand01((int)tick, k, 51) * 6.2832f, d = 18 + 12 * rand01((int)tick, k, 53);
+            int x = (int)floorf(px + sinf(a) * d), z = (int)floorf(pz - cosf(a) * d);
+            if (x < 2 || z < 2 || x >= WX - 2 || z >= WZ - 2) break;
+            int y = WY - 3;
+            while (y > 0 && !is_solid(world[x][y][z])) y--;
+            if (world[x][y][z] == WATER || world[x][y][z] == LEAVES || is_solid(world[x][y + 1][z]) ||
+                is_solid(world[x][y + 2][z]) || lamp_near(x + 0.5f, y + 1.0f, z + 0.5f, 9))
+                break;
+            Creature* c = &night[k];
+            memset(c, 0, sizeof *c);
+            c->x = x + 0.5f;
+            c->y = y + 1.0f;
+            c->z = z + 0.5f;
+            c->kind = KIND_NIGHT;
+            c->alive = 1;
+            c->hp = 3;
+            c->yaw = c->target_yaw = a + 3.1416f;
+            c->check = rand01(k, (int)tick, 57);
+            break;
+        }
+    }
+    for (int i = 0; i < MAX_NIGHT; i++) {
+        Creature* c = &night[i];
+        if (!c->alive) continue;
+        /* Daylight and lamps drive them away: they fade into smoke. */
+        c->check -= dt;
+        int fade = !is_night;
+        if (!fade && c->check <= 0) {
+            c->check = 0.5f;
+            fade = lamp_near(c->x, c->y + 1, c->z, 7);
+        }
+        if (fade) {
+            spawn_puff(c->x, c->y + 0.9f, c->z, night_color, 12, tick + i);
+            c->alive = 0;
+            continue;
+        }
+        float dx = px - c->x, dz = pz - c->z, d = sqrtf(dx * dx + dz * dz);
+        if (c->flee > 0) {
+            c->flee -= dt;
+        } else if (d < 28) { /* chase */
+            c->target_yaw = atan2f(dx, -dz);
+            c->speed = d < 1.1f ? 0 : 2.7f; /* slower than the player, who can get away */
+        } else {
+            c->timer -= dt;
+            if (c->timer <= 0) {
+                c->target_yaw = c->yaw + (rand01(i, (int)tick, 59) - 0.5f) * 3;
+                c->speed = 1.0f;
+                c->timer = 2;
+            }
+        }
+        c->cooldown -= dt;
+        if (d < 1.4f && fabsf(py - c->y) < 1.6f && c->cooldown <= 0) {
+            damage += 2;
+            c->cooldown = 1.3f;
+        }
+        step_creature(c, dt);
+    }
+    return damage;
+}
+
+/* The nearest creature along a ray within max_t, with the distance in *t:
+ * which = index, *is_night tells the array. -1 when none. */
+static int creature_on_ray(float ox, float oy, float oz, float dx, float dy, float dz, float max_t, float* t,
+                           int* is_night) {
+    int best = -1;
+    *t = max_t;
+    for (int pass = 0; pass < 2; pass++) {
+        int n = pass ? MAX_NIGHT : creature_count;
+        for (int i = 0; i < n; i++) {
+            const Creature* c = pass ? &night[i] : &creatures[i];
+            if (!c->alive) continue;
+            float half_w = pass ? 0.4f : 0.45f, low = c->y, high = c->y + (pass ? 1.75f : 0.9f);
+            float lo[3] = {c->x - half_w, low, c->z - half_w}, hi[3] = {c->x + half_w, high, c->z + half_w};
+            float o[3] = {ox, oy, oz}, dir[3] = {dx, dy, dz}, t0 = 0, t1 = *t;
+            int miss = 0;
+            for (int k = 0; k < 3 && !miss; k++) {
+                if (fabsf(dir[k]) < 1e-6f) {
+                    if (o[k] < lo[k] || o[k] > hi[k]) miss = 1;
+                    continue;
+                }
+                float a = (lo[k] - o[k]) / dir[k], b = (hi[k] - o[k]) / dir[k];
+                if (a > b) { float tmp = a; a = b; b = tmp; }
+                if (a > t0) t0 = a;
+                if (b < t1) t1 = b;
+                if (t0 > t1) miss = 1;
+            }
+            if (!miss) {
+                *t = t0;
+                best = i;
+                *is_night = pass;
+            }
+        }
+    }
+    return best;
 }
 
 typedef struct {
@@ -1164,6 +1333,25 @@ static void spawn_particles(int bx, int by, int bz, int block, uint32_t tick) {
         block_color(block, p->color);
         float shade = 0.75f + 0.4f * r3;
         for (int k = 0; k < 3; k++) p->color[k] *= shade;
+        made++;
+    }
+}
+
+/* A puff of bits in one colour: a creature hit, or one fading away. */
+static void spawn_puff(float x, float y, float z, const float* color, int count, uint32_t tick) {
+    int made = 0;
+    for (int i = 0; i < MAX_PARTICLES && made < count; i++) {
+        Particle* p = &particles[i];
+        if (p->life > 0) continue;
+        float r1 = rand01(i, (int)tick, 61), r2 = rand01(i, (int)tick, 67), r3 = rand01(i, (int)tick, 71);
+        p->x = x + (r1 - 0.5f) * 0.6f;
+        p->y = y + (r2 - 0.5f) * 0.8f;
+        p->z = z + (r3 - 0.5f) * 0.6f;
+        p->vx = (r1 - 0.5f) * 3;
+        p->vy = 1 + 2 * r2;
+        p->vz = (r3 - 0.5f) * 3;
+        p->life = 0.4f + 0.5f * r3;
+        for (int k = 0; k < 3; k++) p->color[k] = color[k] * (0.8f + 0.4f * r2);
         made++;
     }
 }
@@ -1233,10 +1421,12 @@ static const char* box_fs =
     "out vec4 frag;\n"
     "void main() {\n"
     "    float fog = clamp((dist - fog_end * 0.6) / (fog_end * 0.4), 0.0, 1.0);\n"
-    "    frag = vec4(mix(color * light * ambient, fog_color, fog), 1.0);\n"
+    "    frag = vec4(mix(color.r > 1.5 ? color - 2.0 : color * light * ambient, fog_color, fog), 1.0);\n"
     "}\n";
 
-/* Per instance: center (3 floats), half size (3), yaw (1), colour (3). */
+/* Per instance: center (3 floats), half size (3), yaw (1), colour (3).
+ * BOX_GLOW: a colour whose red is above 1.5 is that colour minus 2, shown
+ * unlit (the night creatures' eyes). */
 #define INSTANCE_FLOATS 10
 static const char* instanced_vs =
     "#version 330 core\n"
@@ -1261,7 +1451,7 @@ static const char* instanced_fs =
     "out vec4 frag;\n"
     "void main() {\n"
     "    float fog = clamp((dist - fog_end * 0.6) / (fog_end * 0.4), 0.0, 1.0);\n"
-    "    frag = vec4(mix(v_color * light * ambient, fog_color, fog), 1.0);\n"
+    "    frag = vec4(mix(v_color.r > 1.5 ? v_color - 2.0 : v_color * light * ambient, fog_color, fog), 1.0);\n"
     "}\n";
 
 /* ---- Matrices --------------------------------------------------------- */
@@ -1546,6 +1736,7 @@ int main(int argc, char** argv) {
     _Static_assert(sizeof(SharedIo) <= IO_SIZE, "shared file too small");
     _Static_assert(sizeof(SaveHeader) == 64, "the save header must keep its size");
     _Static_assert(__builtin_offsetof(SharedIo, counts) == 128, "must match BlocksSession.kt");
+    _Static_assert(__builtin_offsetof(SharedIo, health_tenths) == 160, "must match BlocksSession.kt");
     _Static_assert(__builtin_offsetof(SharedIo, crafts) == 52 && __builtin_offsetof(SharedIo, craft) == 56,
                    "must match BlocksSession.kt");
     int w = argc > 1 ? atoi(argv[1]) : 1200;
@@ -1668,7 +1859,7 @@ int main(int argc, char** argv) {
     GLint ui_fog_end = p_glGetUniformLocation(inst_program, "fog_end");
     GLint ui_ambient = p_glGetUniformLocation(inst_program, "ambient");
     /* Instances: two boxes per creature, one per particle. */
-    enum { MAX_INSTANCES = MAX_CREATURES * 2 + MAX_PARTICLES };
+    enum { MAX_INSTANCES = MAX_CREATURES * 2 + MAX_NIGHT * 4 + MAX_PARTICLES };
     static float instances[MAX_INSTANCES][INSTANCE_FLOATS];
     GLuint inst_vao, inst_vbo;
     p_glGenVertexArrays(1, &inst_vao);
@@ -1725,24 +1916,24 @@ int main(int argc, char** argv) {
            world_seed);
     fflush(stdout);
 
-    /* A new world: spawn in the middle, on top of the ground. */
-    if (!loaded) player = (Player){WX / 2 + 0.5f, WY, WZ / 2 + 0.5f, 0, 0, -0.25f, 0};
-    for (int r = 0; r < WX / 2 && !loaded; r++) { /* nearest grass, spiralling out */
-        int found = 0;
+    /* The starting point: the grass nearest the middle, spiralling out. New
+     * worlds start there, and players come back there after fainting. It is
+     * worked out again on each load, so saves need not keep it. */
+    float spawn_x = WX / 2 + 0.5f, spawn_y = WY, spawn_z = WZ / 2 + 0.5f;
+    for (int r = 0, found = 0; r < WX / 2 && !found; r++)
         for (int dx = -r; dx <= r && !found; dx++)
             for (int dz = -r; dz <= r && !found; dz++) {
-                int x = WX / 2 + dx, z = WZ / 2 + dz, y = WY - 1;
+                int x = WX / 2 + dx, z = WZ / 2 + dz, y = WY - 3;
                 while (y > 0 && world[x][y][z] == AIR) y--;
                 if (world[x][y][z] == GRASS && world[x][y + 1][z] == AIR && world[x][y + 2][z] == AIR) {
-                    player.x = x + 0.5f;
-                    player.z = z + 0.5f;
-                    player.y = y + 1.0f;
+                    spawn_x = x + 0.5f;
+                    spawn_z = z + 0.5f;
+                    spawn_y = y + 1.0f;
                     found = 1;
                 }
             }
-        if (found) break;
-    }
-    while (!loaded && player.y > 1 && !collides(player.x, player.y - 1, player.z)) player.y -= 1;
+    while (spawn_y > 1 && !collides(spawn_x, spawn_y - 1, spawn_z)) spawn_y -= 1;
+    if (!loaded) player = (Player){spawn_x, spawn_y, spawn_z, 0, 0, -0.25f, 0};
     /* A loaded world keeps the direction the player faced (not the pitch,
      * which the app clamps from the default). */
     float base_yaw = io->look_yaw - player.yaw, base_pitch = io->look_pitch;
@@ -1755,6 +1946,11 @@ int main(int argc, char** argv) {
     if (getenv("HYPOCKET_BLOCKS_DAY_SECONDS") && atof(getenv("HYPOCKET_BLOCKS_DAY_SECONDS")) >= 10)
         day_seconds = (float)atof(getenv("HYPOCKET_BLOCKS_DAY_SECONDS"));
     const float far = heavy ? 128.0f : 72.0f;
+    /* Danger: night creatures and fall damage. Creative worlds have neither;
+     * peaceful worlds (HYPOCKET_BLOCKS_PEACEFUL) keep falls but no attackers. */
+    int peaceful = getenv("HYPOCKET_BLOCKS_PEACEFUL") != NULL;
+    night_limit = creative || peaceful || (max_frames && getenv("HYPOCKET_BLOCKS_BENCH")) ? 0 : heavy ? MAX_NIGHT : 10;
+    float health = MAX_HEALTH, calm = 0; /* calm: seconds until health starts coming back */
     if (heavy) spawn_creatures(MAX_CREATURES);
     else if (getenv("HYPOCKET_BLOCKS_CREATURES")) {
         int n = atoi(getenv("HYPOCKET_BLOCKS_CREATURES"));
@@ -1831,7 +2027,11 @@ int main(int argc, char** argv) {
         if (player.vy < -40) player.vy = -40;
         if (in_water) { vx *= 0.6f; vz *= 0.6f; if (player.vy < -3) player.vy = -3; }
         move_player(&player, vx * dt, player.vy * dt, vz * dt);
+        int damage = 0;
         if (player.y < -10) { player.y = WY; player.vy = 0; }
+        /* Falls of more than about four blocks hurt. */
+        if (!creative && player.on_ground && !was_on_ground && !in_water && fall_speed > 13.5f)
+            damage += 1 + (int)((fall_speed - 13.5f) / 2.2f);
         /* Footsteps while walking on the ground, and a thud on landing. */
         float ground_speed = sqrtf(vx * vx + vz * vz);
         if (player.on_ground && !was_on_ground && fall_speed > 6) {
@@ -1860,7 +2060,33 @@ int main(int argc, char** argv) {
         int breaks = io->breaks, places = io->places;
         if (breaks != seen_breaks || places != seen_places) {
             int hit[3], before[3];
-            if (raycast(&player, hit, before)) {
+            int block_hit = raycast(&player, hit, before);
+            /* The break action hits a creature under the crosshair if it is
+             * nearer than the block. */
+            float ex = player.x, ey = player.y + EYE_HEIGHT, ez = player.z;
+            float rdx = cosf(player.pitch) * sinf(player.yaw), rdy = sinf(player.pitch), rdz = -cosf(player.pitch) * cosf(player.yaw);
+            float creature_t, block_t = 1e9f;
+            int is_night_kind = 0, target = -1;
+            if (block_hit) {
+                float bx = hit[0] + 0.5f - ex, by = hit[1] + 0.5f - ey, bz = hit[2] + 0.5f - ez;
+                block_t = sqrtf(bx * bx + by * by + bz * bz) - 0.5f;
+            }
+            if (breaks != seen_breaks) target = creature_on_ray(ex, ey, ez, rdx, rdy, rdz, 3.5f, &creature_t, &is_night_kind);
+            if (target >= 0 && creature_t < block_t) {
+                Creature* c = is_night_kind ? &night[target] : &creatures[target];
+                const float* col = is_night_kind ? night_color : creature_colors[c->color];
+                spawn_puff(c->x, c->y + (is_night_kind ? 1.0f : 0.45f), c->z, col, 6, (uint32_t)frames);
+                play_at(SND_BREAK, &player, c->x, c->y + 0.5f, c->z, is_night_kind ? 0.7f : 1.5f);
+                scare(c, player.x, player.z, is_night_kind ? 0.5f : 3.0f);
+                c->vy = 4.0f; /* knocked back */
+                c->on_ground = 0;
+                if (is_night_kind && --c->hp <= 0) {
+                    spawn_puff(c->x, c->y + 0.9f, c->z, night_color, 16, (uint32_t)frames + 7);
+                    c->alive = 0;
+                }
+                block_hit = 0; /* the blow went to the creature */
+            }
+            if (block_hit) {
                 if (breaks != seen_breaks) {
                     int broken = block_at(hit[0], hit[1], hit[2]), drop = drop_for(broken);
                     if (!creative && drop != AIR && inventory[drop] < MAX_CARRIED) inventory[drop]++;
@@ -1906,7 +2132,31 @@ int main(int argc, char** argv) {
             }
             seen_crafts = crafts;
         }
-        update_creatures(dt, (uint32_t)frames);
+        update_creatures(dt, (uint32_t)frames, player.x, player.z);
+        int is_night = sk.sun_dir[1] < -0.04f;
+        damage += update_night(dt, (uint32_t)frames, is_night, player.x, player.y, player.z);
+
+        /* ---- Health ---- */
+        if (damage > 0 && !creative) {
+            health -= damage;
+            calm = 6;
+            io->hurts++;
+            play_sound(SND_STEP, 0.9f, 0, 0.55f);
+            if (health <= 0) { /* fainted: wake up at the starting point */
+                io->deaths++;
+                health = MAX_HEALTH;
+                player.x = spawn_x;
+                player.y = spawn_y;
+                player.z = spawn_z;
+                player.vy = 0;
+                for (int i = 0; i < MAX_NIGHT; i++) night[i].alive = 0;
+                printf("blocks: the player fainted and woke up at the start\n");
+            }
+        } else if ((calm -= dt) <= 0 && health < MAX_HEALTH) {
+            health += dt / 4.0f; /* a point every four seconds */
+            if (health > MAX_HEALTH) health = MAX_HEALTH;
+        }
+        io->health_tenths = (int)ceilf(health * 10 - 0.01f);
         update_particles(dt);
         /* Chunks whose blocks changed are meshed now; those where only lamp
          * light moved wait their turn, two a frame, to avoid a hitch. */
@@ -1970,9 +2220,63 @@ int main(int argc, char** argv) {
             p_glDrawElements(GL_TRIANGLES, ch->quads * 6, GL_UNSIGNED_INT, 0);
             triangles += ch->quads * 2;
         }
-        /* Creatures and particles: one draw call per box, or one for all. */
-        int creatures_drawn = 0;
-        if (separate_draws) {
+        /* Creatures and particles: the boxes are listed once, then drawn
+         * with one instanced draw call, or one draw call each (the load of
+         * many separate objects, for the benchmark). */
+        int creatures_drawn = 0, n = 0;
+        for (int pass = 0; pass < 2; pass++) {
+            int count = pass ? MAX_NIGHT : creature_count;
+            for (int i = 0; i < count; i++) {
+                const Creature* c = pass ? &night[i] : &creatures[i];
+                if (!c->alive) continue;
+                float dx = c->x - player.x, dz = c->z - player.z, d = sqrtf(dx * dx + dz * dz);
+                if (d > far || (d > 4 && dx * fx + dz * fz < -2)) continue;
+                float bob = c->on_ground ? fabsf(sinf(c->phase)) * 0.06f : 0;
+                float sy = sinf(c->yaw), cy = cosf(c->yaw);
+                if (!pass) {
+                    const float* col = creature_colors[c->color];
+                    float body[INSTANCE_FLOATS] = {c->x, c->y + 0.38f + bob, c->z, 0.32f, 0.26f, 0.42f, c->yaw,
+                                                   col[0], col[1], col[2]};
+                    float head[INSTANCE_FLOATS] = {c->x + sy * 0.45f, c->y + 0.62f + bob, c->z - cy * 0.45f,
+                                                   0.2f, 0.2f, 0.2f, c->yaw, col[0] * 0.8f, col[1] * 0.8f, col[2] * 0.8f};
+                    memcpy(instances[n++], body, sizeof body);
+                    memcpy(instances[n++], head, sizeof head);
+                    triangles += 24;
+                } else {
+                    /* Tall and dark, with two glowing eyes (colours above 2 glow, see BOX_GLOW). */
+                    const float* col = night_color;
+                    float hx = c->x + sy * 0.05f, hy = c->y + 1.48f + bob, hz = c->z - cy * 0.05f;
+                    float body[INSTANCE_FLOATS] = {c->x, c->y + 0.62f + bob, c->z, 0.3f, 0.62f, 0.24f, c->yaw,
+                                                   col[0], col[1], col[2]};
+                    float head[INSTANCE_FLOATS] = {hx, hy, hz, 0.26f, 0.24f, 0.26f, c->yaw,
+                                                   col[0] * 1.2f, col[1] * 1.2f, col[2] * 1.2f};
+                    memcpy(instances[n++], body, sizeof body);
+                    memcpy(instances[n++], head, sizeof head);
+                    for (int e = -1; e <= 1; e += 2) {
+                        float eye[INSTANCE_FLOATS] = {hx + sy * 0.25f + cy * 0.11f * e, hy + 0.04f, hz - cy * 0.25f + sy * 0.11f * e,
+                                                      0.075f, 0.055f, 0.03f, c->yaw, 2.85f, 3.0f, 2.55f};
+                        memcpy(instances[n++], eye, sizeof eye);
+                    }
+                    triangles += 48;
+                }
+                creatures_drawn++;
+            }
+        }
+        for (int i = 0; i < MAX_PARTICLES; i++) {
+            const Particle* pt = &particles[i];
+            if (pt->life <= 0) continue;
+            float box[INSTANCE_FLOATS] = {pt->x, pt->y, pt->z, 0.06f, 0.06f, 0.06f, 0,
+                                          pt->color[0], pt->color[1], pt->color[2]};
+            memcpy(instances[n++], box, sizeof box);
+            triangles += 12;
+        }
+        int night_near = 0;
+        for (int i = 0; i < MAX_NIGHT; i++) {
+            float dx = night[i].x - player.x, dz = night[i].z - player.z;
+            night_near += night[i].alive && dx * dx + dz * dz < 24 * 24;
+        }
+        io->night_near = night_near;
+        if (separate_draws && n > 0) {
             p_glUseProgram(box_program);
             p_glUniformMatrix4fv(ub_view_proj, 1, GL_FALSE, vp);
             p_glUniform3f(ub_eye, player.x, player.y + EYE_HEIGHT, player.z);
@@ -1980,75 +2284,27 @@ int main(int argc, char** argv) {
             p_glUniform1f(ub_fog_end, far);
             p_glUniform3f(ub_ambient, sk.ambient[0], sk.ambient[1], sk.ambient[2]);
             p_glBindVertexArray(hud_vao); /* no attributes: corners come from gl_VertexID */
-            for (int i = 0; i < creature_count; i++) {
-                const Creature* c = &creatures[i];
-                float dx = c->x - player.x, dz = c->z - player.z, d = sqrtf(dx * dx + dz * dz);
-                if (d > far || (d > 4 && dx * fx + dz * fz < -2)) continue;
-                const float* col = creature_colors[c->color];
-                float bob = c->on_ground ? fabsf(sinf(c->phase)) * 0.06f : 0;
-                p_glUniform1f(ub_yaw, c->yaw);
-                p_glUniform3f(ub_center, c->x, c->y + 0.38f + bob, c->z);
-                p_glUniform3f(ub_half, 0.32f, 0.26f, 0.42f);
-                p_glUniform3f(ub_color, col[0], col[1], col[2]);
+            for (int k = 0; k < n; k++) {
+                const float* b = instances[k];
+                p_glUniform3f(ub_center, b[0], b[1], b[2]);
+                p_glUniform3f(ub_half, b[3], b[4], b[5]);
+                p_glUniform1f(ub_yaw, b[6]);
+                p_glUniform3f(ub_color, b[7], b[8], b[9]);
                 p_glDrawArrays(GL_TRIANGLES, 0, 36);
-                /* The head, a little in front and above. */
-                p_glUniform3f(ub_center, c->x + sinf(c->yaw) * 0.45f, c->y + 0.62f + bob, c->z - cosf(c->yaw) * 0.45f);
-                p_glUniform3f(ub_half, 0.2f, 0.2f, 0.2f);
-                p_glUniform3f(ub_color, col[0] * 0.8f, col[1] * 0.8f, col[2] * 0.8f);
-                p_glDrawArrays(GL_TRIANGLES, 0, 36);
-                creatures_drawn++;
-                triangles += 24;
             }
-            p_glUniform1f(ub_yaw, 0);
-            p_glUniform3f(ub_half, 0.06f, 0.06f, 0.06f);
-            for (int i = 0; i < MAX_PARTICLES; i++) {
-                const Particle* pt = &particles[i];
-                if (pt->life <= 0) continue;
-                p_glUniform3f(ub_center, pt->x, pt->y, pt->z);
-                p_glUniform3f(ub_color, pt->color[0], pt->color[1], pt->color[2]);
-                p_glDrawArrays(GL_TRIANGLES, 0, 36);
-                triangles += 12;
-            }
-        } else {
-            int n = 0;
-            for (int i = 0; i < creature_count; i++) {
-                const Creature* c = &creatures[i];
-                float dx = c->x - player.x, dz = c->z - player.z, d = sqrtf(dx * dx + dz * dz);
-                if (d > far || (d > 4 && dx * fx + dz * fz < -2)) continue;
-                const float* col = creature_colors[c->color];
-                float bob = c->on_ground ? fabsf(sinf(c->phase)) * 0.06f : 0;
-                float body[INSTANCE_FLOATS] = {c->x, c->y + 0.38f + bob, c->z, 0.32f, 0.26f, 0.42f, c->yaw,
-                                               col[0], col[1], col[2]};
-                float head[INSTANCE_FLOATS] = {c->x + sinf(c->yaw) * 0.45f, c->y + 0.62f + bob,
-                                               c->z - cosf(c->yaw) * 0.45f, 0.2f, 0.2f, 0.2f, c->yaw,
-                                               col[0] * 0.8f, col[1] * 0.8f, col[2] * 0.8f};
-                memcpy(instances[n++], body, sizeof body);
-                memcpy(instances[n++], head, sizeof head);
-                creatures_drawn++;
-                triangles += 24;
-            }
-            for (int i = 0; i < MAX_PARTICLES; i++) {
-                const Particle* pt = &particles[i];
-                if (pt->life <= 0) continue;
-                float box[INSTANCE_FLOATS] = {pt->x, pt->y, pt->z, 0.06f, 0.06f, 0.06f, 0,
-                                              pt->color[0], pt->color[1], pt->color[2]};
-                memcpy(instances[n++], box, sizeof box);
-                triangles += 12;
-            }
-            if (n > 0) {
-                p_glUseProgram(inst_program);
-                p_glUniformMatrix4fv(ui_view_proj, 1, GL_FALSE, vp);
-                p_glUniform3f(ui_eye, player.x, player.y + EYE_HEIGHT, player.z);
-                p_glUniform3f(ui_fog_color, sky[0], sky[1], sky[2]);
-                p_glUniform1f(ui_fog_end, far);
-                p_glUniform3f(ui_ambient, sk.ambient[0], sk.ambient[1], sk.ambient[2]);
-                p_glBindVertexArray(inst_vao);
-                p_glBindBuffer(GL_ARRAY_BUFFER, inst_vbo);
-                /* A fresh buffer each frame, so the GPU never waits for the last one. */
-                p_glBufferData(GL_ARRAY_BUFFER, sizeof instances, NULL, GL_STREAM_DRAW);
-                p_glBufferSubData(GL_ARRAY_BUFFER, 0, (GLsizeiptr)n * sizeof instances[0], instances);
-                p_glDrawArraysInstanced(GL_TRIANGLES, 0, 36, n);
-            }
+        } else if (n > 0) {
+            p_glUseProgram(inst_program);
+            p_glUniformMatrix4fv(ui_view_proj, 1, GL_FALSE, vp);
+            p_glUniform3f(ui_eye, player.x, player.y + EYE_HEIGHT, player.z);
+            p_glUniform3f(ui_fog_color, sky[0], sky[1], sky[2]);
+            p_glUniform1f(ui_fog_end, far);
+            p_glUniform3f(ui_ambient, sk.ambient[0], sk.ambient[1], sk.ambient[2]);
+            p_glBindVertexArray(inst_vao);
+            p_glBindBuffer(GL_ARRAY_BUFFER, inst_vbo);
+            /* A fresh buffer each frame, so the GPU never waits for the last one. */
+            p_glBufferData(GL_ARRAY_BUFFER, sizeof instances, NULL, GL_STREAM_DRAW);
+            p_glBufferSubData(GL_ARRAY_BUFFER, 0, (GLsizeiptr)n * sizeof instances[0], instances);
+            p_glDrawArraysInstanced(GL_TRIANGLES, 0, 36, n);
         }
         p_glUseProgram(world_program);
 

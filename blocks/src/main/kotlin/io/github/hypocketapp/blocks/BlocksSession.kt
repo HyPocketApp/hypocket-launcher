@@ -119,6 +119,10 @@ class BlocksSession(context: Context) : AutoCloseable {
                 day = io.getInt(OFF_DAY),
                 counts = List(COUNTS) { io.getShort(OFF_COUNTS + it * 2).toInt() },
                 finished = io.getInt(OFF_FINISHED) != 0,
+                healthTenths = io.getInt(OFF_HEALTH),
+                deaths = io.getInt(OFF_DEATHS),
+                hurts = io.getInt(OFF_HURTS),
+                nightNear = io.getInt(OFF_NIGHT_NEAR),
             )
         }
 
@@ -135,6 +139,7 @@ class BlocksSession(context: Context) : AutoCloseable {
             if (options.heavy) put("HYPOCKET_BLOCKS_HEAVY", "1")
             if (options.benchmarkFrames > 0) put("HYPOCKET_BLOCKS_BENCH", "1")
             if (options.creative) put("HYPOCKET_BLOCKS_CREATIVE", "1")
+            if (options.peaceful) put("HYPOCKET_BLOCKS_PEACEFUL", "1")
             when (options.dayMode) {
                 DayMode.CYCLE -> {}
                 DayMode.FAST -> put("HYPOCKET_BLOCKS_DAY_SECONDS", DayMode.FAST_DAY_SECONDS.toString())
@@ -249,6 +254,10 @@ class BlocksSession(context: Context) : AutoCloseable {
         const val OFF_FINISHED = 120
         const val OFF_COUNTS = 128
         const val COUNTS = 16
+        const val OFF_HEALTH = 160
+        const val OFF_DEATHS = 164
+        const val OFF_HURTS = 168
+        const val OFF_NIGHT_NEAR = 172
     }
 }
 
@@ -280,7 +289,19 @@ data class BlocksStats(
     val counts: List<Int> = emptyList(),
     /** The game saved and exited normally. */
     val finished: Boolean = false,
-)
+    /** The player's health in tenths of a point: 0 to [MAX_HEALTH_TENTHS]. */
+    val healthTenths: Int = MAX_HEALTH_TENTHS,
+    /** Times the player fainted and woke up at the start. */
+    val deaths: Int = 0,
+    /** Times the player was hurt (it goes up by one each time). */
+    val hurts: Int = 0,
+    /** Night creatures within 24 blocks. */
+    val nightNear: Int = 0,
+) {
+    companion object {
+        const val MAX_HEALTH_TENTHS = 100
+    }
+}
 
 /** What the game does beyond the defaults. */
 data class BlocksOptions(
@@ -294,6 +315,8 @@ data class BlocksOptions(
     val world: BlocksWorld? = null,
     /** How time passes: the normal day, a fast one, or held at noon or midnight (for testing). */
     val dayMode: DayMode = DayMode.CYCLE,
+    /** No night creatures (they never attack); falls still hurt. */
+    val peaceful: Boolean = false,
     /** Unlimited blocks, nothing collected (quick games, and worlds made creative). */
     val creative: Boolean = true,
     /** Wandering creatures outside heavy mode (heavy mode always has 300). */

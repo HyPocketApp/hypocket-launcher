@@ -29,9 +29,9 @@
     <string name="blocks_description">Um jogo de blocos original feito para o HyPocket, de código aberto e sem relação com nenhum outro jogo. Colete blocos e construa com eles (ou escolha o modo criativo, com blocos sem limite) e guarde seus mundos. Os dias passam e as noites são escuras: ilumine-as com lâmpadas. Ele roda pelo mesmo caminho que um jogo de verdade vai rodar (tradutor x86-64, OpenGL de PC e exibição direta). Funciona com toque, controle, teclado e mouse (clique para prender o ponteiro). A escala de renderização, o limite de FPS, a resolução dinâmica e a sensibilidade da câmera ficam nas Configurações.</string>
     <string name="blocks_exit">Sair</string>
     <string name="blocks_heavy">Modo pesado: 300 criaturas andando e visão mais longa (e mundo quatro vezes maior no jogo rápido)</string>
-    <string name="blocks_hint">Esquerda: andar · Direita: arraste para olhar, toque para quebrar · Embaixo: escolha o bloco</string>
-    <string name="blocks_hint_controller">Analógico esquerdo: andar · Direito: olhar · A: pular · X/RT: quebrar · B/LT: colocar · Y: próximo bloco · Select: inventário · Start: sair</string>
-    <string name="blocks_hint_mouse">Mouse: mexa para olhar · Botão esquerdo: quebrar · Direito: colocar · Roda ou 1-9: bloco · I: inventário · WASD: andar · Espaço: pular · Esc: soltar o ponteiro</string>
+    <string name="blocks_hint">Esquerda: andar · Direita: arraste para olhar, toque para quebrar ou golpear · Embaixo: escolha o bloco</string>
+    <string name="blocks_hint_controller">Analógico esquerdo: andar · Direito: olhar · A: pular · X/RT: quebrar ou golpear · B/LT: colocar · Y: próximo bloco · Select: inventário · Start: sair</string>
+    <string name="blocks_hint_mouse">Mouse: mexa para olhar · Botão esquerdo: quebrar ou golpear · Direito: colocar · Roda ou 1-9: bloco · I: inventário · WASD: andar · Espaço: pular · Esc: soltar o ponteiro</string>
     <string name="blocks_jump">Pular</string>
     <string name="blocks_loading">Construindo o mundo…</string>
     <string name="blocks_new_world">Novo mundo</string>
@@ -82,6 +82,11 @@
     <string name="blocks_day_mode_hint">Fixar a hora não muda a hora guardada no mundo: de volta aos dias de 15 min, ela continua de onde estava.</string>
     <string name="blocks_recipes">Receitas</string>
     <string name="blocks_inventory_hint_recipes">Escolha um lugar na barra e depois o bloco para pôr nele, ou toque numa receita para fabricar. Controle: direcional e A, B fecha. Teclado: setas e Enter, I fecha.</string>
+    <string name="blocks_peaceful">Pacífico</string>
+    <string name="blocks_peaceful_on">Sem criaturas que atacam. Quedas ainda machucam.</string>
+    <string name="blocks_peaceful_off">À noite, criaturas saem no escuro e atacam. Lâmpadas as mantêm longe.</string>
+    <string name="blocks_mode_peaceful">pacífico</string>
+    <string name="blocks_fainted">Você desmaiou e acordou no ponto de partida. O que você carregava continua com você.</string>
     <string name="blocks_close">Fechar</string>
     <string name="blocks_copy_report">Copiar relatório</string>
     <string name="blocks_status_server_failed">Falhou: o servidor de gráficos não iniciou.</string>
