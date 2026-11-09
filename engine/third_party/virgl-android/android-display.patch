@@ -98,23 +98,24 @@ index c2bd278..6bcfe12 100644
  
  if with_tracing == 'percetto'
 diff --git a/vtest/vtest.h b/vtest/vtest.h
-index b2708a2..69531da 100644
+index b2708a2..5a6617c 100644
 --- a/vtest/vtest.h
 +++ b/vtest/vtest.h
-@@ -62,6 +62,8 @@ int vtest_send_caps2(uint32_t length_dw);
+@@ -62,6 +62,9 @@ int vtest_send_caps2(uint32_t length_dw);
  int vtest_create_resource(uint32_t length_dw);
  int vtest_create_resource2(uint32_t length_dw);
  int vtest_resource_unref(uint32_t length_dw);
 +int vtest_hypocket_present(uint32_t length_dw);
 +int vtest_hypocket_adopt(uint32_t length_dw);
++int vtest_hypocket_fence_wait(uint32_t length_dw);
  int vtest_submit_cmd(uint32_t length_dw);
  
  int vtest_transfer_get(uint32_t length_dw);
 diff --git a/vtest/vtest_protocol.h b/vtest/vtest_protocol.h
-index 1bd515c..8a5d2f4 100644
+index 1bd515c..acceb50 100644
 --- a/vtest/vtest_protocol.h
 +++ b/vtest/vtest_protocol.h
-@@ -93,6 +93,12 @@
+@@ -93,6 +93,15 @@
  #define VCMD_DRM_SYNC_QUERY 36
  #define VCMD_DRM_SYNC_TRANSFER 37
  #define VCMD_RESOURCE_EXPORT_FD 38
@@ -124,22 +125,72 @@ index 1bd515c..8a5d2f4 100644
 +/* HyPocket: back a new resource with a screen buffer (hypocket_display.c). */
 +#define VCMD_HYPOCKET_ADOPT 65
 +#define VCMD_HYPOCKET_ADOPT_SIZE 1
++/* HyPocket: wait for one command buffer, by number (vtest_renderer.c). */
++#define VCMD_HYPOCKET_FENCE_WAIT 66
++#define VCMD_HYPOCKET_FENCE_WAIT_SIZE 2
  
  #define VCMD_RES_CREATE_SIZE 10
  #define VCMD_RES_CREATE_RES_HANDLE 0 /* must be 0 since protocol version 3 */
 diff --git a/vtest/vtest_renderer.c b/vtest/vtest_renderer.c
-index ba4feb1..3ef6dd1 100644
+index ba4feb1..879d415 100644
 --- a/vtest/vtest_renderer.c
 +++ b/vtest/vtest_renderer.c
-@@ -54,6 +54,7 @@
+@@ -54,6 +54,10 @@
  #include "vtest.h"
  #include "vtest_shm.h"
  #include "vtest_protocol.h"
 +#include "hypocket_display.h"
++#include <poll.h>
++#include <linux/futex.h>
++#include <sys/syscall.h>
  #include "threadpool.h"
  
  #include "util.h"
-@@ -281,6 +282,8 @@ static void vtest_unref_resource(struct vtest_resource *res)
+@@ -206,10 +210,43 @@ static void vtest_create_implicit_fence(struct vtest_renderer *renderer)
+    virgl_renderer_create_fence(++renderer->implicit_fence_submitted, 0);
+ }
+ 
++/* HyPocket: the number of the last command buffer the GPU finished, in a page
++ * shared with our Mesa (HYPOCKET_FENCE_PATH), so the guest can check and wait
++ * for fences without a round trip that would queue behind its own commands.
++ * Must match virgl_vtest_winsys.c. */
++#define HYPOCKET_FENCE_MAGIC 0x43465048 /* "HPFC": the server keeps this page current */
++struct hypocket_fence_page {
++   int completed;
++   int waiters;
++   int magic;
++};
++static struct hypocket_fence_page *hypocket_fences;
++
++static void hypocket_fence_page_init(void)
++{
++   const char *path = getenv("HYPOCKET_FENCE_PATH");
++   if (!path)
++      return;
++   int fd = open(path, O_RDWR | O_CLOEXEC);
++   if (fd < 0)
++      return;
++   void *map = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
++   close(fd);
++   if (map != MAP_FAILED) {
++      hypocket_fences = map;
++      __atomic_store_n(&hypocket_fences->magic, HYPOCKET_FENCE_MAGIC, __ATOMIC_SEQ_CST);
++   }
++}
++
+ static void vtest_write_implicit_fence(UNUSED void *cookie, uint32_t fence_id_in)
+ {
+    struct vtest_renderer *renderer = (struct vtest_renderer*)cookie;
+    renderer->implicit_fence_completed = fence_id_in;
++   if (hypocket_fences) {
++      __atomic_store_n(&hypocket_fences->completed, (int)fence_id_in, __ATOMIC_SEQ_CST);
++      if (__atomic_load_n(&hypocket_fences->waiters, __ATOMIC_SEQ_CST))
++         syscall(SYS_futex, &hypocket_fences->completed, FUTEX_WAKE, INT_MAX, NULL, NULL, 0);
++   }
+ }
+ 
+ static void vtest_signal_timeline(struct vtest_timeline *timeline,
+@@ -281,6 +318,8 @@ static void vtest_unref_resource(struct vtest_resource *res)
      * are implied
      */
     virgl_renderer_resource_unref(res->res_id);
@@ -148,10 +199,71 @@ index ba4feb1..3ef6dd1 100644
  
     if (res->iov.iov_base)
        munmap(res->iov.iov_base, res->iov.iov_len);
-@@ -1447,6 +1450,55 @@ int vtest_resource_create_blob(UNUSED uint32_t length_dw)
+@@ -621,6 +660,7 @@ int vtest_init_renderer(bool multi_clients,
+ 
+    renderer.multi_clients = multi_clients;
+    renderer.ctx_flags = ctx_flags;
++   hypocket_fence_page_init();
+ 
+    return 0;
+ }
+@@ -1447,6 +1487,108 @@ int vtest_resource_create_blob(UNUSED uint32_t length_dw)
     return 0;
  }
  
++/*
++ * HyPocket: precise fences. Upstream's VCMD_RESOURCE_BUSY_WAIT ignores which
++ * resource it is asked about and answers whether the GPU has finished
++ * everything submitted so far, so a client waiting for its previous frame
++ * also waits for the frame it just sent, and Mesa creates a resource (a round
++ * trip) for every fence. Each command buffer already gets an implicit fence
++ * numbered in submission order; our Mesa numbers them the same way and asks
++ * about one: busy until that command buffer is done, waiting up to
++ * timeout_us microseconds (0: just ask; ~0: forever).
++ */
++int vtest_hypocket_fence_wait(UNUSED uint32_t length_dw)
++{
++   struct vtest_context *ctx = vtest_get_current_context();
++   uint32_t buf[VCMD_HYPOCKET_FENCE_WAIT_SIZE];
++   if (ctx->input->read(ctx->input, buf, sizeof(buf)) != sizeof(buf))
++      return -1;
++   int seq = (int)buf[0];
++   uint32_t timeout_us = buf[1];
++   struct timespec start;
++   clock_gettime(CLOCK_MONOTONIC, &start);
++   virgl_renderer_poll();
++   bool busy;
++   for (;;) {
++      busy = renderer.implicit_fence_completed - seq < 0;
++      if (!busy || timeout_us == 0)
++         break;
++      int wait_ms = 100;
++      if (timeout_us != ~0u) {
++         struct timespec now;
++         clock_gettime(CLOCK_MONOTONIC, &now);
++         int64_t elapsed_us = (now.tv_sec - start.tv_sec) * 1000000ll + (now.tv_nsec - start.tv_nsec) / 1000;
++         int64_t left_us = (int64_t)timeout_us - elapsed_us;
++         if (left_us <= 0)
++            break;
++         wait_ms = left_us < 100000 ? (int)((left_us + 999) / 1000) : 100;
++      }
++      int fd = virgl_renderer_get_poll_fd();
++      if (fd >= 0) {
++         struct pollfd pfd = { fd, POLLIN, 0 };
++         poll(&pfd, 1, wait_ms);
++      } else {
++         usleep(200);
++      }
++      virgl_renderer_poll();
++   }
++   uint32_t reply[VTEST_HDR_SIZE + 1] = {
++      [VTEST_CMD_LEN] = 1,
++      [VTEST_CMD_ID] = VCMD_HYPOCKET_FENCE_WAIT,
++      [VTEST_CMD_DATA_START] = busy ? 1 : 0,
++   };
++   return vtest_block_write(ctx->out_fd, reply, sizeof(reply)) < 0 ? -1 : 0;
++}
++
 +/* HyPocket: the guest created a pbuffer image it will present (Mesa patch). */
 +int vtest_hypocket_adopt(UNUSED uint32_t length_dw)
 +{
@@ -204,7 +316,7 @@ index ba4feb1..3ef6dd1 100644
  int vtest_resource_unref(UNUSED uint32_t length_dw)
  {
     struct vtest_context *ctx = vtest_get_current_context();
-@@ -1592,6 +1644,22 @@ static int vtest_transfer_get_internal(struct vtest_context *ctx,
+@@ -1592,6 +1734,22 @@ static int vtest_transfer_get_internal(struct vtest_context *ctx,
        }
     }
  
@@ -228,7 +340,7 @@ index ba4feb1..3ef6dd1 100644
        ret = virgl_renderer_transfer_read_iov(res->res_id,
                                               ctx->ctx_id,
 diff --git a/vtest/vtest_server.c b/vtest/vtest_server.c
-index 64a29e1..f49833d 100644
+index 64a29e1..dea8066 100644
 --- a/vtest/vtest_server.c
 +++ b/vtest/vtest_server.c
 @@ -27,6 +27,7 @@
@@ -239,7 +351,7 @@ index 64a29e1..f49833d 100644
  #include <signal.h>
  #include <stdbool.h>
  #include <unistd.h>
-@@ -129,6 +130,70 @@ static void vtest_server_open_read_file(void);
+@@ -129,6 +130,74 @@ static void vtest_server_open_read_file(void);
  static void vtest_server_open_socket(void);
  static void vtest_server_run(void);
  static void vtest_server_close_socket(void);
@@ -248,8 +360,8 @@ index 64a29e1..f49833d 100644
 + * which includes waiting for the screen to give a buffer back) and the
 + * rest. The remainder of the time the server waits for the guest. */
 +static struct {
-+   double window_start, submit_ms, present_ms, other_ms;
-+   unsigned submits, presents, others;
++   double window_start, submit_ms, present_ms, other_ms, fence_ms;
++   unsigned submits, presents, others, fences;
 +   double total_submit_ms, total_present_ms, total_ms;
 +   unsigned total_presents;
 +} hypocket_stats;
@@ -272,6 +384,10 @@ index 64a29e1..f49833d 100644
 +   } else if (id == VCMD_HYPOCKET_PRESENT) {
 +      hypocket_stats.present_ms += ms;
 +      hypocket_stats.presents++;
++   } else if (id == VCMD_RESOURCE_BUSY_WAIT || id == VCMD_HYPOCKET_FENCE_WAIT) {
++      /* Mostly waiting for the GPU on the guest's behalf, not work. */
++      hypocket_stats.fence_ms += ms;
++      hypocket_stats.fences++;
 +   } else {
 +      hypocket_stats.other_ms += ms;
 +      hypocket_stats.others++;
@@ -286,13 +402,13 @@ index 64a29e1..f49833d 100644
 +   unsigned frames = hypocket_stats.presents ? hypocket_stats.presents : 1;
 +   fprintf(stderr,
 +           "hypocket-stats: %.1f s, %u frames: commands %.1f ms/frame (%.0f%% busy, %u submits), "
-+           "present %.1f ms/frame, other %.1f ms (%u)\n",
++           "present %.1f ms/frame, fence checks %u (%.1f ms), other %.1f ms (%u)\n",
 +           window / 1000.0, hypocket_stats.presents, hypocket_stats.submit_ms / frames,
 +           100.0 * hypocket_stats.submit_ms / window, hypocket_stats.submits, hypocket_stats.present_ms / frames,
-+           hypocket_stats.other_ms, hypocket_stats.others);
++           hypocket_stats.fences, hypocket_stats.fence_ms, hypocket_stats.other_ms, hypocket_stats.others);
 +   hypocket_stats.window_start = now;
-+   hypocket_stats.submit_ms = hypocket_stats.present_ms = hypocket_stats.other_ms = 0;
-+   hypocket_stats.submits = hypocket_stats.presents = hypocket_stats.others = 0;
++   hypocket_stats.submit_ms = hypocket_stats.present_ms = hypocket_stats.other_ms = hypocket_stats.fence_ms = 0;
++   hypocket_stats.submits = hypocket_stats.presents = hypocket_stats.others = hypocket_stats.fences = 0;
 +}
 +
 +/* The client left: a summary of the whole session. */
@@ -310,7 +426,33 @@ index 64a29e1..f49833d 100644
  static int vtest_client_dispatch_commands(struct vtest_client *client);
  
  
-@@ -535,6 +600,7 @@ static void vtest_server_dispatch_clients(void)
+@@ -452,6 +521,15 @@ static void vtest_server_wait_clients(void)
+       }
+    }
+ 
++   /* HyPocket: wake up when the GPU finishes a command buffer, not only on
++    * the next command, so the shared fence page (vtest_renderer.c) stays
++    * current while the guest sleeps on it. */
++   int fence_fd = list_is_empty(&server.active_clients) ? -1 : virgl_renderer_get_poll_fd();
++   if (fence_fd >= 0) {
++      FD_SET(fence_fd, &read_fds);
++      max_fd = MAX2(fence_fd, max_fd);
++   }
++
+    /* accept new clients when there is none or when multi_clients is set */
+    if (server.socket >= 0 && (max_fd < 0 || server.multi_clients)) {
+       FD_SET(server.socket, &read_fds);
+@@ -473,6 +551,9 @@ static void vtest_server_wait_clients(void)
+       exit(1);
+    }
+ 
++   if (fence_fd >= 0 && FD_ISSET(fence_fd, &read_fds))
++      virgl_renderer_poll();
++
+    LIST_FOR_EACH_ENTRY(client, &server.active_clients, head) {
+       if (FD_ISSET(client->in_fd, &read_fds)) {
+          client->in_fd_ready = true;
+@@ -535,6 +616,7 @@ static void vtest_server_dispatch_clients(void)
  
        ret = vtest_client_dispatch_commands(client);
        if (ret) {
@@ -318,16 +460,17 @@ index 64a29e1..f49833d 100644
           fprintf(ret == VTEST_CLIENT_DISCONNECTED ? stdout : stderr, "client: %s\n",
                   vtest_client_result_string(ret));
           list_del(&client->head);
-@@ -730,6 +796,8 @@ static const struct vtest_command {
+@@ -730,6 +812,9 @@ static const struct vtest_command {
     HANDLER(DRM_SYNC_TRANSFER,           drm_sync_transfer,         true   ),
  #endif /* ENABLE_DRM */
     HANDLER(RESOURCE_EXPORT_FD,          resource_export_fd,        true   ),
 +   HANDLER(HYPOCKET_PRESENT,            hypocket_present,          true   ),
 +   HANDLER(HYPOCKET_ADOPT,              hypocket_adopt,            true   ),
++   HANDLER(HYPOCKET_FENCE_WAIT,         hypocket_fence_wait,       true   ),
  };
  
  static int vtest_client_dispatch_commands(struct vtest_client *client)
-@@ -784,7 +852,9 @@ static int vtest_client_dispatch_commands(struct vtest_client *client)
+@@ -784,7 +869,9 @@ static int vtest_client_dispatch_commands(struct vtest_client *client)
     vtest_set_current_context(client->context);
  
     void *trace_scope = TRACE_SCOPE_BEGIN(cmd->name);

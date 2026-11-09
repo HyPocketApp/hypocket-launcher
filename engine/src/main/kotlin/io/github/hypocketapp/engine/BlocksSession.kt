@@ -24,6 +24,8 @@ class BlocksSession(context: Context) : AutoCloseable {
     val frameFile: File = File(runtime.cacheDir, "hypocket-frame.bin")
     private val ioFile = File(runtime.cacheDir, "hypocket-blocks-io.bin")
     private val audioFile = File(runtime.cacheDir, "hypocket-blocks-audio.bin")
+    /** Shared by the VirGL server and the game's Mesa: the last finished command buffer. */
+    private val fenceFile = File(runtime.cacheDir, "hypocket-fences.bin")
     private val io: MappedByteBuffer
 
     private var yaw = 0f
@@ -105,7 +107,11 @@ class BlocksSession(context: Context) : AutoCloseable {
         if (!runtime.isAvailable || !VirglServer.binary(runtime).exists()) {
             return BlocksReport(DisplayStatus.NOT_AVAILABLE, stats)
         }
-        val serverEnv = if (display != null) mapOf("HYPOCKET_DISPLAY_SOCKET" to display.socketName) else emptyMap()
+        // A fresh page each run: the server numbers command buffers from 1.
+        fenceFile.writeBytes(ByteArray(FENCE_PAGE_SIZE))
+        val fenceEnv = mapOf("HYPOCKET_FENCE_PATH" to fenceFile.absolutePath)
+        val serverEnv = fenceEnv +
+            (if (display != null) mapOf("HYPOCKET_DISPLAY_SOCKET" to display.socketName) else emptyMap())
         val presentEnv = if (display != null) mapOf("HYPOCKET_PRESENT" to "1") else emptyMap()
         val (server, failureLog) = VirglServer.start(runtime, serverEnv)
         if (server == null) return BlocksReport(DisplayStatus.SERVER_FAILED, stats, serverOutput = failureLog)
@@ -113,6 +119,9 @@ class BlocksSession(context: Context) : AutoCloseable {
         val audio = AudioOutput.create(audioFile)
         val audioEnv = if (audio != null) mapOf("HYPOCKET_AUDIO_PATH" to audioFile.absolutePath) else emptyMap()
         val optionEnv = buildMap {
+            // Precise fences between our Mesa and our VirGL server (see
+            // engine/third_party/mesa-guest); options can turn them off.
+            put("HYPOCKET_FENCES", "1")
             if (options.dynamicResolution) put("HYPOCKET_BLOCKS_DYNAMIC", "1")
             if (options.heavy) put("HYPOCKET_BLOCKS_HEAVY", "1")
             if (options.benchmarkFrames > 0) put("HYPOCKET_BLOCKS_BENCH", "1")
@@ -127,7 +136,7 @@ class BlocksSession(context: Context) : AutoCloseable {
                     "HYPOCKET_FRAME_PATH" to frameFile.absolutePath,
                     "MESA_GL_VERSION_OVERRIDE" to "4.1",
                     "MESA_GLSL_VERSION_OVERRIDE" to "410",
-                ) + presentEnv + audioEnv + optionEnv,
+                ) + presentEnv + audioEnv + fenceEnv + optionEnv,
                 args = listOf(width.toString(), height.toString(), fpsLimit.toString()) +
                     (if (options.benchmarkFrames > 0) listOf(options.benchmarkFrames.toString()) else emptyList()),
                 timeoutSeconds = MAX_SESSION_SECONDS,
@@ -175,12 +184,14 @@ class BlocksSession(context: Context) : AutoCloseable {
     override fun close() {
         stop()
         ioFile.delete()
+        fenceFile.delete()
     }
 
     private companion object {
         const val ASSET = "blocks-x86_64"
         const val MAX_SESSION_SECONDS = 4 * 60 * 60L
         const val STOP_GRACE_MILLIS = 3000L
+        const val FENCE_PAGE_SIZE = 4096
 
         // Must match SharedIo in engine/guest-tests/blocks/blocks.c.
         const val IO_SIZE = 128

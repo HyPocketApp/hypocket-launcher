@@ -74,14 +74,15 @@ class BlocksBenchmark(private val context: Context) {
         const val FRAMES = 600
 
         val PHASES = listOf(
-            Phase("baseline"),
-            // Mesa records GL calls on the game's thread and runs them on its own.
-            Phase("glthread", mapOf("mesa_glthread" to "true")),
-            // Box64 assumes calls and returns never need flags, and adds more entry points.
-            Phase(
-                "glthread + Box64 tuned",
-                mapOf("mesa_glthread" to "true", "BOX64_DYNAREC_SAFEFLAGS" to "0", "BOX64_DYNAREC_SEP" to "1"),
-            ),
+            // Upstream's fences: every fence is a round trip, and waiting for
+            // one waits for everything sent so far.
+            Phase("old fences", mapOf("HYPOCKET_FENCES" to "0")),
+            // HyPocket's: a fence is a command buffer number, resources are
+            // busy only while the command buffers that used them run.
+            Phase("HyPocket fences"),
+            // Mesa's glthread was slower on Adreno and no faster on Mali with
+            // the old fences; check again now that waits are precise.
+            Phase("HyPocket fences + glthread", mapOf("mesa_glthread" to "true")),
             // A quarter of the pixels: tells pixel work from geometry and draw calls.
             Phase("half resolution", scalePercent = 50),
         )
