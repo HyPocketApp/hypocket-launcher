@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Atlassian_MCP__listJiraIssueComments",
+      "mcp__Atlassian_MCP__searchJiraIssuesUsingJql",
+      "mcp__Atlassian_MCP__getJiraIssue"
+    ]
+  }
+}
