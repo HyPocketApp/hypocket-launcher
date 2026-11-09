@@ -31,6 +31,28 @@ its rules apply to you. This file only adds what is specific to AI agents.
 - Keep `README.md` and `README.pt-BR.md` in sync.
 - Prefer low memory use and low GPU load: the target is low-end phones.
 
+## Working alongside other sessions
+
+The maintainers run several AI sessions at once, each on its own branch and
+folder: integration (`app/`, `core/`, shared files), engine (`engine/`) and
+blocks (`blocks/`). They talk through the Jira project `HPK` when an
+Atlassian connector is available (find the site with
+`getAccessibleAtlassianResources`); without one, skip this section.
+
+- Stay in your own folder and branch. Need something from another folder?
+  Open an `HPK` task with that folder's label (`integracao`, `engine` or
+  `blocks`) plus `pedido`.
+- Read cheaply. Once, at the start, search
+  `project = HPK AND labels = <yours> AND statusCategory != Done` and ask for
+  the `summary` and `status` fields only. Open the full task only when you
+  work on it.
+- Write rarely. Add one short comment when a task is finished or blocked:
+  commit, APK, result, next step. Then move its status. Do not comment on
+  every step, and create a task only for a new subject: creating one returns
+  a large response.
+- Decisions that last belong in this repository, not only in Jira.
+- Never put credentials or personal data in Jira.
+
 ## Before finishing
 
 - Build, run the tests and lint (see CONTRIBUTING.md) and report the results
