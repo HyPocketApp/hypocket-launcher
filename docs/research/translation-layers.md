@@ -519,9 +519,9 @@ and our Mesa (`mesa-guest/hypocket-present.patch`):
   this change). The script now stops git's search at its work dir and fails
   if the patch did not land.
 
-**v40 on the Galaxy M12** (commit 84d1256):
+**hypocket-otim-01 on the Galaxy M12** (commit 84d1256; the engine session numbers its APKs on its own):
 
-| phase | v39 fps | v40 fps | server busy % (v40) |
+| phase | v39 fps | otim-01 fps | server busy % (otim-01) |
 |---|---|---|---|
 | before | 59.3 | 64.7 | 65 |
 | error check each | 68.9 | 77.1 | 76 |
