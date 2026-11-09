@@ -151,6 +151,8 @@ class BlocksSession(context: Context) : AutoCloseable {
             val text = result.output
             return BlocksReport(
                 status = when {
+                    // The server found no usable OpenGL ES driver (an emulator, for one).
+                    server.log.contains("couldn't find an OpenGL ES implementation") -> DisplayStatus.SERVER_FAILED
                     !result.finished -> DisplayStatus.TIMED_OUT
                     result.blockedSyscall -> DisplayStatus.BLOCKED_SYSCALL
                     result.exitCode != 0 || !text.contains("blocks: ok") -> DisplayStatus.FAILED
