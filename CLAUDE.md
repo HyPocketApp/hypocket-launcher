@@ -50,6 +50,9 @@ Atlassian connector is available (find the site with
   commit, APK, result, next step. Then move its status. Do not comment on
   every step, and create a task only for a new subject: creating one returns
   a large response.
+- Name the APKs you hand out by session, each session counting its own:
+  `hypocket-otim-01.apk`, `hypocket-blocks-01.apk`; the integration session
+  keeps `hypocket-vNN.apk`. Reports carry the commit, so any APK can be traced.
 - Decisions that last belong in this repository, not only in Jira.
 - Never put credentials or personal data in Jira.
 

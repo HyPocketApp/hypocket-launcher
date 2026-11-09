@@ -40,6 +40,12 @@ class GuestGame(context: Context) {
         val timeoutSeconds: Long,
         /** Called once the game's process started, to be able to stop it. */
         val onStart: (Process) -> Unit = {},
+        /**
+         * Where the game's and the server's output also go as they come, so
+         * it is kept on the phone even if the run is cut off. The caller
+         * finishes it with its own report.
+         */
+        val log: RunLog? = null,
     )
 
     class Result(
@@ -74,8 +80,12 @@ class GuestGame(context: Context) {
         } else {
             emptyMap()
         }
-        val (server, failureLog) = VirglServer.start(runtime, serverEnv, memfds)
-        if (server == null) return Result(DisplayStatus.SERVER_FAILED, serverOutput = failureLog)
+        val log = launch.log
+        val (server, failureLog) = VirglServer.start(runtime, serverEnv, memfds) { log?.line("[server] $it") }
+        if (server == null) {
+            log?.line("[launcher] the VirGL server did not start")
+            return Result(DisplayStatus.SERVER_FAILED, serverOutput = failureLog)
+        }
         val audio = launch.audioFile?.let { file ->
             server.memfdPath(AUDIO_MEMFD)?.let { AudioOutput.create(file, memoryPath = it) } ?: AudioOutput.create(file)
         }
@@ -99,7 +109,9 @@ class GuestGame(context: Context) {
                         args = launch.args,
                         timeoutSeconds = launch.timeoutSeconds,
                         onStart = launch.onStart,
+                        onLine = { log?.line(it) },
                     )
+                    log?.line("[launcher] game exited: code ${result.exitCode ?: "-"}, finished ${result.finished}")
                     val memory = sampler.finish()
                     server.awaitExit(3)
                     return Result(

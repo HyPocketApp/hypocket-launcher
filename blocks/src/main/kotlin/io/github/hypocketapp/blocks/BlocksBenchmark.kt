@@ -3,6 +3,7 @@ package io.github.hypocketapp.blocks
 import android.content.Context
 import io.github.hypocketapp.engine.DirectDisplay
 import io.github.hypocketapp.engine.DisplayStatus
+import io.github.hypocketapp.engine.RunLog
 
 /**
  * Runs HyPocket Blocks in heavy mode several times with a fixed camera path,
@@ -53,10 +54,20 @@ class BlocksBenchmark(private val context: Context) {
         val report: BlocksReport,
     )
 
-    /** [onPhase] gets the index of the phase about to run. Phases skipped by [cancel] are left out. */
-    fun run(screenWidth: Int, screenHeight: Int, display: DirectDisplay?, onPhase: (Int) -> Unit): List<PhaseResult> =
+    /**
+     * [onPhase] gets the index of the phase about to run. Phases skipped by
+     * [cancel] are left out. Every phase's output also goes to [log].
+     */
+    fun run(
+        screenWidth: Int,
+        screenHeight: Int,
+        display: DirectDisplay?,
+        log: RunLog? = null,
+        onPhase: (Int) -> Unit,
+    ): List<PhaseResult> =
         PHASES.withIndex().asSequence().takeWhile { !cancelled }.map { (index, phase) ->
             onPhase(index)
+            log?.section("phase ${index + 1} of ${PHASES.size}: ${phase.name}")
             val width = (screenWidth * phase.scalePercent / 100) and 1.inv()
             val height = (screenHeight * phase.scalePercent / 100) and 1.inv()
             val report = BlocksSession(context).use { session ->
@@ -69,6 +80,7 @@ class BlocksBenchmark(private val context: Context) {
                         extraEnv = phase.env + if (phase.instanced) emptyMap() else mapOf(SEPARATE_DRAWS),
                         serverEnv = phase.serverEnv,
                     ),
+                    log = log,
                 )
             }
             val bench = BENCH_LINE.find(report.output)

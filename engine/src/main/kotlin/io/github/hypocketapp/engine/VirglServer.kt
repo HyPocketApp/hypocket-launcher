@@ -64,12 +64,14 @@ internal class VirglServer private constructor(
          * Starts the server, or returns null and the server's log if it did not
          * come up. [memfds] (name to bytes) are pieces of shared memory the
          * server makes for the app and the game: see [memfdPath]. They need
-         * memfd_create, which apps may only call from Android 11 on.
+         * memfd_create, which apps may only call from Android 11 on. [onLine]
+         * gets each line of the server's output as it comes.
          */
         fun start(
             runtime: GuestRuntime,
             extraEnv: Map<String, String> = emptyMap(),
             memfds: Map<String, Int> = emptyMap(),
+            onLine: (String) -> Unit = {},
         ): Pair<VirglServer?, String> {
             val socket = File(runtime.cacheDir, "virgl.sock")
             socket.delete()
@@ -100,6 +102,7 @@ internal class VirglServer private constructor(
                         synchronized(output) {
                             if (output.length < MAX_OUTPUT_CHARS) output.appendLine(line)
                         }
+                        onLine(line)
                     }
                 }
             }
