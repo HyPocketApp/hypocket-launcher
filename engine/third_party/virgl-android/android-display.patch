@@ -149,7 +149,7 @@ index 7774a25..87cb130 100644
 +   return vrend_hw_switch_context(dctx->grctx, true);
 +}
 diff --git a/src/vrend/vrend_renderer.c b/src/vrend/vrend_renderer.c
-index 4bf88e0..a95501d 100644
+index 4bf88e0..783fa9b 100644
 --- a/src/vrend/vrend_renderer.c
 +++ b/src/vrend/vrend_renderer.c
 @@ -26,6 +26,7 @@
@@ -181,7 +181,7 @@ index 4bf88e0..a95501d 100644
 +   GLuint hypocket_program_id;
 +   unsigned hypocket_program_epoch;
 +   /* The vertex array object and uniform buffer ranges last bound, valid
-+    * while hypocket_bind_epoch has not moved (see hypocket_bind_changed). */
++    * while hypocket_bind_epoch and hypocket_buffer_epoch have not moved. */
 +   GLuint hypocket_vao;
 +   unsigned hypocket_vao_epoch, hypocket_ubo_epoch;
 +   struct { GLuint buffer; GLintptr offset; GLsizeiptr size; } hypocket_ubo[HYPOCKET_UBO_SLOTS];
@@ -192,7 +192,47 @@ index 4bf88e0..a95501d 100644
     int sub_ctx_id;
  
     GLuint vaoid;
-@@ -1450,8 +1469,86 @@ static bool vrend_is_timer_query(GLenum gltype)
+@@ -1384,6 +1403,27 @@ static inline int conv_shader_type(int type)
+    };
+ }
+ 
++/* HyPocket: how many shaders and programs the driver compiled and linked,
++ * and the time it took, for the server's memory lines: the driver's shader
++ * compiler is the main suspect for the memory peak while a world loads. */
++static unsigned hypocket_shaders_compiled, hypocket_programs_linked;
++static double hypocket_compile_ms;
++
++static double hypocket_now_ms(void)
++{
++   struct timespec ts;
++   clock_gettime(CLOCK_MONOTONIC, &ts);
++   return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
++}
++
++VIRGL_EXPORT void hypocket_vrend_compile_stats(unsigned *shaders, unsigned *programs, double *ms);
++VIRGL_EXPORT void hypocket_vrend_compile_stats(unsigned *shaders, unsigned *programs, double *ms)
++{
++   *shaders = hypocket_shaders_compiled;
++   *programs = hypocket_programs_linked;
++   *ms = hypocket_compile_ms;
++}
++
+ static bool vrend_compile_shader(struct vrend_sub_context *sub_ctx,
+                                  struct vrend_shader *shader)
+ {
+@@ -1395,8 +1435,11 @@ static bool vrend_compile_shader(struct vrend_sub_context *sub_ctx,
+ 
+    shader->id = glCreateShader(conv_shader_type(shader->sel->type));
+    glShaderSource(shader->id, shader->glsl_strings.num_strings, shader_parts, NULL);
++   double hypocket_start = hypocket_now_ms();
+    glCompileShader(shader->id);
+    glGetShaderiv(shader->id, GL_COMPILE_STATUS, &param);
++   hypocket_compile_ms += hypocket_now_ms() - hypocket_start;
++   hypocket_shaders_compiled++;
+    if (param == GL_FALSE) {
+       char infolog[65536];
+       int len;
+@@ -1450,8 +1493,96 @@ static bool vrend_is_timer_query(GLenum gltype)
        gltype == GL_TIME_ELAPSED;
  }
  
@@ -203,16 +243,26 @@ index 4bf88e0..a95501d 100644
 +/* HyPocket: draws skip GL calls that would set what is already set (each
 + * one costs CPU time in the phone's driver, and a changed binding can make
 + * the driver check its state again in the next glDraw). The caches below
-+ * are per sub context (each has its own GL context) and are thrown away
-+ * whenever anything else binds a vertex array object or deletes a buffer
-+ * or vertex array object, which could leave a stale name bound.
++ * are per sub context (each has its own GL context). The vertex array one
++ * is thrown away whenever anything else binds or deletes a vertex array
++ * object, the uniform buffer one whenever a buffer is deleted: either could
++ * leave a stale name bound.
 + * HYPOCKET_NO_DRAW_CACHE turns them off, to compare or to rule them out. */
-+static unsigned hypocket_bind_epoch = 1;
++static unsigned hypocket_bind_epoch = 1, hypocket_buffer_epoch = 1;
 +static int hypocket_draw_cache = -1;
 +
++/* A vertex array object was bound elsewhere or deleted. */
 +static inline void hypocket_bind_changed(void)
 +{
 +   hypocket_bind_epoch++;
++}
++
++/* A buffer was deleted: only the uniform buffer bindings can name it. A game
++ * that makes its stream buffers anew every frame deletes one per frame, and
++ * the vertex array object stays bound. */
++static inline void hypocket_buffer_deleted(void)
++{
++   hypocket_buffer_epoch++;
 +}
 +
 +static inline bool hypocket_cache_on(void)
@@ -235,9 +285,9 @@ index 4bf88e0..a95501d 100644
 +                                    GLintptr offset, GLsizeiptr size)
 +{
 +   if (hypocket_cache_on() && index < HYPOCKET_UBO_SLOTS) {
-+      if (sub_ctx->hypocket_ubo_epoch != hypocket_bind_epoch) {
++      if (sub_ctx->hypocket_ubo_epoch != hypocket_buffer_epoch) {
 +         memset(sub_ctx->hypocket_ubo, 0, sizeof(sub_ctx->hypocket_ubo));
-+         sub_ctx->hypocket_ubo_epoch = hypocket_bind_epoch;
++         sub_ctx->hypocket_ubo_epoch = hypocket_buffer_epoch;
 +      }
 +      __typeof__(sub_ctx->hypocket_ubo[0]) *slot = &sub_ctx->hypocket_ubo[index];
 +      if (buffer && slot->buffer == buffer && slot->offset == offset && slot->size == size)
@@ -279,15 +329,27 @@ index 4bf88e0..a95501d 100644
     GLuint id = !program ? 0 :
                            program->is_pipeline ? program->id.pipeline :
                                                   program->id.program;
-@@ -2248,6 +2345,7 @@ static void vrend_destroy_program(struct vrend_linked_shader_program *ent)
+@@ -1877,8 +2008,11 @@ static void bind_image_locs(struct vrend_linked_shader_program *sprog,
+ static bool vrend_link(GLuint id)
+ {
+    GLint lret;
++   double hypocket_start = hypocket_now_ms();
+    glLinkProgram(id);
+    glGetProgramiv(id, GL_LINK_STATUS, &lret);
++   hypocket_compile_ms += hypocket_now_ms() - hypocket_start;
++   hypocket_programs_linked++;
+    if (lret == GL_FALSE) {
+       char infolog[65536];
+       int len;
+@@ -2248,6 +2382,7 @@ static void vrend_destroy_program(struct vrend_linked_shader_program *ent)
  
     if (ent->ubo_sysval_buffer_id != GL_INVALID_INDEX) {
         glDeleteBuffers(1, &ent->ubo_sysval_buffer_id);
-+       hypocket_bind_changed();
++       hypocket_buffer_deleted();
     }
  
     if (ent->is_pipeline)
-@@ -2465,6 +2563,7 @@ static void vrend_destroy_vertex_elements_object(void *obj_ptr)
+@@ -2465,6 +2600,7 @@ static void vrend_destroy_vertex_elements_object(void *obj_ptr)
  
     if (has_feature(feat_gles31_vertex_attrib_binding)) {
        glDeleteVertexArrays(1, &v->id);
@@ -295,7 +357,7 @@ index 4bf88e0..a95501d 100644
     }
     FREE(v);
  }
-@@ -3458,6 +3557,7 @@ void vrend_bind_vertex_elements_state(struct vrend_context *ctx,
+@@ -3458,6 +3594,7 @@ void vrend_bind_vertex_elements_state(struct vrend_context *ctx,
     if (has_feature(feat_gles31_vertex_attrib_binding) && v->id == 0) {
        glGenVertexArrays(1, &v->id);
        glBindVertexArray(v->id);
@@ -303,7 +365,7 @@ index 4bf88e0..a95501d 100644
        for (uint32_t i = 0; i < v->count; i++) {
           struct vrend_vertex_element *ve = &v->elements[i];
           GLint size = !vrend_state.use_gles && (v->zyxw_bitmask & (1 << i)) ? GL_BGRA : ve->nr_chan;
-@@ -3485,6 +3585,11 @@ void vrend_set_constants(struct vrend_context *ctx,
+@@ -3485,6 +3622,11 @@ void vrend_set_constants(struct vrend_context *ctx,
     struct vrend_constants *consts;
  
     consts = &ctx->sub->consts[shader];
@@ -315,7 +377,7 @@ index 4bf88e0..a95501d 100644
     ctx->sub->const_dirty[shader] = true;
  
     /* avoid reallocations by only growing the buffer */
-@@ -5183,7 +5288,7 @@ static void vrend_draw_bind_vertex_binding(struct vrend_context *ctx,
+@@ -5183,7 +5325,7 @@ static void vrend_draw_bind_vertex_binding(struct vrend_context *ctx,
  {
     int i;
  
@@ -324,7 +386,7 @@ index 4bf88e0..a95501d 100644
  
     if (ctx->sub->vbo_dirty) {
        struct vrend_vertex_buffer *vbo = &ctx->sub->vbo[0];
-@@ -5241,6 +5346,7 @@ static GLuint vrend_draw_bind_samplers_shader(struct vrend_sub_context *sub_ctx,
+@@ -5241,6 +5383,7 @@ static GLuint vrend_draw_bind_samplers_shader(struct vrend_sub_context *sub_ctx,
     int sampler_index = 0;
     uint32_t dirty = shader_view->dirty_mask;
     uint32_t mask = sprog->samplers_used_mask[shader_type];
@@ -332,7 +394,7 @@ index 4bf88e0..a95501d 100644
  
     while (mask) {
        int i = u_bit_scan(&mask);
-@@ -5248,6 +5354,7 @@ static GLuint vrend_draw_bind_samplers_shader(struct vrend_sub_context *sub_ctx,
+@@ -5248,6 +5391,7 @@ static GLuint vrend_draw_bind_samplers_shader(struct vrend_sub_context *sub_ctx,
  
        if ((dirty & (1 << i)) && tview) {
           glActiveTexture(GL_TEXTURE0 + next_sampler_id);
@@ -340,7 +402,7 @@ index 4bf88e0..a95501d 100644
           glUniform1i(sprog->sampler_locs[shader_type][sampler_index], next_sampler_id);
  
           if (sprog->shadow_samp_mask[shader_type] & (1 << i)) {
-@@ -5313,7 +5420,10 @@ static GLuint vrend_draw_bind_samplers_shader(struct vrend_sub_context *sub_ctx,
+@@ -5313,7 +5457,10 @@ static GLuint vrend_draw_bind_samplers_shader(struct vrend_sub_context *sub_ctx,
     // Since we use a dirty mask to elide some unnecessary state update API
     // calls, we must ensure that a later glBindTexture() used for another reason
     // (such as texture allocation) doesn't affect our fragile sampler bindings.
@@ -352,7 +414,7 @@ index 4bf88e0..a95501d 100644
  
     return next_sampler_id;
  }
-@@ -5341,8 +5451,8 @@ static GLuint vrend_draw_bind_ubo_shader(struct vrend_sub_context *sub_ctx,
+@@ -5341,8 +5488,8 @@ static GLuint vrend_draw_bind_ubo_shader(struct vrend_sub_context *sub_ctx,
           cb = &sub_ctx->cbs[shader_type][i];
           res = (struct vrend_resource *)cb->buffer;
  
@@ -363,7 +425,7 @@ index 4bf88e0..a95501d 100644
           dirty &= ~(1 << i);
        }
        next_ubo_id++;
-@@ -5589,9 +5699,9 @@ static void vrend_draw_bind_objects(struct vrend_sub_context *sub_ctx, bool new_
+@@ -5589,9 +5736,9 @@ static void vrend_draw_bind_objects(struct vrend_sub_context *sub_ctx, bool new_
     }
  
     if (sub_ctx->prog->virgl_block_bind != GL_INVALID_INDEX)
@@ -376,7 +438,7 @@ index 4bf88e0..a95501d 100644
  
     vrend_draw_bind_abo_shader(sub_ctx);
  
-@@ -5886,6 +5996,30 @@ void vrend_link_program_hook(struct vrend_context *ctx, uint32_t *handles)
+@@ -5886,6 +6033,30 @@ void vrend_link_program_hook(struct vrend_context *ctx, uint32_t *handles)
     ctx->sub->prog = prev_prog;
  }
  
@@ -407,7 +469,7 @@ index 4bf88e0..a95501d 100644
  int vrend_draw_vbo(struct vrend_context *ctx,
                     const struct pipe_draw_info *info,
                     uint32_t cso, uint32_t indirect_handle,
-@@ -5895,6 +6029,8 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+@@ -5895,6 +6066,8 @@ int vrend_draw_vbo(struct vrend_context *ctx,
     struct vrend_resource *indirect_res = NULL;
     struct vrend_resource *indirect_params_res = NULL;
     struct vrend_sub_context *sub_ctx = ctx->sub;
@@ -416,7 +478,7 @@ index 4bf88e0..a95501d 100644
  
     if (ctx->in_error)
        return ENOTRECOVERABLE;
-@@ -5945,6 +6081,8 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+@@ -5945,6 +6118,8 @@ int vrend_draw_vbo(struct vrend_context *ctx,
     if (ctx->sub->blend_state_dirty)
        vrend_patch_blend_state(sub_ctx);
  
@@ -425,7 +487,7 @@ index 4bf88e0..a95501d 100644
     // enable primitive-mode-dependent shader variants
     if (sub_ctx->prim_mode != (int)info->mode) {
        // Only refresh shader program when switching in/out of GL_POINTS primitive mode
-@@ -5956,15 +6094,27 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+@@ -5956,15 +6131,27 @@ int vrend_draw_vbo(struct vrend_context *ctx,
     }
  
     if (sub_ctx->shader_dirty || sub_ctx->swizzle_output_rgb_to_bgr ||
@@ -455,7 +517,7 @@ index 4bf88e0..a95501d 100644
  
     if (has_feature(feat_draw_parameters) &&
         sub_ctx->prog->reads_drawid &&
-@@ -5973,7 +6123,10 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+@@ -5973,7 +6160,10 @@ int vrend_draw_vbo(struct vrend_context *ctx,
           sub_ctx->sysvalue_data_cookie++;
     }
  
@@ -467,7 +529,7 @@ index 4bf88e0..a95501d 100644
        /* PIPE_SHADER and TGSI_SHADER have different ordering, so use two
         * different prefix arrays */
        for (enum pipe_shader_type i = PIPE_SHADER_VERTEX; i < PIPE_SHADER_COMPUTE; ++i) {
-@@ -5989,14 +6142,16 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+@@ -5989,14 +6179,16 @@ int vrend_draw_vbo(struct vrend_context *ctx,
        }
     }
  
@@ -485,7 +547,7 @@ index 4bf88e0..a95501d 100644
        }
     } else {
        if (sub_ctx->ve) {
-@@ -6008,6 +6163,8 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+@@ -6008,6 +6200,8 @@ int vrend_draw_vbo(struct vrend_context *ctx,
        }
     }
  
@@ -494,7 +556,7 @@ index 4bf88e0..a95501d 100644
     if (info->indexed) {
        struct vrend_resource *res = (struct vrend_resource *)sub_ctx->ib.buffer;
        if (!res) {
-@@ -6088,6 +6245,8 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+@@ -6088,6 +6282,8 @@ int vrend_draw_vbo(struct vrend_context *ctx,
        glEnable(GL_BLEND);
     }
  
@@ -503,7 +565,7 @@ index 4bf88e0..a95501d 100644
     /* set the vertex state up now on a delay */
     if (!info->indexed) {
        GLenum mode = info->mode;
-@@ -6157,6 +6316,8 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+@@ -6157,6 +6353,8 @@ int vrend_draw_vbo(struct vrend_context *ctx,
           glDrawElements(mode, info->count, elsz, (void *)(uintptr_t)sub_ctx->ib.offset);
     }
  
@@ -512,7 +574,7 @@ index 4bf88e0..a95501d 100644
     if (info->primitive_restart) {
        if (vrend_state.use_gles) {
           glDisable(GL_PRIMITIVE_RESTART_FIXED_INDEX);
-@@ -6176,6 +6337,7 @@ int vrend_draw_vbo(struct vrend_context *ctx,
+@@ -6176,6 +6374,7 @@ int vrend_draw_vbo(struct vrend_context *ctx,
  
     if (use_advanced_blending)
        glDisable(GL_BLEND);
@@ -520,7 +582,7 @@ index 4bf88e0..a95501d 100644
     return 0;
  }
  
-@@ -6676,6 +6838,10 @@ static void vrend_update_frontface_state(struct vrend_sub_context *sub_ctx)
+@@ -6676,6 +6875,10 @@ static void vrend_update_frontface_state(struct vrend_sub_context *sub_ctx)
     int front_ccw = state->front_ccw;
  
     front_ccw ^= (sub_ctx->fbo_origin_upper_left ? 0 : 1);
@@ -531,7 +593,7 @@ index 4bf88e0..a95501d 100644
     if (front_ccw)
        glFrontFace(GL_CCW);
     else
-@@ -7308,12 +7474,26 @@ void vrend_renderer_poll(void) {
+@@ -7308,12 +7511,26 @@ void vrend_renderer_poll(void) {
     }
  }
  
@@ -558,7 +620,7 @@ index 4bf88e0..a95501d 100644
  
     mtx_lock(&vrend_state.fence_mutex);
     if (vrend_state.use_async_fence_cb) {
-@@ -7859,6 +8039,7 @@ static void vrend_destroy_sub_context(struct vrend_sub_context *sub)
+@@ -7859,6 +8076,7 @@ static void vrend_destroy_sub_context(struct vrend_sub_context *sub)
        }
     }
     glDeleteVertexArrays(1, &sub->vaoid);
@@ -566,15 +628,15 @@ index 4bf88e0..a95501d 100644
     glBindVertexArray(0);
  
     if (sub->current_so)
-@@ -8905,6 +9086,7 @@ void vrend_renderer_resource_destroy(struct vrend_resource *res)
+@@ -8905,6 +9123,7 @@ void vrend_renderer_resource_destroy(struct vrend_resource *res)
        glDeleteTextures(1, &res->gl_id);
     } else if (has_bit(res->storage_bits, VREND_STORAGE_GL_BUFFER)) {
        glDeleteBuffers(1, &res->gl_id);
-+      hypocket_bind_changed();
++      hypocket_buffer_deleted();
        if (res->tbo_tex_id)
           glDeleteTextures(1, &res->tbo_tex_id);
     } else if (has_bit(res->storage_bits, VREND_STORAGE_HOST_SYSTEM_MEMORY)) {
-@@ -11332,6 +11514,20 @@ void vrend_renderer_set_fence_retire(struct vrend_context *ctx,
+@@ -11332,6 +11551,20 @@ void vrend_renderer_set_fence_retire(struct vrend_context *ctx,
     ctx->fence_retire_data = retire_data;
  }
  
@@ -595,7 +657,7 @@ index 4bf88e0..a95501d 100644
  int vrend_renderer_create_fence(struct vrend_context *ctx,
                                  uint32_t flags,
                                  uint64_t fence_id)
-@@ -11370,7 +11566,7 @@ int vrend_renderer_create_fence(struct vrend_context *ctx,
+@@ -11370,7 +11603,7 @@ int vrend_renderer_create_fence(struct vrend_context *ctx,
  
  #ifdef HAVE_EPOXY_EGL_H
     int fence_fd = -1;
@@ -604,7 +666,7 @@ index 4bf88e0..a95501d 100644
         virgl_fence_set_fd(fence_id, fence_fd))
        virgl_error("failed to export fence sync object\n");
     if (fence_fd != -1)
-@@ -13194,6 +13390,7 @@ void vrend_renderer_create_sub_ctx(struct vrend_context *ctx, int sub_ctx_id)
+@@ -13194,6 +13427,7 @@ void vrend_renderer_create_sub_ctx(struct vrend_context *ctx, int sub_ctx_id)
     glGenVertexArrays(1, &sub->vaoid);
     if (!has_feature(feat_gles31_vertex_attrib_binding)) {
        glBindVertexArray(sub->vaoid);
@@ -612,7 +674,7 @@ index 4bf88e0..a95501d 100644
     }
  
     glGenFramebuffers(1, &sub->fb_id);
-@@ -13789,3 +13986,30 @@ vrend_renderer_pipe_resource_get_layout(UNUSED struct vrend_context *ctx,
+@@ -13789,3 +14023,30 @@ vrend_renderer_pipe_resource_get_layout(UNUSED struct vrend_context *ctx,
     return EINVAL;
  }
  #endif
@@ -1013,7 +1075,7 @@ index ba4feb1..9272762 100644
        goto out;
     }
 diff --git a/vtest/vtest_server.c b/vtest/vtest_server.c
-index 64a29e1..89e285b 100644
+index 64a29e1..69b186d 100644
 --- a/vtest/vtest_server.c
 +++ b/vtest/vtest_server.c
 @@ -27,6 +27,11 @@
@@ -1028,7 +1090,15 @@ index 64a29e1..89e285b 100644
  #include <signal.h>
  #include <stdbool.h>
  #include <unistd.h>
-@@ -129,8 +134,190 @@ static void vtest_server_open_read_file(void);
+@@ -35,6 +40,7 @@
+ #include <sys/socket.h>
+ #include <netinet/in.h>
+ #include <sys/un.h>
++#include <errno.h>
+ #include <fcntl.h>
+ #include <getopt.h>
+ #include <string.h>
+@@ -129,8 +135,239 @@ static void vtest_server_open_read_file(void);
  static void vtest_server_open_socket(void);
  static void vtest_server_run(void);
  static void vtest_server_close_socket(void);
@@ -1037,8 +1107,8 @@ index 64a29e1..89e285b 100644
 + * which includes waiting for the screen to give a buffer back) and the
 + * rest. The remainder of the time the server waits for the guest. */
 +static struct {
-+   double window_start, submit_ms, present_ms, other_ms, fence_ms;
-+   unsigned submits, presents, others, fences;
++   double first_command, window_start, submit_ms, present_ms, other_ms, fence_ms;
++   unsigned submits, presents, others, fences, creates;
 +   double total_submit_ms, total_present_ms, total_ms;
 +   unsigned total_presents;
 +} hypocket_stats;
@@ -1051,12 +1121,14 @@ index 64a29e1..89e285b 100644
 +}
 +
 +static void hypocket_memory_log(const char *when);
++static void hypocket_memory_watch(double now);
++void hypocket_vrend_compile_stats(unsigned *shaders, unsigned *programs, double *ms);
 +
 +static void hypocket_stats_add(uint32_t id, double ms)
 +{
 +   double now = hypocket_stats_now_ms();
 +   if (hypocket_stats.window_start == 0)
-+      hypocket_stats.window_start = now;
++      hypocket_stats.window_start = hypocket_stats.first_command = now;
 +   if (id == VCMD_SUBMIT_CMD || id == VCMD_SUBMIT_CMD2) {
 +      hypocket_stats.submit_ms += ms;
 +      hypocket_stats.submits++;
@@ -1070,7 +1142,10 @@ index 64a29e1..89e285b 100644
 +   } else {
 +      hypocket_stats.other_ms += ms;
 +      hypocket_stats.others++;
++      if (id == VCMD_RESOURCE_CREATE || id == VCMD_RESOURCE_CREATE2)
++         hypocket_stats.creates++;
 +   }
++   hypocket_memory_watch(now);
 +   double window = now - hypocket_stats.window_start;
 +   if (window < 5000)
 +      return;
@@ -1086,13 +1161,15 @@ index 64a29e1..89e285b 100644
 +   unsigned frames = hypocket_stats.presents ? hypocket_stats.presents : 1;
 +   fprintf(stderr,
 +           "hypocket-stats: %.1f s, %u frames: commands %.1f ms/frame (%.0f%% busy, %u submits), "
-+           "present %.1f ms/frame, fence checks %u (%.1f ms), other %.1f ms (%u)\n",
++           "present %.1f ms/frame, fence checks %u (%.1f ms), other %.1f ms (%u, %u resources made)\n",
 +           window / 1000.0, hypocket_stats.presents, hypocket_stats.submit_ms / frames,
 +           100.0 * hypocket_stats.submit_ms / window, hypocket_stats.submits, hypocket_stats.present_ms / frames,
-+           hypocket_stats.fences, hypocket_stats.fence_ms, hypocket_stats.other_ms, hypocket_stats.others);
++           hypocket_stats.fences, hypocket_stats.fence_ms, hypocket_stats.other_ms, hypocket_stats.others,
++           hypocket_stats.creates);
 +   hypocket_stats.window_start = now;
 +   hypocket_stats.submit_ms = hypocket_stats.present_ms = hypocket_stats.other_ms = hypocket_stats.fence_ms = 0;
 +   hypocket_stats.submits = hypocket_stats.presents = hypocket_stats.others = hypocket_stats.fences = 0;
++   hypocket_stats.creates = 0;
 +}
 +
 +/* HyPocket: where the server's resident memory is, from /proc/self/smaps:
@@ -1152,10 +1229,51 @@ index 64a29e1..89e285b 100644
 +            break;
 +      fclose(f);
 +   }
-+   fprintf(stderr, "hypocket-memory: %s, peak %lu MB, %lu mappings:", when, hwm / 1024, mappings);
++   unsigned shaders, programs;
++   double compile_ms;
++   hypocket_vrend_compile_stats(&shaders, &programs, &compile_ms);
++   fprintf(stderr, "hypocket-memory: %s, peak %lu MB, %lu mappings, %u shaders and %u programs built (%.0f ms):",
++           when, hwm / 1024, mappings, shaders, programs, compile_ms);
 +   for (int i = 0; i < KINDS; i++)
 +      fprintf(stderr, " %s %.1f MB (pss %.1f)%s", names[i], rss[i] / 1024.0, pss[i] / 1024.0,
 +              i + 1 < KINDS ? "," : "\n");
++}
++
++/* HyPocket: the peak comes while the world loads and is gone by the line
++ * after 20 s, so the resident size is checked every 100 ms (one read of
++ * /proc/self/statm) and the whole breakdown logged each time it has grown by
++ * HYPOCKET_MEMORY_STEP_MB since the last one, a few times at most. */
++#define HYPOCKET_MEMORY_STEP_MB 24
++#define HYPOCKET_MEMORY_RISES 8
++
++static void hypocket_memory_watch(double now)
++{
++   static double last_check;
++   static unsigned long logged_mb, rises;
++   if (rises >= HYPOCKET_MEMORY_RISES || now - last_check < 100)
++      return;
++   last_check = now;
++   FILE *f = fopen("/proc/self/statm", "re");
++   if (!f)
++      return;
++   unsigned long size_pages = 0, resident_pages = 0;
++   int read = fscanf(f, "%lu %lu", &size_pages, &resident_pages);
++   fclose(f);
++   if (read != 2)
++      return;
++   unsigned long mb = resident_pages * (unsigned long)sysconf(_SC_PAGESIZE) >> 20;
++   if (logged_mb == 0) {
++      logged_mb = mb; /* the starting point */
++      return;
++   }
++   if (mb < logged_mb + HYPOCKET_MEMORY_STEP_MB)
++      return;
++   logged_mb = mb;
++   rises++;
++   char when[64];
++   snprintf(when, sizeof(when), "rising at %.1f s (%lu MB resident)",
++            (now - hypocket_stats.first_command) / 1000.0, mb);
++   hypocket_memory_log(when);
 +}
 +
 +/* The client left: a summary of the whole session, the last (shorter)
@@ -1206,7 +1324,8 @@ index 64a29e1..89e285b 100644
 +      int fd = -1;
 +#endif
 +      if (fd < 0 || ftruncate(fd, (off_t)size) != 0) {
-+         fprintf(stderr, "hypocket-memfd: %s failed\n", name);
++         fprintf(stderr, "hypocket-memfd-failed: %s %s: %s (errno %d)\n", name,
++                 fd < 0 ? "memfd_create" : "ftruncate", strerror(errno), errno);
 +         if (fd >= 0)
 +            close(fd);
 +         continue;
@@ -1219,7 +1338,7 @@ index 64a29e1..89e285b 100644
  
  int vtest_main(int argc, char **argv)
  {
-@@ -140,6 +327,12 @@ while (__AFL_LOOP(1000)) {
+@@ -140,6 +377,12 @@ while (__AFL_LOOP(1000)) {
  
     vtest_server_getenv();
     vtest_server_parse_args(argc, argv);
@@ -1232,7 +1351,7 @@ index 64a29e1..89e285b 100644
  
     list_inithead(&server.new_clients);
     list_inithead(&server.active_clients);
-@@ -452,6 +645,15 @@ static void vtest_server_wait_clients(void)
+@@ -452,6 +695,15 @@ static void vtest_server_wait_clients(void)
        }
     }
  
@@ -1248,7 +1367,7 @@ index 64a29e1..89e285b 100644
     /* accept new clients when there is none or when multi_clients is set */
     if (server.socket >= 0 && (max_fd < 0 || server.multi_clients)) {
        FD_SET(server.socket, &read_fds);
-@@ -473,6 +675,9 @@ static void vtest_server_wait_clients(void)
+@@ -473,6 +725,9 @@ static void vtest_server_wait_clients(void)
        exit(1);
     }
  
@@ -1258,7 +1377,7 @@ index 64a29e1..89e285b 100644
     LIST_FOR_EACH_ENTRY(client, &server.active_clients, head) {
        if (FD_ISSET(client->in_fd, &read_fds)) {
           client->in_fd_ready = true;
-@@ -535,6 +740,7 @@ static void vtest_server_dispatch_clients(void)
+@@ -535,6 +790,7 @@ static void vtest_server_dispatch_clients(void)
  
        ret = vtest_client_dispatch_commands(client);
        if (ret) {
@@ -1266,7 +1385,7 @@ index 64a29e1..89e285b 100644
           fprintf(ret == VTEST_CLIENT_DISCONNECTED ? stdout : stderr, "client: %s\n",
                   vtest_client_result_string(ret));
           list_del(&client->head);
-@@ -730,6 +936,10 @@ static const struct vtest_command {
+@@ -730,6 +986,10 @@ static const struct vtest_command {
     HANDLER(DRM_SYNC_TRANSFER,           drm_sync_transfer,         true   ),
  #endif /* ENABLE_DRM */
     HANDLER(RESOURCE_EXPORT_FD,          resource_export_fd,        true   ),
@@ -1277,7 +1396,7 @@ index 64a29e1..89e285b 100644
  };
  
  static int vtest_client_dispatch_commands(struct vtest_client *client)
-@@ -784,7 +994,9 @@ static int vtest_client_dispatch_commands(struct vtest_client *client)
+@@ -784,7 +1044,9 @@ static int vtest_client_dispatch_commands(struct vtest_client *client)
     vtest_set_current_context(client->context);
  
     void *trace_scope = TRACE_SCOPE_BEGIN(cmd->name);

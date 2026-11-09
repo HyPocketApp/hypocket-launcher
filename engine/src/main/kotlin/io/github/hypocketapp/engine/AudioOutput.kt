@@ -12,6 +12,8 @@ class AudioOutput private constructor(
     val file: File,
     /** What the game opens: the file, or the shared memory. */
     val path: String,
+    /** Why the ring is not in memory although that was asked for, or null. */
+    private val memoryError: String?,
 ) : AutoCloseable {
 
     val inMemory: Boolean get() = path != file.absolutePath
@@ -19,7 +21,11 @@ class AudioOutput private constructor(
     /** What happened so far, for the test report. */
     val info: String
         get() = if (handle != 0L) {
-            NativeBridge.nativeAudioInfo(handle) + if (inMemory) ", ring in memory" else ", ring in a file"
+            NativeBridge.nativeAudioInfo(handle) + when {
+                inMemory -> ", ring in memory"
+                memoryError != null -> ", ring in a file (not in memory: $memoryError)"
+                else -> ", ring in a file"
+            }
         } else {
             "closed"
         }
@@ -35,13 +41,30 @@ class AudioOutput private constructor(
         const val RING_BYTES = 64 + 8192 * 2 * 2
 
         /**
-         * Returns null when no audio stream could be opened, or the ring could
-         * not be set up at [memoryPath] (when given; [file] is then not used).
+         * Puts the ring in the shared memory at [memoryPath] when given, else
+         * (or if that fails) in [file]. [memoryError] says why there is no
+         * memory path although one was asked for. Returns null and calls
+         * [onError] when no ring or audio stream could be set up.
          */
-        fun create(file: File, memoryPath: String? = null): AudioOutput? {
-            val path = memoryPath ?: file.absolutePath
-            val handle = NativeBridge.nativeAudioCreate(path)
-            return if (handle == 0L) null else AudioOutput(handle, file, path)
+        fun create(
+            file: File,
+            memoryPath: String? = null,
+            memoryError: String? = null,
+            onError: (String) -> Unit = {},
+        ): AudioOutput? {
+            var whyNotMemory = memoryError
+            if (memoryPath != null) {
+                val handle = NativeBridge.nativeAudioCreate(memoryPath, existing = true)
+                if (handle != 0L) return AudioOutput(handle, file, memoryPath, memoryError = null)
+                whyNotMemory = "$memoryPath: ${NativeBridge.nativeAudioLastError()}"
+                onError("audio ring not in memory, $whyNotMemory")
+            }
+            val handle = NativeBridge.nativeAudioCreate(file.absolutePath, existing = false)
+            if (handle == 0L) {
+                onError("no audio: ${NativeBridge.nativeAudioLastError()}")
+                return null
+            }
+            return AudioOutput(handle, file, file.absolutePath, whyNotMemory)
         }
     }
 }

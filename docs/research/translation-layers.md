@@ -549,6 +549,27 @@ and our Mesa (`mesa-guest/hypocket-present.patch`):
   So the reported peak is a spike while the world loads, not the steady
   state.
 
+**Changes in hypocket-otim-02** (diagnostics mostly; the M12 is needed for
+the answers):
+
+- Audio: when the ring cannot go in memory the report now says why, e.g.
+  "ring in a file (not in memory: /proc/N/fd/3: open: Permission denied
+  (errno 13))", and the run log gets the same line. The server logs
+  `hypocket-memfd-failed:` with errno if it cannot make the memfd (before,
+  that line could be taken for a path). The app also stopped truncating
+  the server's memfd when opening it (`O_TRUNC` was meant for the file).
+- Memory: the server reads its resident size every 100 ms (one read of
+  `/proc/self/statm`) and logs the full `hypocket-memory:` breakdown each
+  time it has grown by 24 MB since the last line, eight times at most, so
+  the load spike is caught while it lasts. Each line also counts the shaders
+  compiled and programs linked so far and the time they took: the Mali
+  shader compiler is the main suspect.
+- Draws: deleting a buffer now only drops the uniform buffer cache, not the
+  vertex array one (a deleted buffer cannot be the bound vertex array
+  object). `hypocket-stats:` counts the resources made in each window: the
+  instanced phase orphans its instance buffer every frame, which in virgl
+  can make a new resource (a memfd, a mapping and a GL buffer) per frame.
+
 ### A third phone: Helio G99 with Mali-G57 MC2 (November 2026)
 
 A tester's Galaxy A24 (MT6789, Mali-G57 MC2, 3.7 GB of memory, Android 16):

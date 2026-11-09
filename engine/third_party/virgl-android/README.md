@@ -39,7 +39,8 @@ Changes for Android:
   (`HYPOCKET_ERROR_CHECK_EACH` for every command); draws that skip GL calls
   setting what is already set (`HYPOCKET_NO_DRAW_CACHE` turns that off); and
   with `HYPOCKET_PROFILE`, where command and draw time goes, plus
-  `hypocket-stats:` and `hypocket-memory:` lines in the log.
+  `hypocket-stats:` and `hypocket-memory:` lines in the log (the memory
+  breakdown also each time the server's resident size grows by 24 MB).
 - `shim/`: two tiny headers that stand in for AOSP-internal headers
   (`<log/log.h>`, `<cutils/properties.h>`) using the NDK's public APIs.
 

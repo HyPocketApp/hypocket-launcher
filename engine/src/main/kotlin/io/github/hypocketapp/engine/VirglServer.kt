@@ -27,7 +27,11 @@ internal class VirglServer private constructor(
         // The server prints the lines before its socket exists, but they can
         // still be on their way through the output pipe.
         repeat(20) {
-            log.lineSequence().firstOrNull { it.startsWith(prefix) }?.let { return it.removePrefix(prefix).trim() }
+            log.lineSequence().firstOrNull { it.startsWith(prefix) }?.let { line ->
+                return line.removePrefix(prefix).trim().takeIf { it.startsWith("/") }
+            }
+            // The server could not make it (its reason is in the log).
+            if (log.lineSequence().any { it.startsWith("$MEMFD_FAILED_LOG$name ") }) return null
             if (!process.isAlive) return null
             Thread.sleep(25)
         }
@@ -57,6 +61,7 @@ internal class VirglServer private constructor(
     companion object {
         private const val MAX_OUTPUT_CHARS = 32 * 1024
         private const val MEMFD_LOG = "hypocket-memfd: "
+        private const val MEMFD_FAILED_LOG = "hypocket-memfd-failed: "
 
         fun binary(runtime: GuestRuntime) = File(runtime.nativeLibDir, "libvirgl_server.so")
 

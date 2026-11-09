@@ -87,7 +87,13 @@ class GuestGame(context: Context) {
             return Result(DisplayStatus.SERVER_FAILED, serverOutput = failureLog)
         }
         val audio = launch.audioFile?.let { file ->
-            server.memfdPath(AUDIO_MEMFD)?.let { AudioOutput.create(file, memoryPath = it) } ?: AudioOutput.create(file)
+            val memoryPath = if (memfds.isNotEmpty()) server.memfdPath(AUDIO_MEMFD) else null
+            val memoryError = when {
+                memfds.isEmpty() -> "needs Android 11"
+                memoryPath == null -> "the server made no shared memory, see its log"
+                else -> null
+            }
+            AudioOutput.create(file, memoryPath, memoryError) { log?.line("[launcher] $it") }
         }
         val gameEnv = buildMap {
             putAll(server.guestEnvironment)
