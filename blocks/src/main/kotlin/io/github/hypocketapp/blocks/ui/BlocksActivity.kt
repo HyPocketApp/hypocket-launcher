@@ -106,6 +106,12 @@ class BlocksActivity : ComponentActivity() {
     private val settings = mutableStateOf<BlocksSettings.Values?>(null)
     private var benchmark: BlocksBenchmark? = null
 
+    /** The pointer was captured when a screen opened over the game: capture it again on closing. */
+    private var recapture = false
+
+    /** The menu key (Esc or Start) pressed while the menu is open; it acts when released. */
+    private var menuKey = 0
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -136,13 +142,13 @@ class BlocksActivity : ComponentActivity() {
         inventory = Inventory(recipes = if (creative) 0 else BlocksRecipes.ALL.size) { open ->
             // Stop walking and free the pointer while the inventory is up.
             controller.reset()
-            if (open) mouse.release()
+            pointerFor(open)
         }
         pause = PauseMenu { open ->
             // The world stands still and the pointer is free while the menu is up.
             session.setPaused(open)
             controller.reset()
-            if (open) mouse.release()
+            pointerFor(open)
         }
         controller = ControllerInput(
             session, sensitivity, selection, inventory,
@@ -208,17 +214,22 @@ class BlocksActivity : ComponentActivity() {
         // The pause menu is an ordinary screen: Android and Compose take the
         // keys (a controller's A falls back to the d-pad centre, B to Back).
         if (::pause.isInitialized && pause.open.value) {
-            if (event.keyCode == KeyEvent.KEYCODE_BUTTON_START) {
-                if (event.action == KeyEvent.ACTION_UP) pause.resume()
+            val code = event.keyCode
+            if (code == KeyEvent.KEYCODE_BUTTON_START || code == KeyEvent.KEYCODE_ESCAPE) {
+                // Act on release of a press made with the menu open: the release of
+                // the press that opened it, and held-key repeats, change nothing.
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                    menuKey = code
+                } else if (event.action == KeyEvent.ACTION_UP && menuKey == code) {
+                    menuKey = 0
+                    if (code == KeyEvent.KEYCODE_BUTTON_START) pause.resume() else pause.back()
+                }
                 return true
             }
             return super.dispatchKeyEvent(event)
         }
-        // With the mouse captured, Esc gives the pointer back instead of exiting.
-        if (event.keyCode == KeyEvent.KEYCODE_ESCAPE && mouse.captured.value) {
-            if (event.action == KeyEvent.ACTION_UP) mouse.release()
-            return true
-        }
+        menuKey = 0
+        // Esc opens the menu straight away, captured pointer or not (the menu frees it).
         return controller.onKey(event) || super.dispatchKeyEvent(event)
     }
 
@@ -232,6 +243,16 @@ class BlocksActivity : ComponentActivity() {
     override fun onPointerCaptureChanged(hasCapture: Boolean) {
         super.onPointerCaptureChanged(hasCapture)
         mouse.onCaptureChanged(hasCapture)
+    }
+
+    /** Frees the pointer while a screen is over the game, and captures it again after. */
+    private fun pointerFor(open: Boolean) {
+        if (open) {
+            recapture = mouse.release() || recapture
+        } else if (recapture && !inventory.open.value && !pause.open.value) {
+            recapture = false
+            mouse.capture()
+        }
     }
 
     private fun changeSettings(changed: BlocksSettings.Values) {

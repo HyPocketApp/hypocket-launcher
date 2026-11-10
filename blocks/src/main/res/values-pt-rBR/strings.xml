@@ -31,7 +31,7 @@
     <string name="blocks_heavy">Modo pesado: 300 criaturas andando e visão mais longa (e mundo quatro vezes maior no jogo rápido)</string>
     <string name="blocks_hint">Esquerda: andar · Direita: arraste para olhar, toque para quebrar ou golpear · Embaixo: escolha o bloco</string>
     <string name="blocks_hint_controller">Analógico esquerdo: andar · Direito: olhar · A: pular · X/RT: quebrar ou golpear · B/LT: colocar · Y: próximo bloco · Select: inventário · Start: menu</string>
-    <string name="blocks_hint_mouse">Mouse: mexa para olhar · Botão esquerdo: quebrar ou golpear · Direito: colocar · Roda ou 1-9: bloco · I: inventário · WASD: andar · Espaço: pular · Esc: soltar o ponteiro, depois o menu</string>
+    <string name="blocks_hint_mouse">Mouse: mexa para olhar · Botão esquerdo: quebrar ou golpear · Direito: colocar · Roda ou 1-9: bloco · I: inventário · WASD: andar · Espaço: pular · Esc: menu</string>
     <string name="blocks_jump">Pular</string>
     <string name="blocks_loading">Construindo o mundo…</string>
     <string name="blocks_new_world">Novo mundo</string>

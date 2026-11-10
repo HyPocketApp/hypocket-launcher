@@ -31,7 +31,7 @@
     <string name="blocks_heavy">Heavy mode: 300 wandering creatures and a longer view (and a world four times larger in the quick game)</string>
     <string name="blocks_hint">Left: walk · Right: drag to look, tap to break or hit · Bottom: choose a block</string>
     <string name="blocks_hint_controller">Left stick: walk · Right stick: look · A: jump · X/RT: break or hit · B/LT: place · Y: next block · Select: inventory · Start: menu</string>
-    <string name="blocks_hint_mouse">Mouse: move to look · Left button: break or hit · Right button: place · Wheel or 1-9: block · I: inventory · WASD: walk · Space: jump · Esc: free the pointer, then the menu</string>
+    <string name="blocks_hint_mouse">Mouse: move to look · Left button: break or hit · Right button: place · Wheel or 1-9: block · I: inventory · WASD: walk · Space: jump · Esc: menu</string>
     <string name="blocks_jump">Jump</string>
     <string name="blocks_loading">Building the world…</string>
     <string name="blocks_new_world">New world</string>

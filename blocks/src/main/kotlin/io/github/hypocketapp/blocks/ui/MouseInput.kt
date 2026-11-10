@@ -62,7 +62,9 @@ class MouseInput(
             event.actionMasked != MotionEvent.ACTION_HOVER_EXIT
     }
 
-    private fun capture() {
+    /** Captures the pointer, as a click does. */
+    fun capture() {
+        if (!enabled) return
         val target = view ?: return
         target.requestFocus()
         target.requestPointerCapture()
