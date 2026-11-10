@@ -303,6 +303,34 @@ para quem quiser entrar na dimensão.
   muitos "falantes", em que cada voz é um vetor de poucos KB, com um modelo
   de dezenas de MB baixado à parte.
 
+## Quinta rodada: decisões
+
+- **Banco de vozes:** não é um milhão no celular. Na instalação vão algumas
+  centenas ou milhares de vozes compactadas (ou dezenas, se pesar demais), e
+  cada personagem que surge ao acaso pega uma delas pela semente.
+- **O cientista (final "ajudar"):** quem escolhe ajudar acha uma passagem
+  secreta até ele. Na cutscene, um monstro gigante, forte como um brutamontes,
+  de jaleco, toca piano de costas para o jogador; ele se vira com um sorriso
+  macabro. Os experimentos eram para transformar a si mesmo numa daquelas
+  criaturas. Ele é a causa do sofrimento delas.
+- **Luta contra o chefe:** estratégia, conversa e muita sobrevivência. Ele se
+  vence com uma **armadilha de luz**.
+- **A luz e as criaturas:** elas são invencíveis a tudo, menos à luz do nosso
+  plano, que reage quimicamente com o corpo delas. Não queima: luz comum as
+  afasta e as desfaz em fumaça (o que o jogo já faz), e só uma armadilha de
+  luz concentrada as **petrifica**. Em aberto: só paralisa, ou mata.
+- **Depois do chefe:** petrificado e selado, o lugar vira uma exposição de
+  arte para as criaturas verem enquanto estão na luz. Armadilha de luz é o
+  único jeito de petrificar, então não é algo que o jogador repita no dia a
+  dia; no máximo, para fazer uma escultura.
+- **Crianças:** não serão dubladas por adulto forçando a voz.
+- **Fabricação mais realista:**
+  - 1 madeira vira 1 tábua (é a mesma madeira, descascada). **Já no jogo.**
+  - Gravetos caem das árvores e ficam pelo chão, para fazer ferramentas.
+  - Bancadas: algo que esquente materiais (vidro sai daí, não do
+    inventário), fogão nas casas para esquentar comida, e outras. Fabricar
+    passa a depender de onde se está.
+
 ## O que entra (primeira rodada)
 
 | Parte | Já existe no jogo? | Observação |
