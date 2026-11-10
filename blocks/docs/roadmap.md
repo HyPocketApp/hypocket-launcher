@@ -134,7 +134,7 @@ Como os mods funcionam (decidido com o autor):
   É isso que protege o celular de quem entra num mundo com mods.
 - **Os mods moram no mundo.** O mundo guarda os mods que usa; quem entra num
   mundo (ou servidor) baixa os mods sozinho e joga, sem instalar nada antes.
-  Isso só é seguro e portável porque os mods são dados e Lua, e não código
+  Isso só é seguro e portável porque os mods são dados, Lua ou Wasm, e não código
   compilado para uma máquina (`.dll`, `.so`): o mesmo mod, em Lua ou Wasm,
   roda no PC e no celular.
 - **Servidores grandes:** o autor mira 1000 a 3000 jogadores num servidor
