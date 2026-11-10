@@ -7,6 +7,12 @@ quem grava e não são lidas.
 Ver [story.md](story.md). Os relatos escritos ficam como estão; os áudios
 somam a eles.
 
+As falas podem ser gravadas ou geradas no Adobe Firefly (só com modelos da
+Adobe e sem imitar voz de gente real). O arquivo final vai para
+`blocks/assets/audio/voice/`, com a origem em
+[../assets/SOURCES.md](../assets/SOURCES.md); regras em
+[../assets/README.md](../assets/README.md).
+
 ## Como gravar
 
 - **Arquivo:** um por fala, com o nome da coluna "Arquivo", em WAV para

@@ -72,7 +72,13 @@ reencontro do Caio com a mãe), conquistas como "Retorno ao lar".
 ### 4. Vozes
 
 Play nos relatos e áudios nos chats (OGG/Opus mono). Banco de vozes
-compactado e escolhido pela semente. As gravações ficam com o autor.
+compactado e escolhido pela semente. As gravações ficam com o autor, que pode
+gravar ou gerar no Adobe Firefly (story.md, "Nona rodada"). Os arquivos
+finais vão para [../assets/](../assets/README.md), com a origem registrada.
+
+- [x] Pasta de arte e áudio, regras e registro de origem.
+- [ ] Tocar arquivos OGG/Opus no jogo (hoje os sons são feitos no código).
+- [ ] Ler texturas de arquivo, quando chegarem as primeiras.
 
 ### 5. Acabamento
 

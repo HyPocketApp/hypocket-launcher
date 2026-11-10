@@ -36,6 +36,7 @@ phone's GPU, and the direct display.
 | `src/main/kotlin/.../ui/` | The home screen (worlds), the game screen with its inventory and pause menu, touch, controller and mouse input, and the benchmark screen. |
 | `src/main/kotlin/.../BlocksRecipes.kt` | The recipes, one table, with the tool or workstation each needs. |
 | `src/main/kotlin/.../StoryNotes.kt` | The story's notes and phones (their words are in the string resources). |
+| `assets/` | Art and audio files, with the origin of each in `SOURCES.md`, under CC BY-SA 4.0 (see its README). Not packed into the APK yet: the game still draws and synthesizes everything itself. |
 | `docs/` | The story ([story.md](docs/story.md)), the work plan ([roadmap.md](docs/roadmap.md)), voice scripts, the player's open past and the goal ideas it grew from. |
 | `src/main/kotlin/.../BlocksSettings.kt` | The settings changed in the game's own settings screen. |
 

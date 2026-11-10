@@ -472,6 +472,31 @@ Chamar de "monstro" é demais: eles são um povo. Apelido de trabalho: **Nocs**.
   os gravetos e pedras pegos no dia. Mundos antigos abrem de barriga cheia e
   aquecidos.
 
+## Nona rodada: arte e áudio com o Adobe Firefly
+
+O autor quer usar o Adobe Firefly para a arte e o áudio do jogo. A leitura
+dos termos (gerais, de 3/10/2025; de IA generativa, de 23/4/2026; leitura do
+texto, não parecer de advogado):
+
+- **Pode.** O que o Firefly gera é conteúdo de quem gerou, não arquivo da
+  Adobe (termos de IA, §1), e não há limite de uso comercial. Pode ir para o
+  repositório aberto e para o APK.
+- **Não pode:** Adobe Stock, templates, Substance 3D Assets, exemplos e
+  Adobe Fonts. A licença deles é pessoal e proíbe redistribuir (termos
+  gerais, §3.5 e §3.6).
+- **Só modelos da Adobe.** Modelo marcado como de outra empresa segue os
+  termos dela e pede 18 anos ou mais (§7). Cuidado maior nas vozes.
+- **Manter os Content Credentials** e não esconder que é IA (§3.1).
+- **Zona cinzenta:** os termos proíbem usar o que sai do Firefly para
+  treinar IA e "permitir que terceiros" o façam (§3.3), e uma licença aberta
+  não pode proibir isso. Saída: arte e áudio ficam em `blocks/assets/` sob
+  CC BY-SA 4.0 (compatível com a GPL-3.0), com origem de cada arquivo
+  registrada e um aviso pedindo que não se treine IA com os do Firefly.
+- **Vozes:** as dublagens de [voice-scripts.md](voice-scripts.md) podem ser
+  gravadas pelo autor ou geradas. Nada de imitar voz de gente real.
+
+Regras, pastas e formatos em [../assets/README.md](../assets/README.md).
+
 ## O que entra (primeira rodada)
 
 | Parte | Já existe no jogo? | Observação |
@@ -513,3 +538,6 @@ Chamar de "monstro" é demais: eles são um povo. Apelido de trabalho: **Nocs**.
 - Nome do jogador, quando houver multiplayer.
 - Animações e modelos (outra conta, com IA): hoje tudo é caixa; os pontos de
   troca são os Nocturnes, as criaturas, os relatos, as fendas e o portal.
+- Voz de criança gerada por IA: vale, ou essas falas ficam sem voz?
+- O jogo tocar arquivos de áudio (hoje os sons são feitos no código) e ler
+  texturas de arquivo, quando chegarem os primeiros em `blocks/assets/`.
