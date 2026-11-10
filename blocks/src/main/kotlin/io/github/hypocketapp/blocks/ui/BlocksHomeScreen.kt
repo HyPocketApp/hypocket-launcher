@@ -63,6 +63,7 @@ fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) 
     // Kept between visits: testers set it once and play many games.
     val prefs = remember { context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE) }
     var dayMode by remember { mutableStateOf(DayMode.fromName(prefs.getString(KEY_DAY_MODE, null))) }
+    var emulated by remember { mutableStateOf(prefs.getBoolean(KEY_EMULATED, false)) }
     var worlds by remember { mutableStateOf(store.list()) }
     var creating by rememberSaveable { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<BlocksWorld?>(null) }
@@ -90,7 +91,7 @@ fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) 
         worlds.forEach { world ->
             WorldCard(
                 world,
-                onPlay = { BlocksActivity.start(context, config(), heavy, world, dayMode) },
+                onPlay = { BlocksActivity.start(context, config(), heavy, world, dayMode, emulated) },
                 onRename = { renaming = world },
                 onDuplicate = {
                     store.duplicate(world.id, copyName.format(world.name))
@@ -101,7 +102,7 @@ fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) 
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { creating = true }) { Text(stringResource(R.string.blocks_new_world)) }
-            OutlinedButton(onClick = { BlocksActivity.start(context, config(), heavy, null, dayMode) }) {
+            OutlinedButton(onClick = { BlocksActivity.start(context, config(), heavy, null, dayMode, emulated) }) {
                 Text(stringResource(R.string.blocks_open))
             }
         }
@@ -119,6 +120,20 @@ fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) 
             ) {
                 Text(stringResource(R.string.blocks_heavy), modifier = Modifier.weight(1f))
                 Switch(checked = heavy, onCheckedChange = { heavy = it })
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(stringResource(R.string.blocks_emulated), modifier = Modifier.weight(1f))
+                Switch(
+                    checked = emulated,
+                    onCheckedChange = {
+                        emulated = it
+                        prefs.edit { putBoolean(KEY_EMULATED, it) }
+                    },
+                )
             }
             Text(stringResource(R.string.blocks_day_mode), style = MaterialTheme.typography.labelLarge)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -147,7 +162,7 @@ fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) 
                 creating = false
                 val world = store.create(name, chunks, creative, peaceful)
                 worlds = store.list()
-                BlocksActivity.start(context, config(), heavy, world, dayMode)
+                BlocksActivity.start(context, config(), heavy, world, dayMode, emulated)
             },
             onDismiss = { creating = false },
         )
@@ -330,6 +345,7 @@ private fun NewWorldDialog(onCreate: (String, Int, Boolean, Boolean) -> Unit, on
 
 private const val PREFS = io.github.hypocketapp.blocks.BlocksSettings.PREFS
 private const val KEY_DAY_MODE = "day_mode"
+private const val KEY_EMULATED = "emulated"
 
 private fun dayModeLabel(mode: DayMode): Int = when (mode) {
     DayMode.CYCLE -> R.string.blocks_day_cycle

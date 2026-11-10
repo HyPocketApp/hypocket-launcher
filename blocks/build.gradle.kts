@@ -11,9 +11,23 @@ plugins {
 android {
     namespace = "io.github.hypocketapp.blocks"
     compileSdk = 36
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         minSdk = 28
+        // The game built natively (libblocks.so), besides the emulated x86-64
+        // program in the assets. arm64-v8a is the real target; x86_64 runs on
+        // desktop emulators during development.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.31.6"
+        }
     }
 
     compileOptions {

@@ -203,6 +203,7 @@ class BlocksSession(context: Context) : AutoCloseable {
             if (options.creatures > 0) put("HYPOCKET_BLOCKS_CREATURES", options.creatures.toString())
             putAll(options.extraEnv)
         }
+        if (options.native) return runNative(width, height, fpsLimit, env, options, log)
         // Benchmarks measure what the phone can do, not the screen's refresh rate.
         val benchmarkServerEnv =
             if (options.benchmarkFrames > 0) mapOf("HYPOCKET_DISPLAY_UNTHROTTLED" to "1", "HYPOCKET_PROFILE" to "1") else emptyMap()
@@ -248,10 +249,49 @@ class BlocksSession(context: Context) : AutoCloseable {
         )
     }
 
+    /**
+     * The native game ([BlocksOptions.native]) in this process: it draws into
+     * the surface given to [NativeGame.setSurface] and writes its output to
+     * a file, read for the report when it ends.
+     */
+    private fun runNative(
+        width: Int,
+        height: Int,
+        fpsLimit: Int,
+        env: Map<String, String>,
+        options: BlocksOptions,
+        log: RunLog?,
+    ): BlocksReport {
+        val output = File(game.cacheDir, "hypocket-blocks-native.log")
+        val started = System.nanoTime()
+        val code = NativeGame.run(
+            arrayOf(width.toString(), height.toString(), fpsLimit.toString()),
+            env.map { (name, value) -> "$name=$value" }.toTypedArray(),
+            output.absolutePath,
+        )
+        val seconds = (System.nanoTime() - started) / 1e9
+        val text = runCatching { output.readText() }.getOrDefault("")
+        log?.section("game (native)")
+        text.lineSequence().forEach { log?.line(it) }
+        return BlocksReport(
+            status = if (code == 0 && (stats.finished || text.contains("blocks: ok"))) DisplayStatus.PASSED else DisplayStatus.FAILED,
+            stats = stats,
+            renderer = Regex("""blocks: GL_RENDERER (.*)""").find(text)?.groupValues?.get(1),
+            exitCode = code,
+            seconds = seconds,
+            direct = false,
+            directInfo = "native",
+            audioInfo = Regex("""blocks: audio (\d+ Hz.*)""").find(text)?.groupValues?.get(1) ?: "no audio",
+            options = options,
+            output = text,
+        )
+    }
+
     /** Asks the game to exit, and ends it if it does not within a few seconds. */
     fun stop() {
         stopping = true
         synchronized(io) { io.putInt(OFF_QUIT, 1) }
+        if (NativeGame.isAvailable) NativeGame.stop()
         thread(name = "blocks-stop", isDaemon = true) {
             Thread.sleep(STOP_GRACE_MILLIS)
             process?.destroyForcibly()
@@ -451,6 +491,11 @@ data class BlocksOptions(
     val extraEnv: Map<String, String> = emptyMap(),
     /** More environment for the VirGL server (its options under test). */
     val serverEnv: Map<String, String> = emptyMap(),
+    /**
+     * Run the game natively (libblocks.so) instead of the emulated x86-64
+     * program. Native is much faster; the emulated one tests the engine.
+     */
+    val native: Boolean = false,
 )
 
 /** How time passes in a game. Holding the time never changes the time kept in the world's save. */

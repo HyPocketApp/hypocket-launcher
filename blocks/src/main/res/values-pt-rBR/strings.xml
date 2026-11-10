@@ -29,6 +29,7 @@
     <string name="blocks_description">Um jogo de blocos original feito para o HyPocket, de código aberto e sem relação com nenhum outro jogo. Colete blocos e construa com eles (ou escolha o modo criativo, com blocos sem limite) e guarde seus mundos. Seu objetivo: acender os cinco faróis apagados escondidos na névoa. Os dias passam e as noites são escuras: ilumine-as com lâmpadas. Ele roda pelo mesmo caminho que um jogo de verdade vai rodar (tradutor x86-64, OpenGL de PC e exibição direta). Funciona com toque, controle, teclado e mouse (clique para prender o ponteiro). A escala de renderização, o limite de FPS, a resolução dinâmica e a sensibilidade da câmera ficam nas Configurações.</string>
     <string name="blocks_menu">Menu</string>
     <string name="blocks_heavy">Modo pesado: 300 criaturas andando e visão mais longa (e mundo quatro vezes maior no jogo rápido)</string>
+    <string name="blocks_emulated">Rodar emulado: o jogo como programa de PC pelo motor do launcher (mais lento; testa o motor)</string>
     <string name="blocks_hint">Esquerda: andar · Direita: arraste para olhar, toque para quebrar ou golpear · Embaixo: escolha o bloco</string>
     <string name="blocks_hint_controller">Analógico esquerdo: andar · Direito: olhar · A: pular · X/RT: quebrar ou golpear · B/LT: colocar · Y: próximo bloco · Select: inventário · Start: menu</string>
     <string name="blocks_hint_mouse">Mouse: mexa para olhar · Botão esquerdo: quebrar ou golpear · Direito: colocar · Roda ou 1-9: bloco · I: inventário · WASD: andar · Espaço: pular · Esc: menu</string>

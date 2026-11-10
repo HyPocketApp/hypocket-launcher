@@ -73,6 +73,7 @@ import io.github.hypocketapp.blocks.BlocksStats
 import io.github.hypocketapp.blocks.BlocksWorld
 import io.github.hypocketapp.blocks.BlocksWorlds
 import io.github.hypocketapp.blocks.DayMode
+import io.github.hypocketapp.blocks.NativeGame
 import io.github.hypocketapp.engine.DirectDisplay
 import io.github.hypocketapp.engine.DisplayStatus
 import io.github.hypocketapp.engine.RunLogs
@@ -106,6 +107,9 @@ class BlocksActivity : ComponentActivity() {
     private lateinit var settingsStore: BlocksSettings
     private val settings = mutableStateOf<BlocksSettings.Values?>(null)
     private var benchmark: BlocksBenchmark? = null
+
+    /** The game runs natively in this process, which then must end with it (see NativeGame). */
+    private var native = false
 
     /** The pointer was captured when a screen opened over the game: capture it again on closing. */
     private var recapture = false
@@ -176,6 +180,8 @@ class BlocksActivity : ComponentActivity() {
         }
         val heavy = intent.getBooleanExtra(EXTRA_HEAVY, false)
         val dayMode = DayMode.fromName(intent.getStringExtra(EXTRA_DAY_MODE))
+        // Native unless the tester asked for the emulated program (it tests the engine).
+        native = NativeGame.isAvailable && !intent.getBooleanExtra(EXTRA_EMULATED, false)
         setContent {
             BlocksTheme {
                 BlocksScreen(
@@ -200,6 +206,7 @@ class BlocksActivity : ComponentActivity() {
                         peaceful = world?.peaceful ?: false,
                         dayMode = dayMode,
                         creatures = if (heavy) 0 else NORMAL_CREATURES,
+                        native = native,
                     ),
                     onClose = { finish() },
                 )
@@ -275,6 +282,8 @@ class BlocksActivity : ComponentActivity() {
     override fun onDestroy() {
         session.close()
         super.onDestroy()
+        // The native game's globals cannot be reset: the next game needs a fresh process.
+        if (native && !isChangingConfigurations) android.os.Process.killProcess(android.os.Process.myPid())
     }
 
     companion object {
@@ -282,6 +291,7 @@ class BlocksActivity : ComponentActivity() {
         private const val EXTRA_DAY_MODE = "day_mode"
         private const val EXTRA_WORLD = "world"
         private const val EXTRA_BENCHMARK = "benchmark"
+        private const val EXTRA_EMULATED = "emulated"
 
         /** Creatures outside heavy mode: some life without the heavy load. */
         private const val NORMAL_CREATURES = 40
@@ -290,9 +300,16 @@ class BlocksActivity : ComponentActivity() {
         fun worlds(context: Context) = BlocksWorlds(File(context.filesDir, "blocks-worlds"))
 
         /** Plays [world], loading and saving it, or a fresh unsaved world without one. */
-        fun start(context: Context, config: BlocksConfig, heavy: Boolean, world: BlocksWorld?, dayMode: DayMode = DayMode.CYCLE) {
+        fun start(
+            context: Context,
+            config: BlocksConfig,
+            heavy: Boolean,
+            world: BlocksWorld?,
+            dayMode: DayMode = DayMode.CYCLE,
+            emulated: Boolean = false,
+        ) {
             val intent = Intent(context, BlocksActivity::class.java).putExtra(EXTRA_HEAVY, heavy).putExtra(EXTRA_WORLD, world?.id)
-                .putExtra(EXTRA_DAY_MODE, dayMode.name)
+                .putExtra(EXTRA_DAY_MODE, dayMode.name).putExtra(EXTRA_EMULATED, emulated)
             context.startActivity(config.putInto(intent))
         }
 
@@ -395,8 +412,16 @@ private fun BlocksScreen(
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
             factory = {
-                FrameSurfaceView(it, session.frameFile, direct = true) { display -> directDisplay.complete(display) }
-                    .also { view -> mouse.attach(view) }
+                if (options.native) {
+                    directDisplay.complete(null)
+                    val (screenW, screenH) = landscapeScreen(it)
+                    // The phone's scaler stretches the smaller frame to the screen for free.
+                    nativeSurface(it, (screenW * renderScalePercent / 100) and 1.inv(), (screenH * renderScalePercent / 100) and 1.inv())
+                        .also { view -> mouse.attach(view) }
+                } else {
+                    FrameSurfaceView(it, session.frameFile, direct = true) { display -> directDisplay.complete(display) }
+                        .also { view -> mouse.attach(view) }
+                }
             },
             modifier = Modifier.fillMaxSize(),
         )
@@ -1036,3 +1061,17 @@ private fun BlocksReport.toShareText(versionLine: String, inputLines: List<Strin
     appendLine("--- server output ---")
     append(serverOutput)
 }
+
+/** The native game's window: its surface goes to the game as it comes and goes. */
+private fun nativeSurface(context: Context, width: Int, height: Int): android.view.SurfaceView =
+    android.view.SurfaceView(context).apply {
+        holder.setFixedSize(width, height)
+        holder.addCallback(object : android.view.SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: android.view.SurfaceHolder) = NativeGame.setSurface(holder.surface)
+
+            override fun surfaceChanged(holder: android.view.SurfaceHolder, format: Int, width: Int, height: Int) =
+                NativeGame.setSurface(holder.surface)
+
+            override fun surfaceDestroyed(holder: android.view.SurfaceHolder) = NativeGame.setSurface(null)
+        })
+    }
