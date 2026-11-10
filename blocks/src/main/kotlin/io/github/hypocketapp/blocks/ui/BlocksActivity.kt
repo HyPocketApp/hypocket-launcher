@@ -374,12 +374,13 @@ private fun BlocksScreen(
             InventoryPanel(inventory, selection, stats.counts, options.creative, onCraft = { session.craft(it) })
         } else if (finished == null) {
             if (!pause.open.value) TouchControls(session, lookSensitivity)
-            Hud(stats, session, controller.used.value, mouse.captured.value, settings.showStats, onMenu = { pause.show() })
+            Hud(stats, session, controller.used.value, mouse, settings.showStats, onMenu = { pause.show() })
             Hotbar(
                 selection,
                 stats.counts,
                 options.creative,
                 onInventory = { inventory.show() },
+                mouse = mouse,
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
             )
             Column(
@@ -563,10 +564,11 @@ private fun Hud(
     stats: BlocksStats,
     session: BlocksSession,
     controllerUsed: Boolean,
-    mouseCaptured: Boolean,
+    mouse: MouseInput,
     showStats: Boolean,
     onMenu: () -> Unit,
 ) {
+    val mouseCaptured = mouse.captured.value
     Box(Modifier.fillMaxSize().padding(16.dp)) {
         Column(Modifier.align(Alignment.TopStart), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             if (!stats.ready) {
@@ -597,7 +599,7 @@ private fun Hud(
             }
             Text(stringResource(hint), color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
         }
-        OutlinedButton(onClick = onMenu, modifier = Modifier.align(Alignment.TopEnd)) {
+        OutlinedButton(onClick = onMenu, modifier = Modifier.align(Alignment.TopEnd).mouseClickArea(mouse, "menu")) {
             Text(stringResource(R.string.blocks_menu), color = Color.White)
         }
         Row(Modifier.align(Alignment.BottomEnd), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -619,6 +621,7 @@ private fun Hotbar(
     counts: List<Int>,
     creative: Boolean,
     onInventory: () -> Unit,
+    mouse: MouseInput,
     modifier: Modifier,
 ) {
     val block = selection.block
@@ -637,6 +640,7 @@ private fun Hotbar(
             Box(
                 Modifier.padding(start = 6.dp).size(width = 44.dp, height = 36.dp)
                     .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                    .mouseClickArea(mouse, "inventory")
                     .clickable(onClick = onInventory),
                 contentAlignment = Alignment.Center,
             ) {

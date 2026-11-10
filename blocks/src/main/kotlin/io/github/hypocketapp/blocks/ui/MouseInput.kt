@@ -4,6 +4,11 @@ import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import io.github.hypocketapp.blocks.BlocksSession
 
 /**
@@ -38,6 +43,17 @@ class MouseInput(
     private var buttons = 0
     private var enabled = true
 
+    /** On-screen buttons a free pointer clicks instead of being captured, by name. */
+    private val clickAreas = mutableMapOf<String, Rect>()
+
+    /** True from a press on one of [clickAreas] until its release: the click goes to the button. */
+    private var clickingButton = false
+
+    /** Marks an on-screen button that an uncaptured mouse can click. */
+    fun clickArea(name: String, bounds: Rect) {
+        clickAreas[name] = bounds
+    }
+
     /** The view that receives captured events; it must be able to take focus. */
     fun attach(target: View) {
         view = target
@@ -55,6 +71,15 @@ class MouseInput(
         if (!enabled || paused() || !event.isFromSource(InputDevice.SOURCE_MOUSE) || captured.value) return false
         val press = event.actionMasked == MotionEvent.ACTION_DOWN ||
             event.actionMasked == MotionEvent.ACTION_BUTTON_PRESS
+        // A click on an on-screen button (the menu, the inventory) presses it.
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            val at = Offset(event.x, event.y)
+            clickingButton = clickAreas.values.any { it.contains(at) }
+        }
+        if (clickingButton) {
+            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) clickingButton = false
+            return false
+        }
         if (press) capture()
         // Hover moves pass through; clicks never reach the touch controls.
         return event.actionMasked != MotionEvent.ACTION_HOVER_MOVE &&
@@ -124,3 +149,8 @@ class MouseInput(
         const val LOOK_PER_COUNT = 0.0026f
     }
 }
+
+/** Lets an uncaptured mouse click this button rather than capture the pointer. */
+fun Modifier.mouseClickArea(mouse: MouseInput?, name: String): Modifier =
+    if (mouse == null) this else onGloballyPositioned { mouse.clickArea(name, it.boundsInWindow()) }
+
