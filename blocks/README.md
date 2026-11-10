@@ -6,9 +6,10 @@ mode), in worlds that are saved on the phone, through days and nights (a day
 lasts 15 minutes). The world is in ruins: creatures that came with a mist
 from another dimension wrecked its villages and drag away anything alive.
 By day you explore the ruins, read the notes and phone messages people left
-behind and build; at night you hide in shelters (closed rooms with a lamp),
-because the creatures cannot be killed. The goal of each world is to light
-five dark beacons, which seals the rifts the mist leaks through; those who
+behind and build; at night you hide in shelters (closed rooms), because the
+creatures cannot be killed. The goal of each world is to light five dark
+beacons: each one seals the rift the mist leaks through and keeps a lit,
+mist-free sanctuary around it that the creatures never enter. Those who
 are dragged away wake on the other side and must find their way back. The
 story is worked out in [docs/story.md](docs/story.md). It is not related to
 any other game, and all of its code, textures and sounds are made here

@@ -208,15 +208,41 @@ para quem quiser entrar na dimensão.
 | Nocturnes | Não morrem: um golpe só atordoa por 2,5 s. Quem acha o jogador (22 blocos) não para até ele se afastar 48 blocos ou se abrigar. Andam a 3,6 (o jogador anda a 4,3), então dá para fugir. Também levam criaturas pacíficas, que voltam de dia. |
 | Ser arrastado | Encostar agarra e arrasta para a névoa. Para se soltar: apertar Pular várias vezes, golpear quem segura, ou luz perto (fora da névoa). Preso 9 s, o jogador é levado para o outro lado. A tela escurece e uma barra mostra o quanto falta para se soltar. |
 | Lâmpadas e névoa | Fora da névoa as lâmpadas afastam os Nocturnes. Dentro da névoa, não: por isso existem os abrigos. |
-| Abrigos | Um cômodo fechado (a névoa passa por folhas e água) com uma lâmpada nas paredes, chão ou teto. O jogo confere 4 vezes por segundo, até 600 blocos de ar. Dentro, a névoa não aparece, os Nocturnes perdem o jogador e não agarram, e o HUD mostra "Abrigado". |
+| Abrigos | Um cômodo fechado (a névoa passa por folhas e água); a lâmpada dentro é só para enxergar. O jogo confere 4 vezes por segundo, até 600 blocos de ar. Dentro, a névoa não aparece, os Nocturnes perdem o jogador e não agarram, e o HUD mostra "Abrigado". |
 | Ruínas | Vilas (2, 3 ou 4, conforme o tamanho do mundo) de 4 casas entre o começo e os faróis, a partir da semente: paredes quebradas, restos de telhado, mesa caída, estante vazia, cama, entulho. Mundos antigos ganham as ruínas ao abrir, só onde não há nada construído. |
 | Relatos | 9, de pessoas diferentes, cada uma com seu nome para as criaturas: o texto do autor perto do começo; a Dona Lurdes ("demônios da névoa"); o celular do Caio com a mãe ("uma coisa"); o técnico das torres, que descobriu as fendas ("os de lá"); o grupo da rua, com as dicas de abrigo ("sombras"); o bilhete da Ana sobre o cachorro; o celular do Lucas, que voltou do outro lado e ensina a fugir de lá; o folheto de quem acha que eles são mensageiros; e um rabisco no outro lado sobre a "fila" dos levados. Três casas ficam vazias. Aponte e use Colocar para ler; o menu de pausa guarda os encontrados. |
 | Fendas | Ao lado de cada farol apagado, um rasgo escuro com bordas violeta que solta névoa. Acender o farol sela a fenda. |
-| Portal | Entre dois faróis, a moldura quebrada com a luz violeta por onde eles vieram. Nenhum farol fecha. Entrar nele leva ao outro lado de propósito. |
+| Santuário do farol | Até 40 blocos de um farol aceso: sem névoa, iluminado à noite, e as criaturas param na borda sem entrar. Um feixe de luz sobe do farol. |
+| Portal | Entre dois faróis, um rasgo alto e irregular no ar, sem moldura, com pedras girando em volta, por onde eles vieram. Nenhum farol fecha. Entrar nele leva ao outro lado de propósito. |
 | O outro lado | Mundo pequeno (6x6 chunks) de pedra-sombra, sempre noite e com névoa fechada, com pedaços do nosso mundo largados. Lá os Nocturnes são mais (12), mais rápidos (4,9), procuram o jogador e luz não os afasta: só abrigo. A volta é uma luz branca que zumbe em algum lugar da névoa. Pego de novo lá, o jogador acorda no começo do seu mundo. É refeito a cada visita. |
 | Save | HPBW versão 5: o mesmo formato, com bits novos para as ruínas, para "salvo no outro lado" e para os relatos encontrados. |
 | Pedra-sombra | Bloco novo, de lá. Pode ser quebrado e usado para construir (um abrigo, por exemplo). |
 | Inventário | Fica com o jogador quando é arrastado. |
+
+## Terceira rodada, como foi contada
+
+> Opa man, pq tem um portal do Nether ali kkkkkk?
+> Pq dentro da névoa a lanterna não espanta as criaturas? Ele é bem densa e a
+> luz não penetra direito certo? Mas se tiver só um quarto fechado, isso não
+> seria um abrigo já?
+> Caramba essa parte da cidade ficou top.
+> Opa man, inclusive, o farol não só sela os portais, mas permite que uma
+> certa área se limpe das névoas, e que possa ter uma área iluminada e livre
+> que eles nunca podem entrar.
+
+## Decisões da terceira rodada
+
+- **Portal:** a primeira versão (moldura retangular escura com luz roxa)
+  lembrava demais o portal de outro jogo e saiu. Agora não tem moldura: é um
+  rasgo alto e irregular no ar, preto por dentro, com rachaduras claras nas
+  bordas, pedras arrancadas girando em volta e névoa saindo.
+- **Lâmpada na névoa:** a névoa é densa e a luz não atravessa, então lá
+  dentro a lâmpada não espanta as criaturas.
+- **Abrigo:** basta um cômodo fechado. A lâmpada dentro é só para enxergar.
+- **Farol aceso:** além de selar a fenda, abre um santuário de 40 blocos em
+  volta: sem névoa, iluminado à noite (uma luz fria, mais fraca que o dia), e
+  as criaturas param na borda olhando, sem nunca entrar. Um feixe de luz sobe
+  do farol para que o santuário seja visto de longe.
 
 ## O que entra (primeira rodada)
 
