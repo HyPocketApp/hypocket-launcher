@@ -24,7 +24,8 @@ A decisão que criou esta pasta está em [../docs/story.md](../docs/story.md),
      marcado como de outra empresa ("Non-Adobe Model", §7), não use: valem os
      termos dessa empresa, e pede 18 anos ou mais;
    - **não apague os Content Credentials** nem esconda que foi feito com IA
-     (§3.1). A linha em SOURCES.md já deixa isso dito;
+     (§3.1). Converter para Ogg perde os metadados do original, então o
+     link deles vai em SOURCES.md e no comentário `PROVENANCE` do `.ogg`;
    - **sem pedido com marca, obra ou pessoa real** (§2 e as diretrizes de
      uso). Isso inclui imitar a voz de alguém.
 4. **Nada da biblioteca da Adobe.** Adobe Stock, modelos e templates do
