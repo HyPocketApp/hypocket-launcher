@@ -30,7 +30,7 @@ A decisão que criou esta pasta está em [../docs/story.md](../docs/story.md),
    licença deles proíbe redistribuir e sublicenciar (termos gerais, §3.5 e
    §3.6), e o repositório é aberto. Fontes da Adobe Fonts também não.
 5. **Crianças:** adulto não faz voz de criança (story.md). Voz de criança
-   gerada por IA fica em aberto; até decidir, essas falas ficam sem voz.
+   gerada por IA pode.
 
 ## Pastas e formatos
 

@@ -71,7 +71,7 @@ Ao abrir um papel, uma voz pode ler enquanto o texto aparece.
 |---|---|---|---|
 | `note0_voz` | Autor do relato | "Para quem vier" (relato 0) | Cansado, sem drama, como quem já aceitou. A última frase bem baixa. |
 | `note1_voz` | Dona Lurdes, uns 75 anos | "Caderno da Dona Lurdes" | Fé firme no começo, sumindo dia a dia. "Acabaram as velas." quase sem voz. |
-| `note5_voz` | Ana, 7 anos | "Bilhete da Ana" | Se não houver criança para gravar, deixe sem voz: adulto imitando criança quebra o clima. |
+| `note5_voz` | Ana, 7 anos | "Bilhete da Ana" | Voz de criança gerada por IA, ou uma criança de verdade. Adulto imitando criança, não: quebra o clima. |
 | `note7_voz` | Seguidor da névoa | "Folheto rasgado" | Calmo demais, sorrindo. Assusta mais que gritar. |
 | `note8_voz` | Levado que fugiu | "Rabiscado numa pedra" | Sussurro rouco e muito perto, como quem tem medo de ser ouvido. |
 
