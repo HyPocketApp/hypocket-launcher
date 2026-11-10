@@ -7,8 +7,9 @@ teste), sem gastar crédito testando pedido. Regras em
 
 ## Como usar
 
-- **Ordem:** gere por prioridade. A 1 já toca no jogo assim que chegar; a 2
-  é da história e eu ligo no jogo quando chegar; a 3 é para depois.
+- **Ordem:** gere por prioridade. A 1 já toca no jogo assim que chegar; a 2,
+  o protagonista e a 3 eu ligo no jogo quando chegarem; os ambientes e os
+  próximos épicos vêm depois. A lista cresce junto com o jogo.
 - **Pedido:** copie o texto da coluna "Pedido". Se não gostar de nenhuma
   variação, mude uma palavra só (mais baixo, mais curto, mais longe), em vez
   de reescrever tudo.
@@ -48,16 +49,84 @@ teste), sem gastar crédito testando pedido. Regras em
 | `sfx/beacon_on` | Acender um farol | Um zumbido luminoso que sobe e se firma, sensação de alívio, sem música | 3 s |
 | `sfx/rift_close` | A fenda fechando | Um rasgo no ar se fechando, um vácuo curto e um baque grave | 2 s |
 
-## Prioridade 3: sobrevivência (para depois)
+## Protagonista (efeitos, não fala)
+
+Gerados como efeito, não como voz: um gerador de fala faz mal susto, esforço
+e respiração. Todos da mesma pessoa; a voz (homem, mulher ou as duas, para
+quem joga escolher) ainda está em aberto, então troque "[pessoa]" no pedido
+pelo que for decidido. Várias versões de cada um, para o jogo variar.
+
+| Arquivo | Quando | Pedido | Duração |
+|---|---|---|---|
+| `player/grab_1..3` | Agarrado por um Nocturne | [pessoa] adulta solta um susto curto e cortado, um puxão de ar de medo, sem palavras | 1 s |
+| `player/struggle_1..4` | Cada vez que aperta Pular preso | [pessoa] adulta fazendo força com os dentes cerrados, se debatendo, sem palavras | 1 s |
+| `player/free_1..2` | Se soltou | [pessoa] adulta ofegante de alívio e pânico depois de se soltar, respiração rápida | 2 s |
+| `player/taken` | Levado | Grito abafado de [pessoa] adulta se afastando e sumindo | 3 s |
+| `player/wake_other` | Acorda do outro lado | [pessoa] adulta puxando o ar de uma vez, como quem sai da água, respiração tremendo | 4 s |
+| `player/back` | Volta pela luz | Suspiro longo de alívio de [pessoa] adulta, quase chorando | 3 s |
+| `player/run_breath` | Correndo à noite com eles perto (loop) | Respiração ofegante e ritmada de [pessoa] adulta correndo, sem passos | 6 s |
+| `player/shelter` | Entra num abrigo | Respiração de [pessoa] adulta desacelerando até ficar calma | 4 s |
+| `player/hurt_1..3` | Perde vida | [pessoa] adulta solta um gemido curto de dor, sem palavras | 1 s |
+| `player/faint` | Desmaia | [pessoa] adulta perdendo as forças, um suspiro fraco que some | 2 s |
+| `player/wake` | Acorda depois de desmaiar | [pessoa] adulta acordando devagar, um gemido baixo e uma tosse | 3 s |
+| `player/hungry` | Barriga vazia | Barriga roncando alto e longo, sem voz | 2 s |
+| `player/cold_1..2` | Com frio | [pessoa] adulta tremendo de frio, dentes batendo e respiração tremida | 2 s |
+| `player/warm` | Esquenta perto do fogo | [pessoa] adulta suspirando de alívio ao se aquecer, esfregando as mãos | 2 s |
+| `player/eat_1..2` | Come | Mordida e mastigação curta de [pessoa] adulta com fome, sem palavras | 1 s |
+| `player/low_health` | Vida baixa (loop) | Batimento cardíaco lento e forte, abafado, sem outros sons | 4 s |
+
+## Prioridade 3: sobrevivência
 
 | Arquivo | O que é | Pedido | Duração |
 |---|---|---|---|
-| `sfx/eat` | Comer | Uma mordida e mastigação curta de pão ou carne, sem voz | 1 s |
 | `sfx/craft` | Fazer algo no inventário | Gravetos e pedras sendo amarrados com corda, curto | 1 s |
-| `sfx/hit` | Bater numa criatura | Um golpe abafado num corpo de animal, curto | 1 s |
+| `sfx/craft_fail` | Falta algo para fazer | Um toque abafado e curto de madeira oca, sem música | 1 s |
 | `sfx/pickup` | Pegar um graveto ou pedra do chão | Pegar um graveto seco do chão, folhas mexendo, curto | 1 s |
+| `sfx/pick_stone_1..2` | Golpe de picareta na pedra | Uma picaretada de pedra lascada contra rocha, curta e seca | 1 s |
+| `sfx/axe_wood_1..2` | Golpe de machado na madeira | Uma machadada num tronco, curta e oca | 1 s |
+| `sfx/hand_hit` | Bater com a mão sem ferramenta | Um soco abafado contra madeira, curto | 1 s |
+| `sfx/no_tool` | Bloco duro demais sem ferramenta | Uma mão batendo em pedra, abafado e sem efeito | 1 s |
+| `sfx/knife_wood` | Descascar madeira com a faca | Uma faca raspando casca de tronco, curto | 2 s |
+| `sfx/saw` | Serrar | Uma serra de mão cortando uma tábua, três idas e vindas | 2 s |
+| `sfx/hit` | Bater numa criatura | Um golpe abafado num corpo de animal, curto | 1 s |
+| `sfx/eat_berries` | Comer frutinhas | Mastigar frutinhas suculentas, curto, sem voz | 1 s |
 | `sfx/cook` | Assar carne na fogueira | Carne chiando numa grelha sobre o fogo | 3 s |
 | `sfx/fry` | Fritar no fogão | Carne fritando na banha numa panela de ferro | 3 s |
+| `sfx/kiln` | Forno aceso, de perto (loop) | Forno de barro com fogo forte e abafado, um ronco grave e constante | 8 s |
+| `sfx/coat` | Vestir o agasalho | Casaco de couro e lã sendo vestido, roupa farfalhando | 2 s |
+| `sfx/creature_1..3` | As criaturas mansas do dia | Um animal manso de pasto soltando um som curto, grave e tranquilo, ao ar livre | 2 s |
+| `sfx/creature_hurt` | Criatura mansa atingida | Um animal manso de pasto assustado, um som curto e agudo | 1 s |
+| `sfx/glass_break` | Quebrar vidro | Uma vidraça pequena quebrando, curto | 1 s |
+| `sfx/door` | Porta (quando houver) | Uma porta velha de madeira abrindo devagar com rangido | 2 s |
+
+## Ambientes do mundo
+
+| Arquivo | O que é | Pedido | Duração |
+|---|---|---|---|
+| `ambient/night_insects` | Noite comum, sem névoa (loop) | Grilos e insetos noturnos ao longe, calmo, sem vento | 15 s |
+| `ambient/dawn` | Amanhecer (loop) | Vários passarinhos cantando ao longe ao amanhecer, calmo | 15 s |
+| `ambient/water` | Perto de um lago (loop) | Água de lago batendo de leve na margem, calmo | 10 s |
+| `ambient/leaves` | Perto de árvores com vento (loop) | Folhas de árvores farfalhando com uma brisa leve | 10 s |
+| `ambient/ruins` | Dentro de uma casa em ruína (loop) | Casa velha e vazia, madeira rangendo de leve, vento passando por frestas | 15 s |
+| `ambient/sanctuary` | Perto de um farol aceso (loop) | Zumbido quente e calmo de luz, uma sensação de abrigo, sem música | 15 s |
+
+## Para os próximos épicos (gere quando chegar a vez)
+
+Já anotados para não esquecer; o jogo ainda não tem essas partes.
+
+| Arquivo | Épico | O que é | Pedido | Duração |
+|---|---|---|---|---|
+| `sfx/phone_buzz` | 4, vozes | Celular vibrando ao achar um relato | Celular vibrando duas vezes em cima de uma mesa de madeira | 2 s |
+| `sfx/phone_audio` | 4, vozes | Abrir um áudio no chat | Um clique curto de tela de celular | 1 s |
+| `sfx/paper` | 4, vozes | Abrir um papel | Uma folha de papel velho sendo desdobrada | 1 s |
+| `ambient/survivors` | 2, sobreviventes | Gente morando no santuário (loop) | Algumas pessoas conversando baixo ao redor de uma fogueira, palavras impossíveis de entender | 15 s |
+| `sfx/survivor_arrives` | 2, sobreviventes | Um sobrevivente chega | Passos cansados se aproximando na terra e um suspiro de alívio | 3 s |
+| `sfx/achievement` | 5, acabamento | Uma conquista ("Retorno ao lar") | Um tom suave e caloroso que sobe, curto, como um sino de vidro | 2 s |
+| `ambient/lab` | 3, cientista | O laboratório (loop) | Máquinas antigas zumbindo, vidro tilintando, borbulhas, ambiente fechado | 15 s |
+| `sfx/piano` | 3, cientista | O cientista ao piano na cutscene | Piano antigo e desafinado tocando notas graves e lentas, sombrio | 15 s |
+| `sfx/light_trap` | 3, cientista | Armadilha de luz carregando | Um zumbido elétrico que sobe e estala no final | 3 s |
+| `sfx/petrify` | 3, cientista | Petrificar | Pedra rachando e se fechando sobre algo vivo, grave | 3 s |
+| `sfx/boss_breath` | 3, cientista | O cientista transformado, perto | Respiração enorme e úmida de uma criatura gigante, lenta | 4 s |
 
 ## Vozes
 
@@ -78,6 +147,5 @@ arquivo e a direção. Para gerar fala:
      fugiu (`note8_voz`, sussurro) e o autor do relato 0 (`note0_voz`, o
      texto mais longo). O texto a ler é o do papel no jogo; eu te passo
      cada um quando chegar a vez.
-- **Protagonista:** são gemidos, sustos e respiração, não frases. Gerador de
-  fala costuma fazer isso mal; esses ficam melhores gravados por você, no
-  celular, como explica o roteiro.
+- **Protagonista:** as reações dele são efeitos (seção "Protagonista"),
+  não voz. Se um dia ele falar frases, isso entra aqui.
