@@ -69,6 +69,7 @@ typedef struct {
     int wheel;                /* wheel steps since the last frame, up positive */
     int keys[16];             /* BLOCKS_KEY_* pressed since the last frame */
     int key_count;
+    float look_scale;         /* written by the game: the camera speed setting, 1 by default */
 } PlatformInput;
 
 typedef struct {

@@ -63,7 +63,7 @@ static void frame(void* shared, int* width, int* height) {
             if (e.key.repeat) break;
             switch (e.key.keysym.sym) {
             case SDLK_ESCAPE: key_pressed(BLOCKS_KEY_MENU); break;
-            case SDLK_e: case SDLK_TAB: key_pressed(BLOCKS_KEY_INVENTORY); break;
+            case SDLK_e: case SDLK_i: case SDLK_TAB: key_pressed(BLOCKS_KEY_INVENTORY); break;
             case SDLK_RETURN: case SDLK_KP_ENTER: key_pressed(BLOCKS_KEY_CONFIRM); break;
             case SDLK_UP: key_pressed(BLOCKS_KEY_UP); break;
             case SDLK_DOWN: key_pressed(BLOCKS_KEY_DOWN); break;
@@ -82,8 +82,9 @@ static void frame(void* shared, int* width, int* height) {
             break;
         case SDL_MOUSEMOTION:
             if (captured) {
-                io->look_yaw += e.motion.xrel * LOOK_PER_COUNT;
-                io->look_pitch -= e.motion.yrel * LOOK_PER_COUNT;
+                float scale = input.look_scale > 0 ? input.look_scale : 1.0f;
+                io->look_yaw += e.motion.xrel * LOOK_PER_COUNT * scale;
+                io->look_pitch -= e.motion.yrel * LOOK_PER_COUNT * scale;
             }
             break;
         case SDL_MOUSEBUTTONDOWN:
@@ -247,6 +248,13 @@ int main(int argc, char** argv) {
         SDL_free(base);
     }
     set_default("HYPOCKET_BLOCKS_CREATURES", "40");
+    char* prefs = SDL_GetPrefPath("HyPocket", "Blocks");
+    if (prefs) {
+        char path[4096];
+        snprintf(path, sizeof path, "%ssettings.txt", prefs);
+        set_default("HYPOCKET_BLOCKS_SETTINGS", path);
+        SDL_free(prefs);
+    }
 
     /* Desktop OpenGL 3.3 core; OpenGL ES 3.0 where that is all there is. */
     int gles = 0;

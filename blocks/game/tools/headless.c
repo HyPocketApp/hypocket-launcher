@@ -2,7 +2,10 @@
  * (platform.h) with no window, for testing on a Linux machine without a
  * screen: an EGL pbuffer stands in for the window. With HEADLESS_GLES=1 the
  * context is OpenGL ES 3.0, as on the phone; else desktop OpenGL 3.3 core.
- * HEADLESS_SHOT=<file.ppm> keeps the last frame.
+ * HEADLESS_SHOT=<file.ppm> keeps the last frame. HEADLESS_SCREENS=1 has the
+ * game draw its own screens, as on PC; HEADLESS_KEYS="<frame>:<key>,..."
+ * presses BLOCKS_KEY_* numbers on those frames, HEADLESS_POINTER="x,y"
+ * places the pointer.
  *
  * Build: see build.sh (headless). Usage: blocks-headless <w> <h> <fps> <frames> */
 #include <EGL/egl.h>
@@ -15,6 +18,27 @@
 static EGLDisplay display;
 static EGLSurface surface;
 static int width, height;
+
+static PlatformInput input;
+static int frame_number;
+
+static void frame(void* io, int* w, int* h) {
+    (void)io;
+    input.key_count = input.clicks = input.wheel = 0;
+    const char* keys = getenv("HEADLESS_KEYS");
+    while (keys && *keys) {
+        int at = 0, key = 0;
+        if (sscanf(keys, "%d:%d", &at, &key) == 2 && at == frame_number) input.keys[input.key_count++] = key;
+        keys = strchr(keys, ',');
+        if (keys) keys++;
+    }
+    const char* pointer = getenv("HEADLESS_POINTER");
+    input.pointer_x = input.pointer_y = -1;
+    if (pointer) sscanf(pointer, "%d,%d", &input.pointer_x, &input.pointer_y);
+    frame_number++;
+    *w = width;
+    *h = height;
+}
 
 static void* get_proc(const char* name) { return (void*)eglGetProcAddress(name); }
 
@@ -66,6 +90,11 @@ int main(int argc, char** argv) {
     BlocksPlatform* p = malloc(sizeof *p);
     memcpy(p, &platform, sizeof *p);
     p->gles = gles;
+    if (getenv("HEADLESS_SCREENS")) {
+        p->game_screens = 1;
+        p->input = &input;
+        p->frame = frame;
+    }
     blocks_platform = p;
     return blocks_main(argc, argv);
 }

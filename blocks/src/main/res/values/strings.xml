@@ -100,6 +100,8 @@
     <string name="blocks_setting_volume">Volume</string>
     <string name="blocks_setting_fps">FPS limit</string>
     <string name="blocks_setting_stats">Show statistics</string>
+    <string name="blocks_on">On</string>
+    <string name="blocks_off">Off</string>
     <string name="blocks_setting_default">Default</string>
     <plurals name="blocks_setting_blocks">
         <item quantity="one">%1$d block</item>

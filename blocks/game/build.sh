@@ -5,6 +5,8 @@
 # x86-64 toolchain.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
+# The tables the game's own screens take from the Android side (generated.h).
+python3 "$here/tools/gen_tables.py"
 out="$here/../src/main/assets/guest-tests/blocks-x86_64"
 gcc -O2 -s -Wall -Wextra -Wno-unused-parameter -o "$out" "$here/blocks.c" -lEGL -lm -pthread
 echo "Built $out"

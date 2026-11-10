@@ -175,7 +175,8 @@ static int replace_file(const char* from, const char* to) {
     X(PFNGLCLIENTWAITSYNCPROC, glClientWaitSync) \
     X(PFNGLDELETESYNCPROC, glDeleteSync) \
     X(PFNGLDELETEFRAMEBUFFERSPROC, glDeleteFramebuffers) \
-    X(PFNGLDELETERENDERBUFFERSPROC, glDeleteRenderbuffers)
+    X(PFNGLDELETERENDERBUFFERSPROC, glDeleteRenderbuffers) \
+    X(PFNGLTEXIMAGE2DPROC, glTexImage2D)
 
 #define DECLARE(type, name) static type p_##name;
 GL_FUNCTIONS(DECLARE)
@@ -3080,6 +3081,9 @@ static SharedIo* open_io(void) {
 #endif
 }
 
+/* The game's own screens, where no app draws them (the PC version). */
+#include "screens.c"
+
 #ifndef BLOCKS_LIBRARY
 int main(int argc, char** argv) { return blocks_main(argc, argv); }
 #endif
@@ -3401,6 +3405,7 @@ int blocks_main(int argc, char** argv) {
     io->build_ms = (float)build_ms;
 
     start_audio();
+    if (platform && platform->game_screens) screens_start(io, save_path);
     float step_timer = 0, rate_yaw = 0, rate_pitch = 0;
     int bench = max_frames > 0 && getenv("HYPOCKET_BLOCKS_BENCH") != NULL;
     if (bench && !time_env) day_time = 0.5f; /* the same light on every run */
@@ -4283,6 +4288,7 @@ int blocks_main(int argc, char** argv) {
         /* A small picture of the world for the world list: soon after it
          * starts, every 30 seconds and when leaving. */
         if (save_path && (io->quit || frames == 30 || frames % 1800 == 0)) save_thumbnail(save_path, window_target ? 0 : fbo, w, h);
+        if (platform && platform->game_screens) screens_frame(io, w, h, dt);
 
         if (present) {
             if (!window_target) {
