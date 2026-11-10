@@ -75,6 +75,7 @@ import io.github.hypocketapp.blocks.BlocksWorlds
 import io.github.hypocketapp.blocks.DayMode
 import io.github.hypocketapp.engine.DirectDisplay
 import io.github.hypocketapp.engine.DisplayStatus
+import io.github.hypocketapp.engine.RunLogs
 import io.github.hypocketapp.blocks.R
 import io.github.hypocketapp.engine.view.FrameSurfaceView
 import kotlinx.coroutines.CompletableDeferred
@@ -335,6 +336,21 @@ private fun BlocksScreen(
     val directDisplay = remember { CompletableDeferred<DirectDisplay?>() }
     var report by remember { mutableStateOf<BlocksReport?>(null) }
     var stats by remember { mutableStateOf(BlocksStats()) }
+    fun inputLines(finished: BlocksReport) = listOfNotNull(
+        world?.let { "World: ${it.chunks}x${it.chunks} chunks, saved ${finished.stats.saves} times" },
+        "Health: ${finished.stats.healthTenths / 10.0}, fainted ${finished.stats.deaths} times, " +
+            "hurt ${finished.stats.hurts} times, peaceful: ${options.peaceful}",
+        "Mode: ${if (options.creative) "creative" else "survival"}, carrying " +
+            BuildBlock.entries.mapIndexedNotNull { i, block ->
+                finished.stats.counts.getOrElse(i) { 0 }.takeIf { it > 0 }?.let { "${block.name.lowercase()} $it" }
+            }.ifEmpty { listOf("nothing") }.joinToString(),
+        "Input devices used: " +
+            (controller.deviceNames + mouse.deviceNames).ifEmpty { setOf("touch only") }.joinToString(),
+        "Input devices connected: " +
+            ControllerInput.connectedDevices().ifEmpty { listOf("none") }.joinToString(),
+        "Input events: ${controller.motionEvents} controller motion, ${controller.keyEvents} " +
+            "controller/keyboard keys, ${mouse.events} captured mouse",
+    )
 
     LaunchedEffect(Unit) {
         val display = directDisplay.await()
@@ -342,7 +358,20 @@ private fun BlocksScreen(
         // Even sizes keep the scaled frame free of half-pixel seams.
         val width = (screenW * renderScalePercent / 100) and 1.inv()
         val height = (screenH * renderScalePercent / 100) and 1.inv()
-        report = withContext(Dispatchers.IO) { session.run(width, height, fpsLimit, display, options) }
+        val log = RunLogs(context).start(
+            "blocks",
+            "HyPocket Blocks session\n" + deviceLines(versionLine) +
+                "Heavy mode: ${options.heavy}, dynamic resolution: ${options.dynamicResolution}\n" +
+                (world?.let { "World: ${it.chunks}x${it.chunks} chunks\n" } ?: ""),
+        )
+        report = try {
+            withContext(Dispatchers.IO) {
+                session.run(width, height, fpsLimit, display, options, log)
+                    .also { log.finish(it.toShareText(versionLine, inputLines(it))) }
+            }
+        } finally {
+            log.close()
+        }
     }
     LaunchedEffect(Unit) {
         while (report == null) {
@@ -445,26 +474,7 @@ private fun BlocksScreen(
         if (finished != null) {
             // The pointer works normally again on the report.
             LaunchedEffect(Unit) { mouse.stop() }
-            ReportPanel(
-                finished,
-                versionLine,
-                listOfNotNull(
-                    world?.let { "World: ${it.chunks}x${it.chunks} chunks, saved ${finished.stats.saves} times" },
-                    "Health: ${finished.stats.healthTenths / 10.0}, fainted ${finished.stats.deaths} times, " +
-                        "hurt ${finished.stats.hurts} times, peaceful: ${options.peaceful}",
-                    "Mode: ${if (options.creative) "creative" else "survival"}, carrying " +
-                        BuildBlock.entries.mapIndexedNotNull { i, block ->
-                            finished.stats.counts.getOrElse(i) { 0 }.takeIf { it > 0 }?.let { "${block.name.lowercase()} $it" }
-                        }.ifEmpty { listOf("nothing") }.joinToString(),
-                    "Input devices used: " +
-                        (controller.deviceNames + mouse.deviceNames).ifEmpty { setOf("touch only") }.joinToString(),
-                    "Input devices connected: " +
-                        ControllerInput.connectedDevices().ifEmpty { listOf("none") }.joinToString(),
-                    "Input events: ${controller.motionEvents} controller motion, ${controller.keyEvents} " +
-                        "controller/keyboard keys, ${mouse.events} captured mouse",
-                ),
-                onClose,
-            )
+            ReportPanel(finished, versionLine, inputLines(finished), onClose)
         }
     }
 }
@@ -924,10 +934,7 @@ private fun DisplayStatus.label(): Int = when (this) {
 /** Plain-text report, in English, to paste into an issue. */
 private fun BlocksReport.toShareText(versionLine: String, inputLines: List<String>): String = buildString {
     appendLine("HyPocket Blocks session")
-    appendLine("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
-    appendLine(versionLine)
-    appendLine("Android: ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
-    appendLine("SoC: ${if (android.os.Build.VERSION.SDK_INT >= 31) android.os.Build.SOC_MODEL else "unknown"}")
+    append(deviceLines(versionLine))
     appendLine("Status: $status")
     appendLine("Direct display: $direct")
     appendLine("Renderer: ${renderer ?: "-"}")

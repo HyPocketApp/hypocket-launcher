@@ -20,6 +20,7 @@
 
 #include <aaudio/AAudio.h>
 #include <android/log.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -157,20 +158,41 @@ bool OpenStream(AudioState& s) {
     return true;
 }
 
+std::mutex g_error_mutex;
+std::string g_last_error;
+
+void SetLastError(const char* step, int error) {
+    char text[128];
+    if (error != 0) {
+        snprintf(text, sizeof(text), "%s: %s (errno %d)", step, strerror(error), error);
+    } else {
+        snprintf(text, sizeof(text), "%s", step);
+    }
+    std::lock_guard<std::mutex> lock(g_error_mutex);
+    g_last_error = text;
+}
+
 }  // namespace
 
-std::shared_ptr<AudioState>* AudioOutputCreate(const char* path) {
+std::shared_ptr<AudioState>* AudioOutputCreate(const char* path, bool existing) {
+    SetLastError("", 0);
     auto state = std::make_shared<AudioState>();
     AudioState& s = *state;
     s.self = state;
     s.size = kHeader + static_cast<size_t>(kCapacity) * kChannels * sizeof(int16_t);
-    s.fd = open(path, O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
-    if (s.fd < 0 || ftruncate(s.fd, static_cast<off_t>(s.size)) != 0) {
-        if (s.fd >= 0) close(s.fd);
+    s.fd = existing ? open(path, O_RDWR | O_CLOEXEC) : open(path, O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    if (s.fd < 0) {
+        SetLastError("open", errno);
+        return nullptr;
+    }
+    if (ftruncate(s.fd, static_cast<off_t>(s.size)) != 0) {
+        SetLastError("ftruncate", errno);
+        close(s.fd);
         return nullptr;
     }
     s.map = mmap(nullptr, s.size, PROT_READ | PROT_WRITE, MAP_SHARED, s.fd, 0);
     if (s.map == MAP_FAILED) {
+        SetLastError("mmap", errno);
         close(s.fd);
         return nullptr;
     }
@@ -184,11 +206,17 @@ std::shared_ptr<AudioState>* AudioOutputCreate(const char* path) {
         munmap(s.map, s.size);
         close(s.fd);
         __android_log_print(ANDROID_LOG_WARN, "HyPocketAudio", "no audio stream");
+        SetLastError("no audio stream", 0);
         return nullptr;
     }
     // Published last: the guest only uses a ring with the magic set.
     __atomic_store_n(&s.ring->magic, kMagic, __ATOMIC_RELEASE);
     return new std::shared_ptr<AudioState>(state);
+}
+
+std::string AudioOutputLastError() {
+    std::lock_guard<std::mutex> lock(g_error_mutex);
+    return g_last_error;
 }
 
 std::string AudioOutputInfo(std::shared_ptr<AudioState>* handle) {

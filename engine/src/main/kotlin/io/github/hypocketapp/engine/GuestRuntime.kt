@@ -32,6 +32,7 @@ internal class GuestRuntime(context: Context) {
         args: List<String> = emptyList(),
         timeoutSeconds: Long,
         onStart: (Process) -> Unit = {},
+        onLine: (String) -> Unit = {},
     ): RunResult {
         val guest = extractAsset(name)
         val libDir = prepareLibDir()
@@ -52,7 +53,7 @@ internal class GuestRuntime(context: Context) {
                 environment().putAll(HostCpu.box64Environment)
                 environment().putAll(extraEnv)
             }
-        return run(builder, timeoutSeconds, onStart)
+        return run(builder, timeoutSeconds, onStart, onLine)
     }
 
     /**
@@ -122,6 +123,7 @@ internal class GuestRuntime(context: Context) {
     companion object {
         /** 128 + SIGSYS: Android's seccomp filter killed the process. */
         const val EXIT_SIGSYS = 128 + 31
+        /** Output kept for the report: its first and last halves. */
         private const val MAX_OUTPUT_CHARS = 64 * 1024
 
         /** Must match GUEST_RUNTIME in engine/build.gradle.kts. */
@@ -144,18 +146,25 @@ internal class GuestRuntime(context: Context) {
             "libz.so.1" to "libmesa_z.so",
         )
 
-        /** Starts a process and collects its output, killing it after the timeout. */
-        fun run(builder: ProcessBuilder, timeoutSeconds: Long, onStart: (Process) -> Unit = {}): RunResult {
+        /**
+         * Starts a process and collects its output, killing it after the
+         * timeout. [onLine] gets each line as it comes, on the reader thread.
+         */
+        fun run(
+            builder: ProcessBuilder,
+            timeoutSeconds: Long,
+            onStart: (Process) -> Unit = {},
+            onLine: (String) -> Unit = {},
+        ): RunResult {
             val startNanos = System.nanoTime()
             val process = builder.start()
             onStart(process)
-            val output = StringBuilder()
+            val output = OutputKeeper(headChars = MAX_OUTPUT_CHARS / 2, tailChars = MAX_OUTPUT_CHARS / 2)
             val reader = thread(name = "guest-output") {
                 process.inputStream.bufferedReader().useLines { lines ->
                     lines.forEach { line ->
-                        synchronized(output) {
-                            if (output.length < MAX_OUTPUT_CHARS) output.appendLine(line)
-                        }
+                        output.add(line)
+                        onLine(line)
                     }
                 }
             }
@@ -167,7 +176,7 @@ internal class GuestRuntime(context: Context) {
                 finished = finished,
                 exitCode = if (finished) process.exitValue() else null,
                 millis = millis,
-                output = synchronized(output) { output.toString() },
+                output = output.toString(),
             )
         }
     }

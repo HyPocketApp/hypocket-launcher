@@ -5,6 +5,7 @@ import io.github.hypocketapp.engine.DirectDisplay
 import io.github.hypocketapp.engine.DisplayStatus
 import io.github.hypocketapp.engine.GuestGame
 import io.github.hypocketapp.engine.MemoryUsage
+import io.github.hypocketapp.engine.RunLog
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.ByteOrder
@@ -156,9 +157,16 @@ class BlocksSession(context: Context) : AutoCloseable {
     /**
      * Runs the game at [width] x [height] until [stop] is called. Blocking:
      * call it from a background thread. Without [display] the game reads its
-     * frames back into [frameFile].
+     * frames back into [frameFile]. The output also goes to [log] as it comes.
      */
-    fun run(width: Int, height: Int, fpsLimit: Int, display: DirectDisplay?, options: BlocksOptions = BlocksOptions()): BlocksReport {
+    fun run(
+        width: Int,
+        height: Int,
+        fpsLimit: Int,
+        display: DirectDisplay?,
+        options: BlocksOptions = BlocksOptions(),
+        log: RunLog? = null,
+    ): BlocksReport {
         val env = buildMap {
             put("HYPOCKET_INPUT_PATH", ioFile.absolutePath)
             put("HYPOCKET_FRAME_PATH", frameFile.absolutePath)
@@ -195,6 +203,7 @@ class BlocksSession(context: Context) : AutoCloseable {
                 audioFile = audioFile,
                 preciseFences = options.extraEnv["HYPOCKET_FENCES"] != "0",
                 timeoutSeconds = MAX_SESSION_SECONDS,
+                log = log,
                 onStart = { started ->
                     process = started
                     if (stopping) started.destroy()

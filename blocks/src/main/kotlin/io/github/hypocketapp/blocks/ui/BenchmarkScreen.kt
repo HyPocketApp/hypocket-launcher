@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import io.github.hypocketapp.blocks.BlocksBenchmark
 import io.github.hypocketapp.engine.DirectDisplay
+import io.github.hypocketapp.engine.RunLogs
 import io.github.hypocketapp.blocks.R
 import io.github.hypocketapp.engine.view.FrameSurfaceView
 import kotlinx.coroutines.CompletableDeferred
@@ -54,8 +55,17 @@ fun BenchmarkScreen(benchmark: BlocksBenchmark, screenWidth: Int, screenHeight: 
 
     LaunchedEffect(Unit) {
         val display = directDisplay.await()
-        results = withContext(Dispatchers.IO) {
-            benchmark.run(screenWidth, screenHeight, display) { index -> phase = index }
+        val log = RunLogs(context).start(
+            "benchmark",
+            "HyPocket Blocks benchmark\n" + deviceLines(versionLine),
+        )
+        results = try {
+            withContext(Dispatchers.IO) {
+                benchmark.run(screenWidth, screenHeight, display, log) { index -> phase = index }
+                    .also { log.finish(it.toShareText(versionLine)) }
+            }
+        } finally {
+            log.close()
         }
     }
 
@@ -128,10 +138,7 @@ private fun List<BlocksBenchmark.PhaseResult>.toShareText(versionLine: String): 
             "HyPocket Blocks benchmark (heavy mode, ${BlocksBenchmark.FRAMES} frames per phase, " +
                 "no FPS or refresh-rate limit)",
         )
-        appendLine("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
-        appendLine(versionLine)
-        appendLine("Android: ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})")
-        appendLine("SoC: ${if (android.os.Build.VERSION.SDK_INT >= 31) android.os.Build.SOC_MODEL else "unknown"}")
+        append(deviceLines(versionLine))
         results.firstOrNull()?.report?.renderer?.let { appendLine("Renderer: $it") }
         appendLine("phase | fps | game cpu ms | wait ms | server ms/frame | server busy % | status")
         results.forEach { r ->
