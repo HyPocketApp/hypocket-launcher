@@ -512,8 +512,11 @@ Regras, pastas e formatos em [../assets/README.md](../assets/README.md).
   ("tá esfriando", "preciso comer", "tem alguma coisa ali"), sem explicar a
   história. As falas evitam palavra com gênero ("cansado/cansada"), para o
   mesmo texto servir às duas vozes.
-- **Falar com os outros:** o jogador vai poder falar com outros. Por agora
-  ficam as duas vozes de padrão; como será essa conversa está em aberto.
+- **Falar com os outros, dos dois jeitos:** chat de voz entre jogadores no
+  multiplayer (a voz real de quem joga) e conversa com os sobreviventes do
+  santuário (falas gravadas, nas duas vozes).
+- **A voz se escolhe no perfil do jogador,** que também guarda o nome para o
+  multiplayer.
 
 ## O que entra (primeira rodada)
 
@@ -541,10 +544,6 @@ Regras, pastas e formatos em [../assets/README.md](../assets/README.md).
 
 ## Em aberto
 
-- Falar com os outros (décima rodada): chat de voz entre jogadores no
-  multiplayer, conversa com os sobreviventes do santuário, ou as duas?
-- Onde se escolhe a voz do jogador: ao criar o mundo, ou num perfil do
-  jogador (que serviria também para o nome, no multiplayer)?
 - O covil é a dimensão portátil do cientista (sexta rodada). E a "fila" dos
   levados, que o Lucas viu: fica lá ou do outro lado?
 - Qual dos dois finais é o "verdadeiro", ou se os dois valem.
