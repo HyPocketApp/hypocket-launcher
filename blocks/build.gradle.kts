@@ -26,6 +26,41 @@ android {
     }
 }
 
+/**
+ * The game's sound files (blocks/assets/audio, see its README) go into the
+ * APK's assets as blocks-media/; only the Ogg files, not the notes beside
+ * them. BlocksMedia copies them where the game reads them.
+ */
+abstract class PackBlocksMediaTask : DefaultTask() {
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val audioDir: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val assetsDir: DirectoryProperty
+
+    @get:Inject
+    abstract val files: FileSystemOperations
+
+    @TaskAction
+    fun pack() {
+        files.sync {
+            from(audioDir) { include("**/*.ogg") }
+            into(assetsDir.dir("blocks-media"))
+        }
+    }
+}
+
+val packBlocksMedia = tasks.register<PackBlocksMediaTask>("packBlocksMedia") {
+    audioDir.set(layout.projectDirectory.dir("assets/audio"))
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(packBlocksMedia, PackBlocksMediaTask::assetsDir)
+    }
+}
+
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)

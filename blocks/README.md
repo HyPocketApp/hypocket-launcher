@@ -29,14 +29,16 @@ phone's GPU, and the direct display.
 | Path | What |
 |---|---|
 | `game/blocks.c` | The game itself (C, OpenGL 4.1, EGL). Input, statistics, audio and save formats are documented at the top and next to each structure. |
+| `game/third_party/` | Code from other projects, with its source and license: the Ogg Vorbis decoder. |
 | `game/build.sh` | Builds `src/main/assets/guest-tests/blocks-x86_64` on x86-64 Linux (gcc, libegl-dev, libgl-dev). The binary is committed so others need no x86-64 toolchain. |
 | `src/main/kotlin/.../BlocksSession.kt` | Runs the game through the engine and talks to it through a small shared file. |
 | `src/main/kotlin/.../BlocksWorlds.kt` | The saved worlds: one `.hpw` save (written by the game) and one `.properties` file each. |
 | `src/main/kotlin/.../BlocksBenchmark.kt` | The benchmark: a fixed camera path, once per set of options. |
 | `src/main/kotlin/.../ui/` | The home screen (worlds), the game screen with its inventory and pause menu, touch, controller and mouse input, and the benchmark screen. |
+| `src/main/kotlin/.../BlocksMedia.kt` | Copies the sound files out of the APK for the game. |
 | `src/main/kotlin/.../BlocksRecipes.kt` | The recipes, one table, with the tool or workstation each needs. |
 | `src/main/kotlin/.../StoryNotes.kt` | The story's notes and phones (their words are in the string resources). |
-| `assets/` | Art and audio files, with the origin of each in `SOURCES.md`, under CC BY-SA 4.0 (see its README). Not packed into the APK yet: the game still draws and synthesizes everything itself. |
+| `assets/` | Art and audio files, with the origin of each in `SOURCES.md`, under CC BY-SA 4.0 (see its README). The Ogg files in `audio/` go into the APK (`build.gradle.kts`) and replace or add to the sounds the game makes itself; art is not read from files yet. |
 | `docs/` | The story ([story.md](docs/story.md)), the work plan ([roadmap.md](docs/roadmap.md)), voice scripts, the player's open past and the goal ideas it grew from. |
 | `src/main/kotlin/.../BlocksSettings.kt` | The settings changed in the game's own settings screen. |
 

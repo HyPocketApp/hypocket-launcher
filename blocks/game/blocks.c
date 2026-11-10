@@ -14,7 +14,9 @@
  * Input and statistics go through a small shared file (HYPOCKET_INPUT_PATH);
  * the layout is below and must match BlocksSession.kt. Sound is synthesized
  * here and mixed on an audio thread into a ring of samples in another shared
- * file (HYPOCKET_AUDIO_PATH), which the app plays (audio_output.cpp).
+ * file (HYPOCKET_AUDIO_PATH), which the app plays (audio_output.cpp). Sound
+ * files in HYPOCKET_BLOCKS_MEDIA (blocks/assets/audio) replace or add to the
+ * made-up sounds: see "Sound files" in Audio.
  *
  * Usage: blocks <width> <height> [fps limit] [frames]
  * HYPOCKET_BLOCKS_DYNAMIC=1 lowers the 3D resolution when the game misses the
@@ -75,6 +77,18 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+
+/* Ogg Vorbis decoding for the sound files (see "Sound files" in Audio):
+ * stb_vorbis 1.22 by Sean Barrett, MIT or public domain (third_party/). */
+#define STB_VORBIS_NO_PUSHDATA_API
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#pragma GCC diagnostic ignored "-Wunused-value"
+#pragma GCC diagnostic ignored "-Wsign-compare"
+#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#include "third_party/stb_vorbis.c"
+#pragma GCC diagnostic pop
 
 /* ---- Shared input/statistics file ------------------------------------- */
 
@@ -2696,6 +2710,8 @@ typedef struct {
 } AudioRing;
 
 enum { SND_STEP, SND_STEP2, SND_BREAK, SND_PLACE, SND_JUMP, SND_SPLASH, SND_CHIRP, SOUNDS };
+/* Their file names, under sfx/ (see Sound files). */
+static const char* const sound_names[SOUNDS] = {"step", "step2", "break", "place", "jump", "splash", "chirp"};
 
 typedef struct {
     float* data;
@@ -2710,12 +2726,27 @@ typedef struct {
 
 #define VOICES 24
 
+/* Sounds that keep going, louder or softer as the game asks: the wind, and
+ * the crackle of the nearest campfire. */
+enum { LOOP_WIND, LOOP_CAMPFIRE, LOOPS };
+static const char* const loop_files[LOOPS] = {"ambient/wind.ogg", "sfx/campfire.ogg"};
+
+typedef struct {
+    Sound sound; /* empty: the wind is made up as it plays; the crackle never is */
+    int pos;
+    float gain;
+    volatile float target; /* set by the game loop */
+} Loop;
+
 static struct {
     AudioRing* ring;
     int16_t* samples;
     int rate;
     Sound sounds[SOUNDS];
     Voice voices[VOICES];
+    Loop loops[LOOPS];
+    Sound speech; /* a voice reading a note, from a file */
+    int speech_pos;
     pthread_mutex_t lock;
     pthread_t thread;
     volatile int running;
@@ -2768,6 +2799,14 @@ static Sound make_sound(float seconds, int kind) {
             lp2 += 0.08f * (lp - lp2);
             v = (lp - lp2) * expf(-t * 5.0f) * 1.8f;
             break;
+        case SOUNDS: { /* a campfire: soft hiss, a low rumble and random pops */
+            lp += 0.02f * (n - lp);
+            lp2 += 0.5f * (n - lp2);
+            float pop = audio_noise() > 0.9993f ? 1.0f : 0;
+            phase = phase * 0.995f + pop * (0.6f + 0.4f * audio_noise());
+            v = lp * 0.9f + lp2 * 0.05f + phase * lp2 * 1.4f;
+            break;
+        }
         default: { /* a bird: three quick rising chirps */
             float local = fmodf(t, 0.11f);
             float f = 2600.0f + 9000.0f * local;
@@ -2811,7 +2850,27 @@ static void mix(uint64_t start, int frames) {
         audio.wind_phase += 1.0f / audio.rate;
         float gust = 0.5f + 0.5f * sinf(audio.wind_phase * 0.23f) * sinf(audio.wind_phase * 0.071f + 1.0f);
         audio.wind_state += 0.012f * (audio_noise() - audio.wind_state);
-        float l = audio.wind_state * (0.12f + 0.25f * gust), r = l * 0.85f;
+        float l = audio.loops[LOOP_WIND].sound.data ? 0 : audio.wind_state * (0.12f + 0.25f * gust), r = l * 0.85f;
+        for (int i = 0; i < LOOPS; i++) {
+            Loop* lo = &audio.loops[i];
+            if (!lo->sound.data) continue;
+            lo->gain += (lo->target - lo->gain) * 0.0002f; /* eases over a few tenths of a second */
+            if (lo->gain > 0.001f) {
+                float s = lo->sound.data[lo->pos] * lo->gain;
+                l += s;
+                r += s;
+            }
+            if (++lo->pos >= lo->sound.length) lo->pos = 0;
+        }
+        if (audio.speech.data) {
+            float s = audio.speech.data[audio.speech_pos];
+            l += s;
+            r += s;
+            if (++audio.speech_pos >= audio.speech.length) {
+                free(audio.speech.data);
+                audio.speech.data = NULL;
+            }
+        }
         for (int i = 0; i < VOICES; i++) {
             Voice* v = &audio.voices[i];
             if (!v->sound) continue;
@@ -2859,6 +2918,79 @@ static void* audio_thread(void* unused) {
     return NULL;
 }
 
+/* ---- Sound files ----
+ * HYPOCKET_BLOCKS_MEDIA names a folder (the app copies blocks/assets/audio
+ * there) of Ogg Vorbis files, decoded once, mixed down to mono and resampled
+ * to the ring's rate:
+ *   sfx/<name>.ogg      replaces the made-up sound of that name (sound_names)
+ *   sfx/campfire.ogg    the crackle near campfires, looped (else made up)
+ *   ambient/wind.ogg    the wind, looped (else made up)
+ *   voice/note<N>_voz.ogg  read aloud when note N is picked up in the world
+ * Without the folder or a file the game sounds as it did. */
+static const char* media_dir;
+
+static int load_sound(const char* name, Sound* out) {
+    if (!media_dir || audio.rate <= 0) return 0;
+    char path[1024];
+    snprintf(path, sizeof path, "%s/%s", media_dir, name);
+    if (access(path, R_OK) != 0) return 0;
+    int channels = 0, rate = 0;
+    short* pcm = NULL;
+    int frames = stb_vorbis_decode_filename(path, &channels, &rate, &pcm);
+    if (frames <= 0 || channels <= 0 || rate <= 0) {
+        printf("blocks: sound %s could not be read\n", name);
+        free(pcm);
+        return 0;
+    }
+    int length = (int)((int64_t)frames * audio.rate / rate);
+    float* data = malloc((size_t)(length > 0 ? length : 1) * sizeof *data);
+    for (int i = 0; i < length; i++) {
+        double at = (double)i * rate / audio.rate;
+        int a = (int)at, b = a + 1 < frames ? a + 1 : a;
+        float f = (float)(at - a), va = 0, vb = 0;
+        for (int c = 0; c < channels; c++) {
+            va += pcm[a * channels + c];
+            vb += pcm[b * channels + c];
+        }
+        data[i] = (va + (vb - va) * f) / (channels * 32768.0f);
+    }
+    free(pcm);
+    out->data = data;
+    out->length = length > 0 ? length : 1;
+    printf("blocks: sound %s, %.1f s\n", name, (double)length / audio.rate);
+    return 1;
+}
+
+/* Reads a note aloud, if it has a recording; decoded on its own thread so
+ * the game does not stop for it. */
+static void* speech_thread(void* arg) {
+    char name[64];
+    snprintf(name, sizeof name, "voice/note%d_voz.ogg", (int)(intptr_t)arg);
+    Sound s = {0};
+    if (load_sound(name, &s)) {
+        pthread_mutex_lock(&audio.lock);
+        free(audio.speech.data);
+        audio.speech = s;
+        audio.speech_pos = 0;
+        pthread_mutex_unlock(&audio.lock);
+    }
+    return NULL;
+}
+
+static void read_note_aloud(int note) {
+    if (!audio.ring || !media_dir) return;
+    pthread_t t;
+    if (pthread_create(&t, NULL, speech_thread, (void*)(intptr_t)note) == 0) pthread_detach(t);
+}
+
+static void stop_speech(void) {
+    if (!audio.ring) return;
+    pthread_mutex_lock(&audio.lock);
+    free(audio.speech.data);
+    audio.speech.data = NULL;
+    pthread_mutex_unlock(&audio.lock);
+}
+
 static void start_audio(void) {
     const char* path = getenv("HYPOCKET_AUDIO_PATH");
     if (!path) return;
@@ -2878,7 +3010,15 @@ static void start_audio(void) {
     }
     audio.rate = (int)ring->rate;
     static const float lengths[SOUNDS] = {0.12f, 0.12f, 0.45f, 0.16f, 0.25f, 0.6f, 0.33f};
-    for (int i = 0; i < SOUNDS; i++) audio.sounds[i] = make_sound(lengths[i], i);
+    media_dir = getenv("HYPOCKET_BLOCKS_MEDIA");
+    for (int i = 0; i < SOUNDS; i++) {
+        char name[64];
+        snprintf(name, sizeof name, "sfx/%s.ogg", sound_names[i]);
+        if (!load_sound(name, &audio.sounds[i])) audio.sounds[i] = make_sound(lengths[i], i);
+    }
+    for (int i = 0; i < LOOPS; i++) load_sound(loop_files[i], &audio.loops[i].sound);
+    if (!audio.loops[LOOP_CAMPFIRE].sound.data) audio.loops[LOOP_CAMPFIRE].sound = make_sound(4.0f, SOUNDS);
+    audio.loops[LOOP_WIND].target = 0.5f;
     audio.samples = (int16_t*)((char*)map + 64);
     audio.ring = ring;
     audio.running = 1;
@@ -3225,6 +3365,7 @@ int main(int argc, char** argv) {
     const float default_far = heavy ? 128.0f : 72.0f;
     float far = default_far;
     float fire_clock = 0, smoke_wait = 0; /* campfire flicker and smoke */
+    int was_paused = 0;
     /* Danger: night creatures and fall damage. Creative worlds have neither;
      * peaceful worlds (HYPOCKET_BLOCKS_PEACEFUL) keep falls but no attackers. */
     int peaceful = getenv("HYPOCKET_BLOCKS_PEACEFUL") != NULL;
@@ -3281,6 +3422,8 @@ int main(int argc, char** argv) {
 
         /* ---- Settings and pause ---- */
         int paused = io->paused != 0;
+        if (was_paused && !paused) stop_speech(); /* the note was closed */
+        was_paused = paused;
         int view = io->view_distance;
         far = view > 0 ? (view < 32 ? 32.0f : view > 160 ? 160.0f : (float)view) : default_far;
         int volume = io->volume_percent;
@@ -3406,6 +3549,7 @@ int main(int argc, char** argv) {
                     }
                     play_sound(SND_PLACE, 0.4f, 0, 1.8f);
                     printf("blocks: note %d opened\n", note);
+                    read_note_aloud(note);
                     block_hit = 0;
                     breaks = seen_breaks; /* nothing else happens with this press */
                     places = seen_places;
@@ -3777,17 +3921,23 @@ int main(int argc, char** argv) {
         if ((smoke_wait -= dt) <= 0) {
             smoke_wait = 0.25f;
             int pci = (int)player.x / CHUNK, pcj = (int)player.z / CHUNK, smoking = 0;
+            float nearest = 1e9f;
             for (int i = pci - 1; i <= pci + 1; i++)
                 for (int j = pcj - 1; j <= pcj + 1; j++) {
                     if (i < 0 || j < 0 || i >= CHUNKS || j >= CHUNKS) continue;
                     const Chunk* ch = &chunks[i][j];
                     for (int f = 0; f < ch->fire_count && smoking < 6; f++, smoking++) {
                         const int16_t* fp = ch->fires[f];
+                        float fdx = fp[0] + 0.5f - player.x, fdy = fp[1] + 0.5f - player.y, fdz = fp[2] + 0.5f - player.z;
+                        nearest = fminf(nearest, sqrtf(fdx * fdx + fdy * fdy + fdz * fdz));
                         uint32_t tick = (uint32_t)frames * 7u + (uint32_t)f;
                         spawn_smoke(fp[0] + 0.5f, fp[1] + 0.7f, fp[2] + 0.5f, 0, tick);
                         if (rand01(fp[0], (int)tick, fp[2]) < 0.3f) spawn_smoke(fp[0] + 0.5f, fp[1] + 0.3f, fp[2] + 0.5f, 1, tick);
                     }
                 }
+            /* The crackle: full beside a fire, gone 12 blocks away. */
+            float near = fmaxf(0, 1 - nearest / 12);
+            audio.loops[LOOP_CAMPFIRE].target = near * near * 0.8f;
         }
         /* Chunks whose blocks changed are meshed now; those where only lamp
          * light moved wait their turn, two a frame, to avoid a hitch. */

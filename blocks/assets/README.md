@@ -1,10 +1,12 @@
 # HyPocket Blocks: arte e áudio
 
-Os arquivos de arte e som do jogo, antes de entrarem no APK. Hoje o jogo
-desenha as texturas e faz os sons no próprio código (`game/blocks.c`), sem
-arquivo nenhum. O que chegar aqui vai substituindo ou somando a isso, aos
-poucos. Tocar arquivo de áudio e ler textura de arquivo ainda precisam ser
-feitos no jogo.
+Os arquivos de arte e som do jogo. Hoje o jogo desenha as texturas e faz os
+sons no próprio código (`game/blocks.c`). O que chegar aqui vai substituindo
+ou somando a isso, aos poucos.
+
+- **Áudio:** os `.ogg` de `audio/` entram no APK sozinhos (só eles, não os
+  `.gitkeep` nem estes textos) e o jogo os toca. Ler textura de arquivo
+  ainda falta.
 
 A decisão que criou esta pasta está em [../docs/story.md](../docs/story.md),
 "Nona rodada".
@@ -37,14 +39,32 @@ A decisão que criou esta pasta está em [../docs/story.md](../docs/story.md),
 | Pasta | O quê | Formato |
 |---|---|---|
 | `art/textures/` | Texturas de blocos, itens e criaturas | PNG, 16×16 (o tamanho do jogo; 32×32 só se o jogo mudar), sem perfil de cor |
-| `audio/voice/` | Falas de [voice-scripts.md](../docs/voice-scripts.md) | OGG/Opus mono, 24 a 32 kbps |
-| `audio/sfx/` | Efeitos (passo, quebra, criaturas, zumbido) | OGG/Opus mono, até uns 2 s |
-| `audio/ambient/` | Fundos em loop (vento, névoa) | OGG/Opus mono, loop sem corte |
+| `audio/voice/` | Falas de [voice-scripts.md](../docs/voice-scripts.md) | Ogg Vorbis mono, uns 48 kbps |
+| `audio/sfx/` | Efeitos (passo, quebra, criaturas, zumbido) | Ogg Vorbis mono, até uns 2 s |
+| `audio/ambient/` | Fundos em loop (vento, névoa) | Ogg Vorbis mono, loop sem corte |
 
 - **Nomes:** em inglês, minúsculas e `_`. As falas usam o nome da coluna
   "Arquivo" do roteiro (`note2_caio_1.ogg`, `player_grab_2.ogg`).
 - **Leve:** o alvo é o Galaxy M12. O original em WAV, o projeto do editor e
   as variações descartadas ficam com o autor; aqui só a versão final.
+
+## Nomes que o jogo já usa
+
+| Arquivo | O que faz |
+|---|---|
+| `audio/sfx/step.ogg`, `step2.ogg` | Passos (os dois se alternam) |
+| `audio/sfx/break.ogg` | Quebrar um bloco |
+| `audio/sfx/place.ogg` | Colocar um bloco, abrir um papel |
+| `audio/sfx/jump.ogg` | Pulo |
+| `audio/sfx/splash.ogg` | Cair na água |
+| `audio/sfx/chirp.ogg` | Passarinho, de vez em quando |
+| `audio/sfx/campfire.ogg` | Estalo da fogueira, em loop, mais alto quanto mais perto |
+| `audio/ambient/wind.ogg` | Vento, em loop, o tempo todo |
+| `audio/voice/note<N>_voz.ogg` | Lido quando o papel N é pego no mundo (os nomes de [voice-scripts.md](../docs/voice-scripts.md)) |
+
+Arquivo que falta não quebra nada: o jogo usa o som feito no código, ou
+fica sem aquele som. Os outros nomes do roteiro (celulares, protagonista)
+ainda não tocam.
 
 ## Como mandar
 

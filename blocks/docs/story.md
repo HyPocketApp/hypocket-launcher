@@ -308,7 +308,7 @@ para quem quiser entrar na dimensão.
   reencontrando. Com **conquistas**, por exemplo "Retorno ao lar".
 - **Vozes:** o autor grava o protagonista e alguns personagens; se aparecer
   um dublador, melhor. Os áudios são gravados antes e tocados pelo app
-  (OGG/Opus, leve no M12). Roteiros em [voice-scripts.md](voice-scripts.md).
+  (Ogg Vorbis, leve no M12). Roteiros em [voice-scripts.md](voice-scripts.md).
 - **Vozes aleatórias (se o jogo crescer):** personagens que surgem ao acaso
   escolhem uma voz de um banco, pela semente. Um milhão de gravações não cabe
   no celular, mas há dois caminhos que cabem: poucas vozes-base com variações

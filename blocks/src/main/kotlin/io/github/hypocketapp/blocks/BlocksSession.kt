@@ -25,6 +25,7 @@ import kotlin.concurrent.thread
  */
 class BlocksSession(context: Context) : AutoCloseable {
     private val game = GuestGame(context)
+    private val media = BlocksMedia(context.assets, File(context.filesDir, "blocks-media"))
 
     /** Frames read back by the game when direct display is not possible. */
     val frameFile: File = File(game.cacheDir, "hypocket-frame.bin")
@@ -182,6 +183,7 @@ class BlocksSession(context: Context) : AutoCloseable {
         val env = buildMap {
             put("HYPOCKET_INPUT_PATH", ioFile.absolutePath)
             put("HYPOCKET_FRAME_PATH", frameFile.absolutePath)
+            media.prepare()?.let { put("HYPOCKET_BLOCKS_MEDIA", it.absolutePath) }
             if (options.dynamicResolution) put("HYPOCKET_BLOCKS_DYNAMIC", "1")
             if (options.heavy) put("HYPOCKET_BLOCKS_HEAVY", "1")
             if (options.benchmarkFrames > 0) put("HYPOCKET_BLOCKS_BENCH", "1")

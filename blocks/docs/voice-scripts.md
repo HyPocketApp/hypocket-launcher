@@ -16,7 +16,8 @@ Adobe e sem imitar voz de gente real). O arquivo final vai para
 ## Como gravar
 
 - **Arquivo:** um por fala, com o nome da coluna "Arquivo", em WAV para
-  editar. O jogo recebe OGG/Opus mono, de 24 a 32 kbps.
+  editar. O jogo recebe Ogg Vorbis mono, de uns 48 kbps
+  (quem mandar em outro formato, a sessão converte).
 - **Lugar:** um cômodo pequeno e cheio de coisas (um armário com roupas é
   ótimo). Fale a um palmo do microfone, um pouco de lado, para o "p" e o "b"
   não estourarem. Celular em modo avião.
