@@ -18,10 +18,13 @@ jogo estão em [goal-ideas.md](goal-ideas.md).
 
 ## Estado
 
-Segunda rodada implementada (ver "Como ficou no jogo"): Nocturnes que
-arrastam, abrigos, ruínas com relatos, fendas, portal e o outro lado, num APK
-só. Falta testar no celular. Próxima rodada: o que as criaturas do amanhecer
-dão (couro, lã, carne, banha), e com isso fome e frio.
+Segunda rodada implementada e testada por um jogador (Galaxy A24, teclado e
+mouse): o retorno foi positivo, e os bugs que ele achou (menu com o mouse,
+sair da água, buraco na água) foram corrigidos. Planejamento em épicos no
+Jira (`HPK`, rótulo `blocks`), na ordem combinada em "Sexta rodada":
+HPK-22 sobrevivência, HPK-23 sobreviventes, HPK-24 cientista e finais,
+HPK-25 vozes, HPK-26 acabamento, HPK-27 desempenho no M12.
+Próxima rodada: a sobrevivência (épico 1).
 
 ## A história, como foi contada
 
@@ -331,6 +334,70 @@ para quem quiser entrar na dimensão.
     inventário), fogão nas casas para esquentar comida, e outras. Fabricar
     passa a depender de onde se está.
 
+## Sexta rodada: decisões
+
+### Ordem do trabalho
+
+1. **Sobrevivência viva e dinâmica.** Dá para crescer muito. Duas regras:
+   nada de falta de criatividade e nada de cópia direta. O mundo precisa ter
+   gosto de vida: quando der, a atmosfera fica mais leve, para não pesar só
+   dificuldade. O dia leve e a noite pesada fazem contraste e equilíbrio.
+2. **Sobreviventes nos santuários.** O autor: "meu coração se enche de
+   determinação só de escutar isso".
+3. **O cientista e o laboratório** (abaixo).
+4. **Vozes:** o autor ajeita as gravações depois.
+5. **Acabamento:** animações e modelos em outra conta, em partes.
+6. **Desempenho:** o autor testa no Galaxy M12 a cada rodada.
+
+Planejamento aqui; o trabalho pesado pode ir para outra conta.
+
+### Os Nocturnes são um povo
+
+Chamar de "monstro" é demais: eles são um povo. Apelido de trabalho: **Nocs**.
+
+### O covil: uma dimensão portátil
+
+- O covil é **inacessível** até o jogador cumprir todos os requisitos do
+  segundo final (ajudar). Aí vem a cutscene: um **portal portátil** surge do
+  nada e leva para dentro.
+- É uma **dimensão portátil** que o cientista aprendeu a fazer, entre as
+  várias criações dele. Ele abriu a passagem **de propósito**: ele observa os
+  passos do jogador. Por isso a armadilha de luz vai beirar o impossível.
+- Por dentro é um **laboratório claro**, cheio de experimentos.
+
+### Por que a luz não derruba o cientista de cara
+
+- Ele é **meio humano, meio Noc**: aguenta muito mais luz que um Noc puro.
+  Os Nocs puros do laboratório sofrem com essa luz; ele não.
+- Como cientista, ele fez experimentos e sabe o quão forte a luz precisa ser
+  para petrificar alguém na forma dele.
+- **A pista:** entre os experimentos há um humano que ele transformou em
+  meio Noc antes de si mesmo, preso e sofrendo com uma luz forte. Se ele
+  sofre com aquela quantidade de luz, sendo quase a mesma coisa que o
+  cientista, então o cientista também é afetado.
+- **A luta:** uma corrida, lutando pela sobrevivência enquanto se causa dano
+  no cientista, explorando a instalação até achar o jeito de vencê-lo com
+  aquela luz.
+
+### Um jogador ou vários
+
+- A cutscene, a cena e o laboratório: a ideia é **um jogador só**, mesmo com
+  o multiplayer.
+- Em estudo: deixar vários jogadores com um teto (por exemplo, 10 ao mesmo
+  tempo) e o cientista ficar mais difícil conforme o número na sala,
+  soltando experimentos e usando certas criações de acordo com ele.
+
+### Os dois finais
+
+- **Ajudar (o do museu):** o cientista é petrificado e o laboratório vira a
+  exposição de arte para os Nocs verem na luz.
+- **Salvar só a humanidade:** os experimentos com os Nocs seguem, infinitos e
+  eternos, e a humanidade fica em paz. Mas até quando? Até o cientista não
+  querer mais os "brinquedos" de sempre.
+- **Paralisar ou matar:** a luz paralisa, mas não para sempre. Uma
+  **solução química** específica acorda o petrificado; voltar ao escuro não
+  basta. Essa solução pode estar no próprio laboratório do cientista.
+
 ## O que entra (primeira rodada)
 
 | Parte | Já existe no jogo? | Observação |
@@ -357,13 +424,15 @@ para quem quiser entrar na dimensão.
 
 ## Em aberto
 
-- O covil: "lá no fundo, onde a névoa é mais grossa", com a "fila" dos
-  levados. O que está lá (ver "Decisões da quarta rodada")? Chefes?
+- O covil é a dimensão portátil do cientista (sexta rodada). E a "fila" dos
+  levados, que o Lucas viu: fica lá ou do outro lado?
 - Qual dos dois finais é o "verdadeiro", ou se os dois valem.
+- O laboratório: um jogador só, ou até uns 10 com o cientista se adaptando?
+- Quem usa a solução química que acorda os petrificados, e quando?
 - A revelação de que a névoa e os Nocturnes são coisas diferentes: em qual
   relato, ou num relato novo do outro lado?
-- Nome de trabalho para os Nocturnes (sugestões em "Decisões da segunda
-  rodada"); no jogo eles seguem sem nome oficial.
+- Nome oficial dos Nocturnes; o apelido de trabalho é "Nocs". No jogo eles
+  seguem sem nome.
 - Criaturas do amanhecer: couro, lã, carne e banha para agasalhos, roupas,
   utensílios e comida frita. Antes disso: o jogo terá fome? E frio (à noite,
   do outro lado)?
