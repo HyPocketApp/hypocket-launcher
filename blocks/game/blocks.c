@@ -941,6 +941,32 @@ static void set_block(int x, int y, int z, int b) {
                 if (i >= 0 && j >= 0 && i < CHUNKS && j < CHUNKS && !chunks[i][j].dirty) chunks[i][j].dirty = 1;
 }
 
+/* Water flows into a gap opened below sea level beside it: the gap and the
+ * open cells it reaches sideways or downwards fill, up to a limit, so
+ * digging next to the sea floods the hole instead of leaving a dry pocket. */
+#define FLOOD_MAX 512
+static void flood_from(int x, int y, int z) {
+    static int16_t queue[FLOOD_MAX][3];
+    if (y > WATER_LEVEL || block_at(x, y, z) != AIR) return;
+    if (block_at(x + 1, y, z) != WATER && block_at(x - 1, y, z) != WATER && block_at(x, y, z + 1) != WATER &&
+        block_at(x, y, z - 1) != WATER && block_at(x, y + 1, z) != WATER)
+        return;
+    int head = 0, tail = 0;
+    set_block(x, y, z, WATER);
+    queue[tail][0] = (int16_t)x; queue[tail][1] = (int16_t)y; queue[tail][2] = (int16_t)z; tail++;
+    static const int step[5][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 0, 1}, {0, 0, -1}, {0, -1, 0}};
+    while (head < tail) {
+        int cx = queue[head][0], cy = queue[head][1], cz = queue[head][2];
+        head++;
+        for (int k = 0; k < 5 && tail < FLOOD_MAX; k++) {
+            int nx = cx + step[k][0], ny = cy + step[k][1], nz = cz + step[k][2];
+            if (ny < 0 || nx < 0 || nz < 0 || nx >= WX || nz >= WZ || block_at(nx, ny, nz) != AIR) continue;
+            set_block(nx, ny, nz, WATER);
+            queue[tail][0] = (int16_t)nx; queue[tail][1] = (int16_t)ny; queue[tail][2] = (int16_t)nz; tail++;
+        }
+    }
+}
+
 /* ---- Time of day ------------------------------------------------------ */
 
 /* 0 is midnight, 0.25 sunrise, 0.5 noon, 0.75 sunset. */
@@ -2890,6 +2916,17 @@ int main(int argc, char** argv) {
             player.vy = in_water ? 3.5f : 8.2f;
             player.on_ground = 0;
         }
+        /* Climbing out: in the water, or just above it, with a block ahead,
+         * jump lifts the player over a one-block bank. */
+        if (jump_held && grab_by < 0 && (vx != 0 || vz != 0)) {
+            int fx = (int)floorf(player.x), fz = (int)floorf(player.z);
+            int wet = block_at(fx, (int)floorf(player.y + 0.1f), fz) == WATER ||
+                      block_at(fx, (int)floorf(player.y - 0.4f), fz) == WATER;
+            float vl = sqrtf(vx * vx + vz * vz);
+            if (wet && collides(player.x + vx / vl * 0.2f, player.y + 0.05f, player.z + vz / vl * 0.2f) &&
+                player.vy < 7.0f)
+                player.vy = 7.0f;
+        }
         if (in_water && !was_in_water && player.vy < -2) play_sound(SND_SPLASH, 0.6f, 0, 1.0f);
         was_in_water = in_water;
         float fall_speed = -player.vy;
@@ -3020,7 +3057,8 @@ int main(int argc, char** argv) {
                     spawn_particles(hit[0], hit[1], hit[2], broken, (uint32_t)frames);
                     play_at(SND_BREAK, &player, hit[0] + 0.5f, hit[1] + 0.5f, hit[2] + 0.5f,
                             0.9f + 0.2f * rand01(hit[0], hit[1], hit[2]));
-                    set_block(hit[0], hit[1], hit[2], hit[1] < WATER_LEVEL + 1 && block_at(hit[0], hit[1] + 1, hit[2]) == WATER ? WATER : AIR);
+                    set_block(hit[0], hit[1], hit[2], AIR);
+                    flood_from(hit[0], hit[1], hit[2]);
                 } else if (block_at(before[0], before[1], before[2]) == AIR || block_at(before[0], before[1], before[2]) == WATER) {
                     int selected = io->selected;
                     if (selected < 0 || selected >= PALETTE_SIZE) selected = 0;
