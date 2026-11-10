@@ -1,6 +1,7 @@
 package io.github.hypocketapp.blocks
 
 import android.content.Context
+import io.github.hypocketapp.blocks.ui.BuildBlock
 import io.github.hypocketapp.engine.DirectDisplay
 import io.github.hypocketapp.engine.DisplayStatus
 import io.github.hypocketapp.engine.GuestGame
@@ -86,7 +87,7 @@ class BlocksSession(context: Context) : AutoCloseable {
 
     private var crafts = 0
 
-    /** Asks the game to make [recipe] once; it does if the player carries the inputs. */
+    /** Asks the game to make [recipe] once; it does if the player carries the inputs and the tool, near the workstation. */
     fun craft(recipe: Recipe) = synchronized(io) {
         for (k in 0 until 2) {
             val input = recipe.inputs.getOrNull(k)
@@ -95,6 +96,8 @@ class BlocksSession(context: Context) : AutoCloseable {
         }
         io.put(OFF_CRAFT + 4, recipe.output.ordinal.toByte())
         io.put(OFF_CRAFT + 5, recipe.count.toByte())
+        io.put(OFF_CRAFT + 6, (recipe.station?.ordinal ?: NONE).toByte())
+        io.put(OFF_CRAFT + 7, (recipe.tool?.ordinal ?: NONE).toByte())
         io.putInt(OFF_CRAFTS, ++crafts)
     }
 
@@ -130,7 +133,7 @@ class BlocksSession(context: Context) : AutoCloseable {
                 saves = io.getInt(OFF_SAVES),
                 clockMinutes = io.getInt(OFF_CLOCK),
                 day = io.getInt(OFF_DAY),
-                counts = List(COUNTS) { io.getShort(OFF_COUNTS + it * 2).toInt() },
+                counts = List(COUNTS) { io.getShort(OFF_ALL_COUNTS + it * 2).toInt() },
                 finished = io.getInt(OFF_FINISHED) != 0,
                 healthTenths = io.getInt(OFF_HEALTH),
                 deaths = io.getInt(OFF_DEATHS),
@@ -151,6 +154,15 @@ class BlocksSession(context: Context) : AutoCloseable {
                 noteId = io.getInt(OFF_STORY + 12),
                 notesFound = io.getInt(OFF_STORY + 16),
                 takes = io.getInt(OFF_STORY + 20),
+                foodTenths = io.getInt(OFF_SURVIVAL),
+                warmthTenths = io.getInt(OFF_SURVIVAL + 4),
+                survivalFlags = io.getInt(OFF_SURVIVAL + 8),
+                digPercent = io.getInt(OFF_SURVIVAL + 12),
+                picks = io.getInt(OFF_SURVIVAL + 16),
+                picked = io.getInt(OFF_SURVIVAL + 20),
+                needs = io.getInt(OFF_SURVIVAL + 24),
+                needed = io.getInt(OFF_SURVIVAL + 28),
+                eats = io.getInt(OFF_SURVIVAL + 32),
             )
         }
 
@@ -255,7 +267,7 @@ class BlocksSession(context: Context) : AutoCloseable {
         const val STOP_GRACE_MILLIS = 3000L
 
         // Must match SharedIo in blocks/game/blocks.c.
-        const val IO_SIZE = 256
+        const val IO_SIZE = 512
         const val MAGIC = 0x49425048
         const val OFF_MAGIC = 0
         const val OFF_VERSION = 4
@@ -288,8 +300,8 @@ class BlocksSession(context: Context) : AutoCloseable {
         const val OFF_CLOCK = 112
         const val OFF_DAY = 116
         const val OFF_FINISHED = 120
-        const val OFF_COUNTS = 128
-        const val COUNTS = 16
+        const val OFF_ALL_COUNTS = 256
+        val COUNTS = BuildBlock.entries.size
         const val OFF_HEALTH = 160
         const val OFF_DEATHS = 164
         const val OFF_HURTS = 168
@@ -301,6 +313,7 @@ class BlocksSession(context: Context) : AutoCloseable {
         const val OFF_SCALE_MAX = 192
         const val OFF_BEACONS = 196
         const val OFF_STORY = 232
+        const val OFF_SURVIVAL = 352
     }
 }
 
@@ -328,7 +341,7 @@ data class BlocksStats(
     val clockMinutes: Int = 0,
     /** Days passed in the world, from 1 (0 until the game reports it). */
     val day: Int = 0,
-    /** Blocks the player carries, by index into the building palette. */
+    /** Blocks and items the player carries, by index into the palette ([BuildBlock]). */
     val counts: List<Int> = emptyList(),
     /** The game saved and exited normally. */
     val finished: Boolean = false,
@@ -367,11 +380,30 @@ data class BlocksStats(
     val notesFound: Int = 0,
     /** Times the player was dragged away by a night creature. */
     val takes: Int = 0,
+    /** How full the player is, in tenths: 0 to [MAX_FOOD_TENTHS]. */
+    val foodTenths: Int = MAX_FOOD_TENTHS,
+    /** How warm the player is, in tenths: 0 to [MAX_WARMTH_TENTHS]. */
+    val warmthTenths: Int = MAX_WARMTH_TENTHS,
+    /** Survival: the [NEAR_KILN], [NEAR_STOVE], [NEAR_CAMPFIRE], [COLD] and [WARMING] bits. */
+    val survivalFlags: Int = 0,
+    /** How far the aimed block is from breaking, 0 to 100 (0: not started). */
+    val digPercent: Int = 0,
+    /** Goes up each time something is picked up or hunted; [picked] is the last ([BuildBlock] index). */
+    val picks: Int = 0,
+    val picked: Int = 0,
+    /** Goes up each time something needs a tool the player lacks; [needed] is that tool ([BuildBlock] index). */
+    val needs: Int = 0,
+    val needed: Int = 0,
+    /** Goes up each time the player eats. */
+    val eats: Int = 0,
 ) {
     val grabbed: Boolean get() = storyFlags and GRABBED != 0
     val sheltered: Boolean get() = storyFlags and SHELTERED != 0
     val aimingNote: Boolean get() = storyFlags and AIMING_NOTE != 0
     val away: Boolean get() = storyFlags and AWAY != 0
+    val aimingPickup: Boolean get() = storyFlags and AIMING_PICKUP != 0
+    val cold: Boolean get() = survivalFlags and COLD != 0
+    val warming: Boolean get() = survivalFlags and WARMING != 0
 
     companion object {
         const val MAX_HEALTH_TENTHS = 100
@@ -381,6 +413,17 @@ data class BlocksStats(
         const val SHELTERED = 2
         const val AIMING_NOTE = 4
         const val AWAY = 8
+        const val AIMING_PICKUP = 16
+
+        const val MAX_FOOD_TENTHS = 100
+        const val MAX_WARMTH_TENTHS = 100
+
+        // Must match SURVIVAL_* in blocks.c.
+        const val NEAR_KILN = 1
+        const val NEAR_STOVE = 2
+        const val NEAR_CAMPFIRE = 4
+        const val COLD = 8
+        const val WARMING = 16
     }
 }
 

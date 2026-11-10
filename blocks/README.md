@@ -1,9 +1,13 @@
 # HyPocket Blocks
 
-An original block game made for HyPocket: collect and build with 13 kinds of
-blocks, making new ones from simple recipes (or build freely in creative
-mode), in worlds that are saved on the phone, through days and nights (a day
-lasts 15 minutes). The world is in ruins: creatures that came with a mist
+An original block game made for HyPocket: collect and build with 16 kinds of
+blocks, making new ones and tools from simple recipes (or build freely in
+creative mode), in worlds that are saved on the phone, through days and
+nights (a day lasts 15 minutes). Survival is part of it: improvised tools
+make things possible (a knife strips logs, a pickaxe breaks stone, a saw
+found in the ruins cuts more), workstations (kiln, campfire, stove) make
+crafting depend on the place, and the player hunts, cooks, gets hungry and
+gets cold. The world is in ruins: creatures that came with a mist
 from another dimension wrecked its villages and drag away anything alive.
 By day you explore the ruins, read the notes and phone messages people left
 behind and build; at night you hide in shelters (closed rooms), because the
@@ -30,7 +34,7 @@ phone's GPU, and the direct display.
 | `src/main/kotlin/.../BlocksWorlds.kt` | The saved worlds: one `.hpw` save (written by the game) and one `.properties` file each. |
 | `src/main/kotlin/.../BlocksBenchmark.kt` | The benchmark: a fixed camera path, once per set of options. |
 | `src/main/kotlin/.../ui/` | The home screen (worlds), the game screen with its inventory and pause menu, touch, controller and mouse input, and the benchmark screen. |
-| `src/main/kotlin/.../BlocksRecipes.kt` | The recipes, one table. |
+| `src/main/kotlin/.../BlocksRecipes.kt` | The recipes, one table, with the tool or workstation each needs. |
 | `src/main/kotlin/.../StoryNotes.kt` | The story's notes and phones (their words are in the string resources). |
 | `docs/` | The story ([story.md](docs/story.md)), the work plan ([roadmap.md](docs/roadmap.md)), voice scripts, the player's open past and the goal ideas it grew from. |
 | `src/main/kotlin/.../BlocksSettings.kt` | The settings changed in the game's own settings screen. |

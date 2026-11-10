@@ -81,7 +81,7 @@
     <string name="blocks_day_always_night">Always night</string>
     <string name="blocks_day_mode_hint">Holding the time does not change the time kept in the world: back on 15-minute days, it continues where it was.</string>
     <string name="blocks_recipes">Recipes</string>
-    <string name="blocks_inventory_hint_recipes">Choose a place in the bar, then the block to put there, or tap a recipe to make it. Controller: d-pad and A, B closes. Keyboard: arrows and Enter, I closes.</string>
+    <string name="blocks_inventory_hint_recipes">Choose a place in the bar, then the block to put there, or tap a recipe to make it (some need a tool or a workstation nearby). Food: put it in the bar and use place to eat. Controller: d-pad and A, B closes. Keyboard: arrows and Enter, I closes.</string>
     <string name="blocks_recipe_arrow" translatable="false">→</string>
     <string name="blocks_peaceful">Peaceful</string>
     <string name="blocks_peaceful_on">No creatures come for you. Falls still hurt.</string>
@@ -207,4 +207,29 @@
     <string name="blocks_away">The other side</string>
     <string name="blocks_away_arrived">You woke up somewhere with no day. Don’t run: hide behind walls, and listen.</string>
     <string name="blocks_away_back">You are back. The mist let you go.</string>
+    <!-- Survival: workstations, items, meters and notices. -->
+    <string name="block_kiln">Kiln</string>
+    <string name="block_stove">Stove</string>
+    <string name="block_campfire">Campfire</string>
+    <string name="item_stick">Stick</string>
+    <string name="item_flint">Flint</string>
+    <string name="item_knife">Knife</string>
+    <string name="item_saw">Saw</string>
+    <string name="item_axe">Axe</string>
+    <string name="item_pick">Pickaxe</string>
+    <string name="item_berries">Berries</string>
+    <string name="item_raw_meat">Raw meat</string>
+    <string name="item_cooked_meat">Roast meat</string>
+    <string name="item_fried_meat">Fried meat</string>
+    <string name="item_fat">Fat</string>
+    <string name="item_hide">Hide</string>
+    <string name="item_wool">Wool</string>
+    <string name="item_coat">Coat</string>
+    <string name="blocks_recipe_tool">with %1$s</string>
+    <string name="blocks_recipe_station">near %1$s</string>
+    <string name="blocks_meter_food">Food</string>
+    <string name="blocks_meter_warmth">Warmth</string>
+    <string name="blocks_picked">Got: %1$s</string>
+    <string name="blocks_needs_tool">Needs: %1$s</string>
+    <string name="blocks_pickup_aim">Pick up: use place</string>
 </resources>

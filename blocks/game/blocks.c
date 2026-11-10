@@ -47,7 +47,14 @@
  * placing one uses it up; the inventory is kept in the save. With
  * HYPOCKET_BLOCKS_CREATIVE=1 blocks are unlimited and nothing is collected.
  * The app sends recipes (its table is BlocksRecipes.kt); the game checks that
- * the inputs are carried and makes the blocks.
+ * the inputs and the tool are carried and the workstation is near, and makes
+ * the blocks or items.
+ *
+ * Survival (see Survival below): items that are not blocks (sticks, flint,
+ * tools, food, materials, a coat), things lying on the ground, blocks that
+ * take several blows or need a pickaxe, workstations (kiln, stove,
+ * campfire), hunting the peaceful creatures, and hunger and cold. Creative
+ * worlds and the benchmark have none of it.
  *
  * The story (blocks/docs/story.md): ruined villages with notes, night
  * creatures that grab and drag the player, shelters, rifts by the beacons and
@@ -72,7 +79,7 @@
 /* ---- Shared input/statistics file ------------------------------------- */
 
 #define IO_MAGIC 0x49425048u /* "HPBI" */
-#define IO_SIZE 256
+#define IO_SIZE 512
 
 typedef struct {
     uint32_t magic;
@@ -90,7 +97,8 @@ typedef struct {
     float look_rate_pitch; /* radians per second */
     int32_t selected;  /* index into the building palette (palette[] below) */
     int32_t crafts;    /* incremented on each request to make blocks with craft[] */
-    uint8_t craft[8];  /* palette index and amount of up to two inputs (255: none), then of the output */
+    uint8_t craft[8];  /* palette index and amount of up to two inputs (255: none), then of the output, then
+                        * the palette index of the workstation it needs nearby and of the tool it needs (255: none) */
     /* Written by the game. */
     int32_t ready;     /* 1 once the world is built and frames are shown */
     int32_t frames;
@@ -108,7 +116,7 @@ typedef struct {
     int32_t day;           /* days passed in this world, from 1 */
     int32_t finished;      /* 1 once the game has saved and is about to exit normally */
     int32_t reserved_out;
-    int16_t counts[16];    /* blocks carried, in palette order (unlimited in creative mode) */
+    int16_t counts[16];    /* the first 16 of all_counts below */
     int32_t health_tenths; /* the player's health, 0-100 (MAX_HEALTH is 10 points) */
     int32_t deaths;        /* times the player fainted and woke up at the start */
     int32_t hurts;         /* incremented each time the player is hurt */
@@ -136,12 +144,31 @@ typedef struct {
     int32_t note_id;       /* the note opened last */
     int32_t notes_found;   /* one bit per note found */
     int32_t takes;         /* times the player was dragged away */
+    /* Written by the game: survival (from offset 256, see Survival). */
+    int16_t all_counts[48]; /* blocks and items carried, in palette order (unlimited in creative mode) */
+    int32_t food_tenths;   /* how full the player is, 0-100 */
+    int32_t warmth_tenths; /* how warm, 0-100 */
+    int32_t survival_flags; /* SURVIVAL_* bits below */
+    int32_t dig_percent;   /* how far the aimed block is from breaking, 0-100 (0: not started) */
+    int32_t picks;         /* incremented each time something is picked up or hunted */
+    int32_t picked;        /* palette index of what was picked up last */
+    int32_t needs;         /* incremented each time something needs a tool the player does not carry */
+    int32_t needed;        /* palette index of that tool */
+    int32_t eats;          /* incremented each time the player eats */
+    uint8_t reserved[124];
 } SharedIo;
 
 #define STORY_GRABBED 1   /* a night creature holds the player */
 #define STORY_SHELTERED 2 /* in a closed, lit room */
 #define STORY_AIM_NOTE 4  /* the crosshair is on a note */
 #define STORY_AWAY 8      /* on the other side */
+#define STORY_AIM_PICKUP 16 /* the crosshair is on something lying on the ground */
+
+#define SURVIVAL_NEAR_KILN 1     /* a kiln within reach: its recipes can be made */
+#define SURVIVAL_NEAR_STOVE 2
+#define SURVIVAL_NEAR_CAMPFIRE 4
+#define SURVIVAL_COLD 8          /* losing warmth */
+#define SURVIVAL_WARMING 16      /* by a fire */
 
 /* ---- OpenGL entry points ---------------------------------------------- */
 
@@ -273,20 +300,40 @@ static int world_chunks = 8;
 enum { AIR, GRASS, DIRT, STONE, SAND, WOOD, LEAVES, WATER, PLANKS, STONE_BRICKS, BRICKS, GLASS, ROOF, PLASTER, LAMP,
        BEACON_OFF, BEACON_ON, /* the world's goal: see Beacons below; never built or broken by the player */
        SHADE,                 /* dark stone of the other side */
+       KILN, STOVE, CAMPFIRE, /* workstations: some recipes are only made near one (see Survival) */
        BLOCK_TYPES };
 
-/* Blocks that give light (lamp light, see chunk_light). */
-static int gives_light(int b) { return b == LAMP || b == BEACON_ON; }
+/* Things that are not blocks and are never in the world: sticks, tools, food
+ * and materials. They are carried like blocks (the inventory and the save
+ * keep both by id), from ITEM_BASE up so that new blocks still fit below.
+ * Only ever add to the end. */
+#define ITEM_BASE 64
+enum { STICK = ITEM_BASE, FLINT, KNIFE, SAW, AXE, PICK, BERRIES, RAW_MEAT, COOKED_MEAT, FRIED_MEAT, FAT, HIDE, WOOL,
+       COAT, ITEM_END };
+#define THING_TYPES 96 /* blocks and items: the size of the inventory */
 
-/* What the player can build with, in the order the app shows it (must match
- * BlocksPalette.kt). */
+/* Blocks that give light (lamp light, see chunk_light). */
+static int gives_light(int b) { return b == LAMP || b == BEACON_ON || b == CAMPFIRE; }
+
+/* What the player carries and builds with, in the order the app shows it
+ * (must match BlocksPalette.kt): blocks first, then items. */
 static const int palette[] = {PLANKS, STONE_BRICKS, BRICKS, GLASS, ROOF, PLASTER, LAMP,
-                              WOOD, STONE, DIRT, SAND, LEAVES, SHADE};
+                              WOOD, STONE, DIRT, SAND, LEAVES, SHADE, KILN, STOVE, CAMPFIRE,
+                              STICK, FLINT, KNIFE, SAW, AXE, PICK, BERRIES, RAW_MEAT, COOKED_MEAT, FRIED_MEAT,
+                              FAT, HIDE, WOOL, COAT};
 #define PALETTE_SIZE ((int)(sizeof palette / sizeof palette[0]))
+
+/* Where a block or item is in palette[], or -1. */
+static int palette_index(int thing) {
+    for (int k = 0; k < PALETTE_SIZE; k++)
+        if (palette[k] == thing) return k;
+    return -1;
+}
 
 /* Texture layers. */
 enum { T_GRASS_TOP, T_GRASS_SIDE, T_DIRT, T_STONE, T_SAND, T_WOOD_SIDE, T_WOOD_TOP, T_LEAVES, T_WATER, T_PLANKS,
-       T_STONE_BRICKS, T_BRICKS, T_GLASS, T_ROOF, T_PLASTER, T_LAMP, T_BEACON_OFF, T_BEACON_ON, T_SHADE, LAYERS };
+       T_STONE_BRICKS, T_BRICKS, T_GLASS, T_ROOF, T_PLASTER, T_LAMP, T_BEACON_OFF, T_BEACON_ON, T_SHADE,
+       T_KILN, T_KILN_FRONT, T_STOVE_TOP, T_STOVE_SIDE, T_CAMPFIRE_TOP, T_CAMPFIRE_SIDE, LAYERS };
 
 static uint8_t world[MAX_W][WY][MAX_W];
 
@@ -321,6 +368,9 @@ static int texture_for(int block, int face) {
     case BEACON_OFF: return face == 2 || face == 3 ? T_STONE_BRICKS : T_BEACON_OFF;
     case BEACON_ON: return face == 2 || face == 3 ? T_STONE_BRICKS : T_BEACON_ON;
     case SHADE: return T_SHADE;
+    case KILN: return face == 4 ? T_KILN_FRONT : T_KILN;
+    case STOVE: return face == 2 ? T_STOVE_TOP : T_STOVE_SIDE;
+    case CAMPFIRE: return face == 2 || face == 3 ? T_CAMPFIRE_TOP : T_CAMPFIRE_SIDE;
     default: return T_PLANKS;
     }
 }
@@ -663,6 +713,40 @@ static void make_textures(void) {
                     r = 0.17f; g = 0.13f; b = 0.23f; n = 0.75f + 0.35f * n;
                     if ((x * 3 + y * 5 + (int)(rand01(x / 4, y / 4, 13) * 7)) % 11 == 0) { r = 0.42f; g = 0.30f; b = 0.62f; n = 1.0f; }
                     break;
+                case T_KILN: /* rough stones held with clay */
+                case T_KILN_FRONT: { /* the same, with a glowing mouth */
+                    r = 0.56f; g = 0.47f; b = 0.40f;
+                    n = ((x + (y / 4) * 3) % 6 == 0 || y % 4 == 0) ? 0.6f : 0.82f + 0.25f * n;
+                    float dx = x - 7.5f, dy = y - 9.5f;
+                    if (l == T_KILN_FRONT && dx * dx * 0.6f + dy * dy < 14) { r = 1.0f; g = 0.48f; b = 0.16f; n = 0.75f + 0.3f * n; }
+                    break;
+                }
+                case T_STOVE_TOP: { /* dark iron with two rings */
+                    r = 0.20f; g = 0.20f; b = 0.22f; n = 0.85f + 0.2f * n;
+                    for (int k = 0; k < 2; k++) {
+                        float dx = x - (k ? 11.0f : 4.5f), dy = y - (k ? 4.5f : 10.5f), d = sqrtf(dx * dx + dy * dy);
+                        if (d > 2.0f && d < 3.2f) { r = 0.45f; g = 0.43f; b = 0.42f; n = 1.0f; }
+                    }
+                    if (edge) { r = g = b = 0.12f; n = 1.0f; }
+                    break;
+                }
+                case T_STOVE_SIDE: /* iron, with an oven door */
+                    r = 0.24f; g = 0.24f; b = 0.26f; n = 0.85f + 0.15f * n;
+                    if (x > 2 && x < 13 && y > 5 && y < 13) { r = 0.30f; g = 0.30f; b = 0.32f; }
+                    if (y == 4 && x > 3 && x < 12) { r = 0.65f; g = 0.63f; b = 0.60f; n = 1.0f; } /* the handle */
+                    if (edge) { r = g = b = 0.12f; n = 1.0f; }
+                    break;
+                case T_CAMPFIRE_TOP: { /* embers in a ring of stones */
+                    float dx = x - 7.5f, dy = y - 7.5f, d = sqrtf(dx * dx + dy * dy);
+                    if (d > 5.5f) { r = g = b = 0.45f; n = 0.75f + 0.3f * n; }
+                    else { r = 1.0f; g = 0.42f + 0.3f * n; b = 0.10f; n = 0.7f + 0.35f * rand01(x / 2, y / 2, 77); }
+                    break;
+                }
+                case T_CAMPFIRE_SIDE: /* logs below, flames above */
+                    if (y >= 11) { r = 0.40f; g = 0.28f; b = 0.16f; n = (x % 5 == 0 ? 0.6f : 0.9f) + 0.1f * n; }
+                    else if (rand01(x, y / 3, 79) < 0.25f + y * 0.05f) { r = 1.0f; g = 0.55f + 0.03f * y; b = 0.15f; n = 0.9f + 0.1f * n; }
+                    else { r = 0.16f; g = 0.11f; b = 0.08f; n = 0.7f + 0.3f * n; } /* soot */
+                    break;
                 default: /* planks */
                     r = 0.70f; g = 0.54f; b = 0.32f;
                     n = (y % 4 == 3 || (x == ((y / 4) % 2 ? 3 : 11) )) ? 0.65f : 0.9f + 0.12f * n;
@@ -894,12 +978,32 @@ static int world_changed; /* since the last save */
 
 #define MAX_CARRIED 9999
 #define MAX_HEALTH 10.0f
-static uint16_t inventory[BLOCK_TYPES]; /* blocks carried, by block id */
+static uint16_t inventory[THING_TYPES]; /* blocks and items carried, by id */
 static int creative;                    /* unlimited blocks, nothing collected */
 
-/* Makes blocks from others if the inputs are carried: c holds the palette
- * index and amount of up to two inputs (255 for none), then of the output. */
-static int craft(const uint8_t* c) {
+/* Adds n of a block or item to what the player carries, up to MAX_CARRIED. */
+static void give(int thing, int n) {
+    inventory[thing] = (uint16_t)(inventory[thing] + n > MAX_CARRIED ? MAX_CARRIED : inventory[thing] + n);
+}
+
+/* Which workstations stand within reach of x, y, z: SURVIVAL_NEAR_* bits. */
+static int stations_near(float x, float y, float z) {
+    int bx = (int)floorf(x), by = (int)floorf(y), bz = (int)floorf(z), found = 0;
+    for (int dx = -3; dx <= 3; dx++)
+        for (int dy = -1; dy <= 2; dy++)
+            for (int dz = -3; dz <= 3; dz++) {
+                int b = block_at(bx + dx, by + dy, bz + dz);
+                found |= b == KILN ? SURVIVAL_NEAR_KILN : b == STOVE ? SURVIVAL_NEAR_STOVE : b == CAMPFIRE ? SURVIVAL_NEAR_CAMPFIRE : 0;
+            }
+    return found;
+}
+
+/* Makes blocks or items from others if the inputs (and the tool) are
+ * carried and the workstation is near: c holds the palette index and
+ * amount of up to two inputs (255 for none), then of the output, then the
+ * palette index of the workstation and of the tool (255 for none).
+ * stations: what stations_near says where the player stands. */
+static int craft(const uint8_t* c, int stations) {
     int in[2] = {-1, -1}, need[2] = {0, 0};
     for (int k = 0; k < 2; k++) {
         if (c[k * 2] == 255) continue;
@@ -908,6 +1012,13 @@ static int craft(const uint8_t* c) {
         need[k] = c[k * 2 + 1];
     }
     if (in[0] < 0 || c[4] >= PALETTE_SIZE || c[5] == 0) return 0;
+    if (c[7] != 255 && (c[7] >= PALETTE_SIZE || !inventory[palette[c[7]]])) return 0;
+    if (c[6] != 255) {
+        int station = c[6] < PALETTE_SIZE ? palette[c[6]] : AIR;
+        int bit = station == KILN ? SURVIVAL_NEAR_KILN : station == STOVE ? SURVIVAL_NEAR_STOVE
+                : station == CAMPFIRE ? SURVIVAL_NEAR_CAMPFIRE : 0;
+        if (!(stations & bit)) return 0;
+    }
     int out = palette[c[4]];
     if (out == in[0] || out == in[1] || in[0] == in[1]) return 0;
     for (int k = 0; k < 2; k++)
@@ -1032,7 +1143,7 @@ static Sky other_sky(void) {
  * encoded as (count 1-255, block id) byte pairs, x outermost, then y, then z.
  * Must match BlocksWorlds.kt, which reads the header. */
 #define SAVE_MAGIC 0x57425048u /* "HPBW" */
-#define SAVE_VERSION 5
+#define SAVE_VERSION 6
 /* Version 1 had no time of day (those fields were reserved and zero) and
  * starts in the morning; versions 1 and 2 had no inventory and start with an
  * empty one. Version 3 adds the inventory after the block data: one 16-bit
@@ -1041,7 +1152,10 @@ static Sky other_sky(void) {
  * Version 4 keeps the time played and the goal's state (beacons); earlier
  * versions get their beacons on load. Version 5 keeps the same layout and
  * adds goal_flags bits: GOAL_RUINS, GOAL_AWAY and, from NOTE_SHIFT up, the
- * notes found; earlier versions get their ruins on load. */
+ * notes found; earlier versions get their ruins on load. Version 6 keeps
+ * items in the inventory (ids from ITEM_BASE) and adds, after it, a
+ * SurvivalSave (food, warmth, health, what was picked up); earlier versions
+ * start full and warm. */
 typedef struct {
     uint32_t magic;
     uint32_t version;
@@ -1064,6 +1178,21 @@ typedef struct {
 #define NOTE_SHIFT 16  /* version 5: goal_flags bit NOTE_SHIFT + n: note n was found */
 static float play_seconds, done_seconds;
 static uint32_t goal_flags;
+
+/* Version 6: after the inventory. It starts with its own size, so later
+ * versions can add to the end. */
+typedef struct {
+    uint32_t size;
+    float food, warmth, health;
+    uint32_t tools_taken;    /* bit k: found tool k was picked up (see Pickups) */
+    uint32_t daily_day;      /* the day the daily pickups below were taken on */
+    uint32_t daily_taken[2]; /* bit k: daily pickup k was taken that day */
+} SurvivalSave;
+
+#define MAX_FOOD 10.0f
+#define MAX_WARMTH 10.0f
+static float food = MAX_FOOD, warmth = MAX_WARMTH, saved_health = 10.0f;
+static uint32_t tools_taken, daily_day, daily_taken[2];
 
 /* Writes to a temporary file and renames it over the old save, so a save
  * cut short (the app killed mid-write) never destroys the previous one. */
@@ -1111,8 +1240,9 @@ static int save_world(const char* path, const Player* p) {
     char tmp[4096];
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
     FILE* f = fopen(tmp, "wb");
+    SurvivalSave sv = {sizeof sv, food, warmth, saved_health, tools_taken, daily_day, {daily_taken[0], daily_taken[1]}};
     int ok = f && fwrite(&h, sizeof h, 1, f) == 1 && fwrite(data, 1, size, f) == size &&
-             fwrite(inventory, sizeof inventory, 1, f) == 1;
+             fwrite(inventory, sizeof inventory, 1, f) == 1 && fwrite(&sv, sizeof sv, 1, f) == 1;
     if (f) {
         ok = fflush(f) == 0 && ok;
         ok = fsync(fileno(f)) == 0 && ok;
@@ -1140,6 +1270,12 @@ static int load_world(const char* path, Player* p) {
     uint16_t carried[256] = {0};
     if (ok && h.version >= 3)
         ok = h.inventory_size <= sizeof carried && fread(carried, 1, h.inventory_size, f) == h.inventory_size;
+    SurvivalSave sv = {0, MAX_FOOD, MAX_WARMTH, 10.0f, 0, 0, {0, 0}};
+    if (ok && h.version >= 6) {
+        ok = fread(&sv.size, sizeof sv.size, 1, f) == 1 && sv.size >= sizeof sv.size && sv.size <= 4096;
+        size_t rest = (sv.size < sizeof sv ? sv.size : sizeof sv) - sizeof sv.size;
+        ok = ok && fread((char*)&sv + sizeof sv.size, 1, rest, f) == rest;
+    }
     fclose(f);
     if (ok) {
         /* Decode into a copy first: a bad file must not leave half a world. */
@@ -1166,7 +1302,16 @@ static int load_world(const char* path, Player* p) {
             p->vy = 0;
             memset(inventory, 0, sizeof inventory);
             if (h.version >= 3)
-                for (int b = 0; b < BLOCK_TYPES; b++) inventory[b] = carried[b] > MAX_CARRIED ? MAX_CARRIED : carried[b];
+                for (int b = 0; b < THING_TYPES; b++) inventory[b] = carried[b] > MAX_CARRIED ? MAX_CARRIED : carried[b];
+            if (h.version >= 6) {
+                food = sv.food >= 0 && sv.food <= MAX_FOOD ? sv.food : MAX_FOOD;
+                warmth = sv.warmth >= 0 && sv.warmth <= MAX_WARMTH ? sv.warmth : MAX_WARMTH;
+                saved_health = sv.health > 0 && sv.health <= 10.0f ? sv.health : 10.0f;
+                tools_taken = sv.tools_taken;
+                daily_day = sv.daily_day;
+                daily_taken[0] = sv.daily_taken[0];
+                daily_taken[1] = sv.daily_taken[1];
+            }
             if (h.version >= 4) {
                 play_seconds = h.play_seconds >= 0 ? h.play_seconds : 0;
                 goal_flags = h.goal_flags;
@@ -1450,6 +1595,7 @@ static void build_house(int h) {
     world[cx + half - 1][g + 1][cz - half + 1] = PLANKS;
     if (rand01(cx, g, cz) < 0.5f) world[cx + half - 1][g + 2][cz - half + 1] = PLANKS;
     world[cx - half + 1][g + 1][cz + half - 1] = PLASTER;
+    if (rand01(h, world_seed, 103) < 0.55f) world[cx + half - 1][g + 1][cz + half - 1] = STOVE; /* the old stove */
     /* Rubble outside. */
     for (int k = 0; k < 5; k++) {
         float a = rand01(h, k, 51 + world_seed) * 6.2831853f, d = half + 1.5f + 2 * rand01(h, k, 53);
@@ -1548,6 +1694,158 @@ static int note_on_ray(const float* o, const float* d, float max_t, float* t) {
         if (ray_box(o, d, lo, hi, *t, &tn)) { *t = tn; best = n; }
     }
     return best;
+}
+
+/* ---- Survival -------------------------------------------------------- */
+
+/* Survival (blocks/docs/story.md, eighth round): tools make things possible,
+ * workstations make crafting depend on the place, and the player gets
+ * hungry and cold.
+ *
+ * Things lie on the ground: sticks (near trees) and flint, which move every
+ * day, and the tools people left in the ruins (a knife and a saw), found
+ * once. Like notes they are not blocks: small boxes picked up with the
+ * break action. The first NEAR_START of each day lie near the start, so a
+ * new player can make a knife and a pickaxe at once. */
+#define DAILY_PICKUPS 64
+#define FOUND_TOOLS 2
+#define MAX_PICKUPS (DAILY_PICKUPS + FOUND_TOOLS)
+typedef struct {
+    float x, y, z, yaw;
+    int item;  /* STICK, FLINT, KNIFE or SAW */
+    int index; /* daily: bit in daily_taken; found tool: bit in tools_taken (with FOUND_BIT) */
+} Pickup;
+#define FOUND_BIT 0x100
+#define NEAR_START 6 /* three sticks and three flints: enough for a knife and a pickaxe */
+static Pickup pickups[MAX_PICKUPS];
+static int pickup_count;
+static int pickups_day = -1; /* the day the pickups were placed for (-1: place them again) */
+
+static int pickup_taken(const Pickup* k) {
+    return k->index & FOUND_BIT ? (tools_taken >> (k->index & 0xff)) & 1 : (daily_taken[k->index / 32] >> (k->index % 32)) & 1;
+}
+
+static void take_pickup(const Pickup* k) {
+    if (k->index & FOUND_BIT) tools_taken |= 1u << (k->index & 0xff);
+    else daily_taken[k->index / 32] |= 1u << (k->index % 32);
+}
+
+/* The top of the ground in a column (the highest solid block), or -1 when
+ * nothing can lie there (water, leaves). */
+static int pickup_ground(int x, int z) {
+    int y = WY - 2;
+    while (y > 0 && !is_solid(world[x][y][z])) y--;
+    int b = world[x][y][z];
+    return b == LEAVES || b == WOOD || world[x][y + 1][z] != AIR ? -1 : y;
+}
+
+static int tree_near(int x, int y, int z) {
+    for (int dx = -3; dx <= 3; dx++)
+        for (int dz = -3; dz <= 3; dz++)
+            if (block_at(x + dx, y + 1, z + dz) == WOOD) return 1;
+    return 0;
+}
+
+/* Places the day's sticks and flint, and the found tools, from the seed. */
+static void place_pickups(float spawn_x, float spawn_z) {
+    pickup_count = 0;
+    if (day_count != daily_day) { /* a new day: everything lies somewhere else again */
+        daily_day = day_count;
+        daily_taken[0] = daily_taken[1] = 0;
+    }
+    int daily = world_chunks * world_chunks / 2;
+    daily = daily < 24 ? 24 : daily > DAILY_PICKUPS ? DAILY_PICKUPS : daily;
+    int salt = world_seed + (int)day_count * 7919;
+    for (int i = 0; i < daily; i++) {
+        int item = i < NEAR_START ? (i < NEAR_START / 2 ? STICK : FLINT) : rand01(salt, i, 81) < 0.62f ? STICK : FLINT;
+        for (int t = 0; t < 16; t++) {
+            int x, z;
+            if (i < NEAR_START) { /* near the start */
+                x = clampi((int)spawn_x - 6 + (int)(rand01(salt, i * 16 + t, 83) * 13), 1, WX - 2);
+                z = clampi((int)spawn_z - 6 + (int)(rand01(salt, i * 16 + t, 85) * 13), 1, WZ - 2);
+            } else {
+                x = 1 + (int)(rand01(salt, i * 16 + t, 87) * (WX - 2));
+                z = 1 + (int)(rand01(salt, i * 16 + t, 89) * (WZ - 2));
+            }
+            int y = pickup_ground(x, z);
+            if (y <= WATER_LEVEL - 1) continue;
+            if (item == STICK && i >= NEAR_START && t < 10 && !tree_near(x, y, z)) continue; /* sticks fall from trees */
+            pickups[pickup_count++] = (Pickup){x + 0.3f + 0.4f * rand01(salt, i, 91), y + 1.0f,
+                                               z + 0.3f + 0.4f * rand01(salt, i, 93),
+                                               rand01(salt, i, 95) * 6.2831853f, item, i};
+            break;
+        }
+    }
+    /* The found tools: a knife and a saw, each on a house's floor. */
+    int houses = villages() * HOUSES_PER_VILLAGE;
+    int knife_house = hash3(world_seed, 97, 3) % houses;
+    int saw_house = (knife_house + 1 + hash3(world_seed, 99, 5) % (houses - 1)) % houses;
+    for (int k = 0; k < FOUND_TOOLS; k++) {
+        int x, z;
+        house_spot(k ? saw_house : knife_house, &x, &z);
+        x = clampi(x - 1, 1, WX - 2);
+        int y = lowest_air(x, z);
+        pickups[pickup_count++] = (Pickup){x + 0.5f, (float)y, z + 0.4f, rand01(world_seed, k, 101) * 6.2831853f,
+                                           k ? SAW : KNIFE, FOUND_BIT | k};
+    }
+    pickups_day = (int)day_count;
+    printf("blocks: %d things on the ground on day %u\n", pickup_count, day_count + 1);
+}
+
+/* The pickup a ray from o along d meets first within max_t (in *t), or -1. */
+static int pickup_on_ray(const float* o, const float* d, float max_t, float* t) {
+    int best = -1;
+    *t = max_t;
+    for (int i = 0; i < pickup_count; i++) {
+        const Pickup* k = &pickups[i];
+        if (pickup_taken(k)) continue;
+        float lo[3] = {k->x - 0.3f, k->y, k->z - 0.3f}, hi[3] = {k->x + 0.3f, k->y + 0.2f, k->z + 0.3f}, tn;
+        if (ray_box(o, d, lo, hi, *t, &tn)) { *t = tn; best = i; }
+    }
+    return best;
+}
+
+/* Blows it takes to break a block with what the player carries; 0: it
+ * cannot be broken without a tool (the one in *tool). Stone and anything
+ * built of it needs a pickaxe; an axe fells wood with one blow. Shade stone
+ * crumbles by hand, slowly: on the other side a shelter must be possible
+ * with bare hands. */
+static int blows_for(int b, int* tool) {
+    *tool = AIR;
+    if (creative) return 1;
+    switch (b) {
+    case STONE: case STONE_BRICKS: case BRICKS: case PLASTER: case ROOF: case KILN: case STOVE:
+        *tool = PICK;
+        return inventory[PICK] ? 2 : 0;
+    case SHADE: return inventory[PICK] ? 2 : 6;
+    case WOOD: return inventory[AXE] ? 1 : 5;
+    case PLANKS: return inventory[AXE] ? 1 : 3;
+    default: return 1;
+    }
+}
+
+/* What else breaking a block gives, now and then: leaves drop sticks and
+ * berries, and stone broken with a pickaxe chips off flint. */
+static void extra_drops(int block, int x, int y, int z) {
+    float r = rand01(x + world_seed, y + (int)day_count * 31, z);
+    if (block == LEAVES) {
+        if (r < 0.35f) give(STICK, 1);
+        else if (r < 0.52f) give(BERRIES, 1);
+    } else if (block == STONE && r < 0.25f) {
+        give(FLINT, 1);
+    }
+}
+
+/* How much eating something fills the player (0: not food). Cooked food
+ * fills more, and meat fried in fat the most. */
+static float food_value(int item) {
+    switch (item) {
+    case BERRIES: return 1.0f;
+    case RAW_MEAT: return 1.5f;
+    case COOKED_MEAT: return 4.0f;
+    case FRIED_MEAT: return 6.0f;
+    default: return 0;
+    }
 }
 
 /* ---- Shelters ---------------------------------------------------------- */
@@ -1973,6 +2271,7 @@ static void block_color(int block, float* out) {
         {0.42f, 0.30f, 0.18f}, {0.20f, 0.45f, 0.18f}, {0.16f, 0.32f, 0.68f}, {0.70f, 0.54f, 0.32f},
         {0.55f, 0.55f, 0.55f}, {0.62f, 0.32f, 0.25f}, {0.82f, 0.90f, 0.95f}, {0.64f, 0.29f, 0.19f},
         {0.86f, 0.84f, 0.78f}, {1.00f, 0.84f, 0.50f}, {0.36f, 0.38f, 0.46f}, {0.75f, 0.97f, 1.00f},
+        {0.17f, 0.13f, 0.23f}, {0.56f, 0.47f, 0.40f}, {0.24f, 0.24f, 0.26f}, {1.00f, 0.55f, 0.15f},
     };
     memcpy(out, colors[block < BLOCK_TYPES ? block : PLANKS], sizeof(colors[0]));
 }
@@ -2233,6 +2532,7 @@ static void leave_other_side(Player* p, int to_start, float spawn_x, float spawn
     count_lamps();
     remesh_world();
     creature_count = home_creatures;
+    pickups_day = -1; /* the world is back: its pickups too */
     for (int i = 0; i < MAX_NIGHT; i++) night[i].alive = 0;
     grab_by = -1;
     grab_grace = 4.0f;
@@ -2572,6 +2872,9 @@ int main(int argc, char** argv) {
     _Static_assert(__builtin_offsetof(SharedIo, beacons) == 196, "must match BlocksSession.kt");
     _Static_assert(__builtin_offsetof(SharedIo, story_flags) == 232 && sizeof(SharedIo) == IO_SIZE,
                    "must match BlocksSession.kt");
+    _Static_assert(__builtin_offsetof(SharedIo, all_counts) == 256 && __builtin_offsetof(SharedIo, food_tenths) == 352,
+                   "must match BlocksSession.kt");
+    _Static_assert(PALETTE_SIZE <= 48 && BLOCK_TYPES <= ITEM_BASE && ITEM_END <= THING_TYPES, "room for every thing");
     _Static_assert(__builtin_offsetof(SharedIo, crafts) == 52 && __builtin_offsetof(SharedIo, craft) == 56,
                    "must match BlocksSession.kt");
     int w = argc > 1 ? atoi(argv[1]) : 1200;
@@ -2695,7 +2998,7 @@ int main(int argc, char** argv) {
     GLint ui_fog_end = p_glGetUniformLocation(inst_program, "fog_end");
     GLint ui_ambient = p_glGetUniformLocation(inst_program, "ambient");
     /* Instances: two boxes per creature, one per particle. */
-    enum { MAX_INSTANCES = MAX_CREATURES * 2 + MAX_NIGHT * 4 + MAX_PARTICLES + 64 };
+    enum { MAX_INSTANCES = MAX_CREATURES * 2 + MAX_NIGHT * 4 + MAX_PARTICLES + MAX_PICKUPS * 2 + 64 };
     static float instances[MAX_INSTANCES][INSTANCE_FLOATS];
     GLuint inst_vao, inst_vbo;
     p_glGenVertexArrays(1, &inst_vao);
@@ -2823,7 +3126,11 @@ int main(int argc, char** argv) {
      * peaceful worlds (HYPOCKET_BLOCKS_PEACEFUL) keep falls but no attackers. */
     int peaceful = getenv("HYPOCKET_BLOCKS_PEACEFUL") != NULL;
     night_limit = creative || peaceful || (max_frames && getenv("HYPOCKET_BLOCKS_BENCH")) ? 0 : heavy ? MAX_NIGHT : 10;
-    float health = MAX_HEALTH, calm = 0; /* calm: seconds until health starts coming back */
+    float health = saved_health, calm = 0; /* calm: seconds until health starts coming back */
+    /* Survival: hunger and cold (not in creative worlds or the benchmark). */
+    int survival = !creative && !(max_frames && getenv("HYPOCKET_BLOCKS_BENCH"));
+    int stations = 0, dig_x = -1, dig_y = -1, dig_z = -1, dig_blows = 0, dig_need = 1, aiming_pickup = 0;
+    float cold_rate = 0;
     if (heavy) spawn_creatures(MAX_CREATURES);
     else if (getenv("HYPOCKET_BLOCKS_CREATURES")) {
         int n = atoi(getenv("HYPOCKET_BLOCKS_CREATURES"));
@@ -3000,6 +3307,37 @@ int main(int argc, char** argv) {
                     breaks = seen_breaks; /* nothing else happens with this press */
                     places = seen_places;
                 }
+                /* Something lying on the ground, nearer than the block, is picked up. */
+                int pick = away || (breaks == seen_breaks && places == seen_places) ? -1 : pickup_on_ray(o, d, 3.5f, &note_t);
+                if (pick >= 0 && note_t < face_t) {
+                    Pickup* k = &pickups[pick];
+                    take_pickup(k);
+                    if (!creative) give(k->item, 1);
+                    io->picked = palette_index(k->item);
+                    io->picks++;
+                    world_changed = 1;
+                    play_sound(SND_PLACE, 0.4f, 0, 1.6f);
+                    block_hit = 0;
+                    breaks = seen_breaks;
+                    places = seen_places;
+                }
+            }
+            /* Place with food chosen eats it, wherever the player looks. */
+            if (places != seen_places && !creative) {
+                int selected = io->selected;
+                int thing = selected >= 0 && selected < PALETTE_SIZE ? palette[selected] : AIR;
+                if (thing >= ITEM_BASE) {
+                    if (food_value(thing) > 0 && inventory[thing] > 0 && food < MAX_FOOD - 0.25f) {
+                        inventory[thing]--;
+                        food = fminf(MAX_FOOD, food + food_value(thing));
+                        io->eats++;
+                        world_changed = 1;
+                        play_sound(SND_STEP2, 0.5f, 0, 1.7f);
+                        play_sound(SND_STEP, 0.4f, 0, 1.9f);
+                    }
+                    block_hit = 0; /* items are never placed */
+                    places = seen_places;
+                }
             }
             if (breaks != seen_breaks) target = creature_on_ray(ex, ey, ez, rdx, rdy, rdz, 3.5f, &creature_t, &is_night_kind);
             if (target >= 0 && creature_t < block_t) {
@@ -3007,8 +3345,21 @@ int main(int argc, char** argv) {
                 const float* col = is_night_kind ? night_color : creature_colors[c->color];
                 spawn_puff(c->x, c->y + (is_night_kind ? 1.0f : 0.45f), c->z, col, 6, (uint32_t)frames);
                 play_at(SND_BREAK, &player, c->x, c->y + 0.5f, c->z, is_night_kind ? 0.7f : 1.5f);
+                int blades = inventory[KNIFE] || inventory[AXE];
                 if (is_night_kind && grab_by == target) {
                     grab_escape += 0.22f; /* hitting the one that holds you loosens its grip */
+                } else if (!is_night_kind && !creative && (c->hp += 1) >= (blades ? 2 : 3)) {
+                    /* Hunted: meat, and with a knife also fat and hide or wool. */
+                    c->alive = 0;
+                    spawn_puff(c->x, c->y + 0.45f, c->z, col, 14, (uint32_t)frames + 3);
+                    give(RAW_MEAT, 2);
+                    if (inventory[KNIFE]) {
+                        give(FAT, 1);
+                        give(c->color % 2 ? WOOL : HIDE, 1);
+                    }
+                    io->picked = palette_index(RAW_MEAT);
+                    io->picks++;
+                    world_changed = 1;
                 } else {
                     /* A night creature is only dazed: they cannot be killed. */
                     scare(c, player.x, player.z, is_night_kind ? 1.5f : 3.0f);
@@ -3052,13 +3403,29 @@ int main(int argc, char** argv) {
             }
             if (block_hit) {
                 if (breaks != seen_breaks) {
-                    int broken = block_at(hit[0], hit[1], hit[2]), drop = drop_for(broken);
-                    if (!creative && drop != AIR && inventory[drop] < MAX_CARRIED) inventory[drop]++;
-                    spawn_particles(hit[0], hit[1], hit[2], broken, (uint32_t)frames);
-                    play_at(SND_BREAK, &player, hit[0] + 0.5f, hit[1] + 0.5f, hit[2] + 0.5f,
-                            0.9f + 0.2f * rand01(hit[0], hit[1], hit[2]));
-                    set_block(hit[0], hit[1], hit[2], AIR);
-                    flood_from(hit[0], hit[1], hit[2]);
+                    int broken = block_at(hit[0], hit[1], hit[2]), drop = drop_for(broken), tool;
+                    int need = blows_for(broken, &tool);
+                    if (hit[0] != dig_x || hit[1] != dig_y || hit[2] != dig_z) dig_blows = 0;
+                    dig_x = hit[0]; dig_y = hit[1]; dig_z = hit[2]; dig_need = need;
+                    if (need == 0) { /* too hard by hand: a dull knock, and the app says what it needs */
+                        play_at(SND_STEP, &player, hit[0] + 0.5f, hit[1] + 0.5f, hit[2] + 0.5f, 0.5f);
+                        io->needed = palette_index(tool);
+                        io->needs++;
+                    } else if (++dig_blows < need) { /* a blow: chips fly */
+                        float chip[3];
+                        block_color(broken, chip);
+                        spawn_puff(hit[0] + 0.5f, hit[1] + 0.5f, hit[2] + 0.5f, chip, 3, (uint32_t)frames);
+                        play_at(SND_BREAK, &player, hit[0] + 0.5f, hit[1] + 0.5f, hit[2] + 0.5f, 0.6f + 0.1f * dig_blows);
+                    } else {
+                        dig_blows = 0;
+                        if (!creative && drop != AIR && inventory[drop] < MAX_CARRIED) inventory[drop]++;
+                        if (!creative) extra_drops(broken, hit[0], hit[1], hit[2]);
+                        spawn_particles(hit[0], hit[1], hit[2], broken, (uint32_t)frames);
+                        play_at(SND_BREAK, &player, hit[0] + 0.5f, hit[1] + 0.5f, hit[2] + 0.5f,
+                                0.9f + 0.2f * rand01(hit[0], hit[1], hit[2]));
+                        set_block(hit[0], hit[1], hit[2], AIR);
+                        flood_from(hit[0], hit[1], hit[2]);
+                    }
                 } else if (block_at(before[0], before[1], before[2]) == AIR || block_at(before[0], before[1], before[2]) == WATER) {
                     int selected = io->selected;
                     if (selected < 0 || selected >= PALETTE_SIZE) selected = 0;
@@ -3128,6 +3495,10 @@ int main(int argc, char** argv) {
                 if (!ray_box(o, dir, lo, hi, 10.0f, &block_t)) block_t = 1e9f;
             }
             aiming_note = note_on_ray(o, dir, 3.5f, &note_t) >= 0 && note_t < block_t;
+            aiming_pickup = !away && pickup_on_ray(o, dir, 3.5f, &note_t) >= 0 && note_t < block_t;
+            /* Looking away from a block that was being dug starts it over. */
+            if (!aimed || aim[0] != dig_x || aim[1] != dig_y || aim[2] != dig_z) dig_blows = 0;
+            io->dig_percent = dig_blows > 0 && dig_need > 0 ? dig_blows * 100 / dig_need : 0;
             io->notes_found = (int)(goal_flags >> NOTE_SHIFT);
         }
         /* ---- Recipes ---- */
@@ -3137,7 +3508,8 @@ int main(int argc, char** argv) {
             memcpy(recipe, io->craft, sizeof recipe);
             int times = crafts - seen_crafts, made = 0;
             if (times < 1 || times > 64) times = 1;
-            for (int t = 0; t < times && !creative; t++) made += craft(recipe);
+            int here = stations_near(player.x, player.y + 0.5f, player.z); /* now, not at the last check */
+            for (int t = 0; t < times && !creative; t++) made += craft(recipe, here);
             if (made) {
                 play_sound(SND_PLACE, 0.35f, 0, 1.4f);
                 world_changed = 1; /* the inventory is in the save */
@@ -3150,8 +3522,10 @@ int main(int argc, char** argv) {
             if ((shelter_timer -= dt) <= 0 || frames == 0) {
                 shelter_timer = 0.25f;
                 sheltered = !bench && shelter_at(player.x, player.y, player.z);
+                stations = stations_near(player.x, player.y + 0.5f, player.z);
             }
         }
+        if (survival && !away && pickups_day != (int)day_count) place_pickups(spawn_x, spawn_z);
         if (!paused) {
             update_creatures(dt, (uint32_t)frames, player.x, player.z);
             if (!away) respawn_creatures(dt, is_night, player.x, player.z, (uint32_t)frames);
@@ -3237,13 +3611,38 @@ int main(int argc, char** argv) {
         }
         io->grab_percent = grab_by >= 0 ? (int)(grab_escape * 100) : 0;
 
+        /* ---- Hunger and cold ---- */
+        float wear = 0; /* health lost per second to hunger and cold */
+        if (survival && !paused) {
+            /* Warmth: the night, water, the mist and the other side take it;
+             * the day, a shelter and a fire nearby give it back. A coat
+             * keeps most of it in. */
+            float mist_here = sheltered ? 0 : mist_at(player.x, player.z);
+            if (stations) cold_rate = 0.6f;
+            else if (in_water) cold_rate = -0.12f;
+            else if (away) cold_rate = -0.05f;
+            else if (is_night) cold_rate = sheltered || sanctuary > 0.5f ? 0.08f : -(0.045f + 0.02f * mist_here);
+            else cold_rate = mist_here > 0.5f ? -0.02f : 0.15f;
+            if (cold_rate < 0 && inventory[COAT]) cold_rate *= 0.35f;
+            warmth = fminf(MAX_WARMTH, fmaxf(0, warmth + cold_rate * dt));
+            /* A full belly lasts a little more than a day; cold makes it empty faster. */
+            float hunger = MAX_FOOD / (day_seconds * 1.2f) * (warmth <= 0 ? 2.0f : warmth < 3 ? 1.5f : 1.0f);
+            food = fmaxf(0, food - hunger * dt);
+            if (food <= 0) wear += 1 / 8.0f;
+            if (warmth <= 0) wear += 1 / 10.0f;
+            health -= wear * dt;
+        }
         /* ---- Health ---- */
-        if (damage > 0 && !creative) {
-            health -= damage;
-            calm = 6;
-            io->hurts++;
-            play_sound(SND_STEP, 0.9f, 0, 0.55f);
+        if ((damage > 0 && !creative) || health <= 0) {
+            if (damage > 0) {
+                health -= damage;
+                calm = 6;
+                io->hurts++;
+                play_sound(SND_STEP, 0.9f, 0, 0.55f);
+            }
             if (health <= 0) { /* fainted: wake up at the starting point */
+                food = fmaxf(food, 4.0f); /* a little strength comes back */
+                warmth = fmaxf(warmth, 6.0f);
                 io->deaths++;
                 health = MAX_HEALTH;
                 player.x = spawn_x;
@@ -3254,13 +3653,21 @@ int main(int argc, char** argv) {
                 grab_by = -1;
                 printf("blocks: the player fainted and woke up at the start\n");
             }
-        } else if (!paused && (calm -= dt) <= 0 && health < MAX_HEALTH) {
-            health += dt / 4.0f; /* a point every four seconds */
+        } else if (!paused && (calm -= dt) <= 0 && health < MAX_HEALTH && wear <= 0 &&
+                   (!survival || food >= MAX_FOOD / 2)) {
+            health += dt / 4.0f; /* a point every four seconds, while fed */
+            if (survival) food -= dt / 4.0f * 0.3f;
             if (health > MAX_HEALTH) health = MAX_HEALTH;
         }
+        saved_health = health;
+        io->food_tenths = (int)ceilf(food * 10 - 0.01f);
+        io->warmth_tenths = (int)ceilf(warmth * 10 - 0.01f);
+        io->survival_flags = (survival ? stations : 0) | (survival && cold_rate < 0 ? SURVIVAL_COLD : 0) |
+                             (survival && stations ? SURVIVAL_WARMING : 0);
         io->health_tenths = (int)ceilf(health * 10 - 0.01f);
         io->story_flags = (grab_by >= 0 ? STORY_GRABBED : 0) | (sheltered ? STORY_SHELTERED : 0) |
-                          (aiming_note ? STORY_AIM_NOTE : 0) | (away ? STORY_AWAY : 0);
+                          (aiming_note ? STORY_AIM_NOTE : 0) | (away ? STORY_AWAY : 0) |
+                          (aiming_pickup ? STORY_AIM_PICKUP : 0);
         update_particles(dt);
         /* Chunks whose blocks changed are meshed now; those where only lamp
          * light moved wait their turn, two a frame, to avoid a hitch. */
@@ -3468,6 +3875,31 @@ int main(int argc, char** argv) {
                 triangles += 24;
             }
         }
+        /* Things lying on the ground: sticks, flint, a knife, a saw. */
+        for (int i = 0; i < pickup_count && !away; i++) {
+            const Pickup* k = &pickups[i];
+            float dx = k->x - player.x, dz = k->z - player.z;
+            if (pickup_taken(k) || dx * dx + dz * dz > 40 * 40) continue;
+            float sy = sinf(k->yaw), cy = cosf(k->yaw);
+            if (k->item == STICK) {
+                float stick[INSTANCE_FLOATS] = {k->x, k->y + 0.035f, k->z, 0.035f, 0.035f, 0.3f, k->yaw, 0.47f, 0.33f, 0.19f};
+                memcpy(instances[n++], stick, sizeof stick);
+                triangles += 12;
+            } else if (k->item == FLINT) {
+                float flint[INSTANCE_FLOATS] = {k->x, k->y + 0.05f, k->z, 0.1f, 0.05f, 0.08f, k->yaw, 0.30f, 0.30f, 0.34f};
+                memcpy(instances[n++], flint, sizeof flint);
+                triangles += 12;
+            } else { /* a knife or a saw: a wooden handle and a metal blade */
+                int saw = k->item == SAW;
+                float handle[INSTANCE_FLOATS] = {k->x - sy * 0.12f, k->y + 0.025f, k->z + cy * 0.12f, saw ? 0.06f : 0.03f, 0.025f,
+                                                 0.07f, k->yaw, 0.45f, 0.30f, 0.17f};
+                float blade[INSTANCE_FLOATS] = {k->x + sy * (saw ? 0.2f : 0.08f), k->y + 0.012f, k->z - cy * (saw ? 0.2f : 0.08f),
+                                                saw ? 0.1f : 0.025f, 0.008f, saw ? 0.22f : 0.12f, k->yaw, 0.82f, 0.84f, 0.88f};
+                memcpy(instances[n++], handle, sizeof handle);
+                memcpy(instances[n++], blade, sizeof blade);
+                triangles += 24;
+            }
+        }
         for (int i = 0; i < MAX_PARTICLES; i++) {
             const Particle* pt = &particles[i];
             if (pt->life <= 0) continue;
@@ -3657,7 +4089,10 @@ int main(int argc, char** argv) {
         io->scale_percent = (int)((dynamic ? fminf(scale, cap) : cap) * 100.0f + 0.5f);
         io->creatures = creatures_drawn;
         io->clock_minutes = (int)(shown_time() * 1440.0f) % 1440;
-        for (int k = 0; k < PALETTE_SIZE && k < 16; k++) io->counts[k] = (int16_t)inventory[palette[k]];
+        for (int k = 0; k < PALETTE_SIZE; k++) {
+            io->all_counts[k] = (int16_t)inventory[palette[k]];
+            if (k < 16) io->counts[k] = io->all_counts[k];
+        }
         io->day = (int)day_count + 1;
         frames++;
         stats_frames++;

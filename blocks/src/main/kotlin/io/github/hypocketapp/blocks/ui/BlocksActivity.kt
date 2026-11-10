@@ -340,6 +340,8 @@ private fun BlocksScreen(
         world?.let { "World: ${it.chunks}x${it.chunks} chunks, saved ${finished.stats.saves} times" },
         "Health: ${finished.stats.healthTenths / 10.0}, fainted ${finished.stats.deaths} times, " +
             "hurt ${finished.stats.hurts} times, peaceful: ${options.peaceful}",
+        "Food: ${finished.stats.foodTenths / 10.0}, warmth: ${finished.stats.warmthTenths / 10.0}, " +
+            "ate ${finished.stats.eats} times, picked up or hunted ${finished.stats.picks} times",
         "Mode: ${if (options.creative) "creative" else "survival"}, carrying " +
             BuildBlock.entries.mapIndexedNotNull { i, block ->
                 finished.stats.counts.getOrElse(i) { 0 }.takeIf { it > 0 }?.let { "${block.name.lowercase()} $it" }
@@ -400,7 +402,9 @@ private fun BlocksScreen(
         )
         val finished = report
         if (finished == null && inventory.open.value) {
-            InventoryPanel(inventory, selection, stats.counts, options.creative, onCraft = { session.craft(it) })
+            InventoryPanel(
+                inventory, selection, stats.counts, options.creative, stats.survivalFlags, onCraft = { session.craft(it) },
+            )
         } else if (finished == null) {
             if (!pause.open.value) TouchControls(session, lookSensitivity)
             Hud(stats, session, controller.used.value, mouse, settings.showStats, onMenu = { pause.show() })
@@ -441,12 +445,41 @@ private fun BlocksScreen(
                 if (world != null) SavedNotice(stats.saves, Modifier)
                 EventNotice(stats.deaths, R.string.blocks_fainted)
                 EventNotice(stats.takes, R.string.blocks_taken, Color(0xAA3A2466))
+                ThingNotice(stats.picks, stats.picked, R.string.blocks_picked, Color(0xAA2E5A2E))
+                ThingNotice(stats.needs, stats.needed, R.string.blocks_needs_tool, Color(0xAA5A4A1E))
                 AwayNotice(stats.ready, stats.away)
             }
             if (stats.grabbed) GrabOverlay(stats.grabPercent)
             if (!options.creative) {
-                HealthBar(stats.healthTenths, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp))
+                Row(
+                    Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    HealthBar(stats.healthTenths, Modifier)
+                    Meter(
+                        stats.foodTenths, BlocksStats.MAX_FOOD_TENTHS, R.string.blocks_meter_food,
+                        Color(0xFFE0A040), Color(0xFF4A3418), Color.White,
+                    )
+                    Meter(
+                        stats.warmthTenths, BlocksStats.MAX_WARMTH_TENTHS, R.string.blocks_meter_warmth,
+                        if (stats.cold) Color(0xFF7FC4FF) else Color(0xFFFF9A5A), Color(0xFF1E2E4A),
+                        when {
+                            stats.warming -> Color(0xFFFFC08A)
+                            stats.cold -> Color(0xFFB8E0FF)
+                            else -> Color.White
+                        },
+                    )
+                }
                 HurtFlash(stats.hurts)
+            }
+            if (stats.digPercent in 1..99) {
+                Box(
+                    Modifier.align(Alignment.Center).padding(top = 40.dp).size(width = 44.dp, height = 4.dp)
+                        .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(2.dp)),
+                ) {
+                    Box(Modifier.fillMaxHeight().fillMaxWidth(stats.digPercent / 100f).background(Color.White, RoundedCornerShape(2.dp)))
+                }
             }
             if (stats.aimingBeacon) {
                 Text(
@@ -459,9 +492,9 @@ private fun BlocksScreen(
                 )
             }
             GoalDone(stats)
-            if (stats.aimingNote && !stats.aimingBeacon) {
+            if ((stats.aimingNote || stats.aimingPickup) && !stats.aimingBeacon) {
                 Text(
-                    stringResource(R.string.blocks_note_aim),
+                    stringResource(if (stats.aimingNote) R.string.blocks_note_aim else R.string.blocks_pickup_aim),
                     color = Color.White,
                     style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.align(Alignment.Center).padding(top = 72.dp)
@@ -752,6 +785,52 @@ private fun HealthBar(tenths: Int, modifier: Modifier) {
                 Box(Modifier.fillMaxHeight().fillMaxWidth(fill).background(Color(0xFFE8574A), RoundedCornerShape(2.dp)))
             }
         }
+    }
+}
+
+/**
+ * A bar of [tenths] out of [max] with its name ([label], in [labelColor]); it
+ * only shows when not full.
+ */
+@Composable
+private fun Meter(tenths: Int, max: Int, label: Int, fill: Color, empty: Color, labelColor: Color) {
+    if (tenths >= max) return
+    Row(
+        Modifier.background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(4.dp)).padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(stringResource(label), color = labelColor, style = MaterialTheme.typography.labelSmall)
+        Box(Modifier.size(width = 70.dp, height = 8.dp).background(empty, RoundedCornerShape(2.dp))) {
+            Box(
+                Modifier.fillMaxHeight().fillMaxWidth((tenths / max.toFloat()).coerceIn(0f, 1f))
+                    .background(fill, RoundedCornerShape(2.dp)),
+            )
+        }
+    }
+}
+
+/** Says for a few seconds [text] about a block or item ([thing], a [BuildBlock] index), each time [count] goes up. */
+@Composable
+private fun ThingNotice(count: Int, thing: Int, text: Int, background: Color) {
+    var seen by remember { mutableIntStateOf(count) }
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(count) {
+        if (count > seen) {
+            seen = count
+            visible = true
+            delay(2500)
+            visible = false
+        }
+    }
+    val block = BuildBlock.entries.getOrNull(thing) ?: return
+    if (visible) {
+        Text(
+            stringResource(text, stringResource(block.label)),
+            color = Color.White,
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.background(background, RoundedCornerShape(4.dp)).padding(horizontal = 10.dp, vertical = 3.dp),
+        )
     }
 }
 

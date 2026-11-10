@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +32,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.hypocketapp.blocks.BlocksRecipes
+import io.github.hypocketapp.blocks.BlocksStats
 import io.github.hypocketapp.blocks.R
 import io.github.hypocketapp.blocks.Recipe
 
@@ -93,14 +95,15 @@ class Inventory(
     }
 
     companion object {
-        const val COLUMNS = 6
+        const val COLUMNS = 8
         val BLOCKS = BuildBlock.entries.size
     }
 }
 
 /**
- * The inventory: every block with how many the player carries, and the
- * hotbar. Choose a place in the hotbar, then the block to put there.
+ * The inventory: every block and item with how many the player carries, and
+ * the hotbar. Choose a place in the hotbar, then the block (or food) to put
+ * there. [stations]: the workstations near the player ([BlocksStats.survivalFlags]).
  */
 @Composable
 fun InventoryPanel(
@@ -108,6 +111,7 @@ fun InventoryPanel(
     selection: BlockSelection,
     counts: List<Int>,
     creative: Boolean,
+    stations: Int,
     onCraft: (Recipe) -> Unit,
 ) {
     // Covers the game: touches here never turn the camera or break blocks.
@@ -135,13 +139,17 @@ fun InventoryPanel(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                Modifier.heightIn(max = 190.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
             BuildBlock.entries.chunked(Inventory.COLUMNS).forEachIndexed { row, blocks ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     blocks.forEachIndexed { column, block ->
                         val i = row * Inventory.COLUMNS + column
                         val carried = counts.getOrElse(i) { 0 }
                         Column(
-                            Modifier.width(64.dp).clickable {
+                            Modifier.width(54.dp).clickable {
                                 inventory.cursor.intValue = i
                                 selection.assign(i)
                             },
@@ -149,7 +157,7 @@ fun InventoryPanel(
                         ) {
                             BlockTile(
                                 block,
-                                size = 44.dp,
+                                size = 38.dp,
                                 highlighted = inventory.cursor.intValue == i,
                                 count = if (creative) null else carried,
                             )
@@ -164,9 +172,10 @@ fun InventoryPanel(
                     }
                 }
             }
+            }
             HotbarRow(selection, counts, creative)
             }
-            if (!creative) RecipeList(inventory, counts, onCraft)
+            if (!creative) RecipeList(inventory, counts, stations, onCraft)
             }
             Text(
                 stringResource(if (creative) R.string.blocks_inventory_hint else R.string.blocks_inventory_hint_recipes),
@@ -178,9 +187,12 @@ fun InventoryPanel(
     }
 }
 
-/** The recipes, each with what it uses and makes; tap one (or press A or Enter on it) to make it once. */
+/**
+ * The recipes, each with what it uses and makes, and the tool or workstation it
+ * needs; tap one (or press A or Enter on it) to make it once.
+ */
 @Composable
-private fun RecipeList(inventory: Inventory, counts: List<Int>, onCraft: (Recipe) -> Unit) {
+private fun RecipeList(inventory: Inventory, counts: List<Int>, stations: Int, onCraft: (Recipe) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(stringResource(R.string.blocks_recipes), color = Color.White, style = MaterialTheme.typography.labelLarge)
         Column(
@@ -188,7 +200,7 @@ private fun RecipeList(inventory: Inventory, counts: List<Int>, onCraft: (Recipe
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             BlocksRecipes.ALL.forEachIndexed { i, recipe ->
-                val possible = recipe.canMake(counts)
+                val possible = recipe.canMake(counts, stations)
                 val pointed = inventory.cursor.intValue == Inventory.BLOCKS + i
                 Row(
                     Modifier
@@ -206,17 +218,35 @@ private fun RecipeList(inventory: Inventory, counts: List<Int>, onCraft: (Recipe
                     }
                     Text(stringResource(R.string.blocks_recipe_arrow), color = Color.White)
                     BlockTile(recipe.output, size = 28.dp, highlighted = false, count = recipe.count)
-                    Text(
-                        stringResource(recipe.output.label),
-                        color = Color.White.copy(alpha = if (possible) 1f else 0.45f),
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.width(76.dp),
-                        maxLines = 1,
-                    )
+                    Column(Modifier.width(96.dp)) {
+                        Text(
+                            stringResource(recipe.output.label),
+                            color = Color.White.copy(alpha = if (possible) 1f else 0.45f),
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                        )
+                        recipe.tool?.let { tool ->
+                            Requirement(stringResource(R.string.blocks_recipe_tool, stringResource(tool.label)), recipe.hasTool(counts))
+                        }
+                        recipe.station?.let { station ->
+                            Requirement(stringResource(R.string.blocks_recipe_station, stringResource(station.label)), recipe.hasStation(stations))
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+/** What a recipe needs besides its inputs: grey when it is there, red when it is not. */
+@Composable
+private fun Requirement(text: String, met: Boolean) {
+    Text(
+        text,
+        color = if (met) Color.White.copy(alpha = 0.6f) else Color(0xFFFF8A80),
+        style = MaterialTheme.typography.labelSmall,
+        maxLines = 1,
+    )
 }
 
 /** The hotbar's places; tap one to choose it. */
@@ -241,10 +271,10 @@ fun HotbarRow(selection: BlockSelection, counts: List<Int>, creative: Boolean) {
     }
 }
 
-/** A block's colour swatch, with how many are carried (null: unlimited). */
+/** A block's colour swatch (round for items), with how many are carried (null: unlimited). */
 @Composable
 fun BlockTile(block: BuildBlock, size: Dp, highlighted: Boolean, count: Int?, modifier: Modifier = Modifier) {
-    val shape = RoundedCornerShape(3.dp)
+    val shape = if (block.kind == BuildBlock.Kind.BLOCK) RoundedCornerShape(3.dp) else CircleShape
     val empty = count != null && count <= 0
     Box(
         modifier.size(size)
