@@ -30,7 +30,7 @@ data class Recipe(
  */
 object BlocksRecipes {
     val ALL: List<Recipe> = listOf(
-        Recipe(listOf(BuildBlock.WOOD to 1), BuildBlock.PLANKS, 4),
+        Recipe(listOf(BuildBlock.WOOD to 1), BuildBlock.PLANKS, 3),
         Recipe(listOf(BuildBlock.STONE to 1), BuildBlock.STONE_BRICKS, 1),
         Recipe(listOf(BuildBlock.SAND to 1), BuildBlock.GLASS, 1),
         Recipe(listOf(BuildBlock.DIRT to 2, BuildBlock.SAND to 1), BuildBlock.BRICKS, 2),

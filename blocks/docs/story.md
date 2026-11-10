@@ -244,6 +244,65 @@ para quem quiser entrar na dimensão.
   as criaturas param na borda olhando, sem nunca entrar. Um feixe de luz sobe
   do farol para que o santuário seja visto de longe.
 
+## Quarta rodada, como foi contada
+
+> Cara, a 1 com a 2 fica simplesmente genial. Mas aí a fase como ce falou cria
+> 2 cenários ambíguos, um é voltar pro mundo e livrar apenas os humanos,
+> fodasse o resto de seres de outra dimensão, e a segunda é entender e tentar
+> ajudar, mas oferenda eu não sei man, talvez esse seja o lance, não é uma
+> oferenda, eles querem ajuda de alguma forma, por mais aterrorizantes que
+> sejam suas aparências, eles tbm são indivíduos que tbm estão completamente
+> desesperados e perdidos, mas oq seria essa coisa? Talvez um humano? Como um
+> cientista louco que descobriu a maneira de abrir portais e agora escraviza e
+> faz estudos com elas? Pode ficar muito mandado assim ,então tem várias
+> hipóteses pra nois pensar certinho.
+> Gostei da função do santuário,sim man kkkkk, poderia até meio q ter uma
+> missão entre aspas, tipo não literal, mas se vc recupera a mãe do Caio te da
+> até uma emoção no coração ver os dois juntos ali chorando depois de se
+> reencontrar não tem recompensa de item, é mais recompensa de eu juntei essa
+> família, podia até ter conquistas, tipo, retorno ao lar.
+> (...) Caso o jogo cresça muito, os personagens aleatórios que surgem podem
+> ter vozes aleatórias, tipo, vamos supor que eu chegue a uma base de dados de
+> um milhão de vozes, pra todo mundo ter sua vez, daria pra rodar determinado
+> número de vozes desse banco escolhido aleatoriamente por seed, ou até ter
+> baixado na máquina de jeito compactado centenas ou milhares de vozes
+> diferentes, e aí elas podem ser extraídas e usadas conforme a necessidade.
+
+## Decisões da quarta rodada
+
+- **Por que vieram (hipóteses 1 e 2 juntas):** o mundo delas está morrendo, e
+  elas também estão desesperadas e perdidas. Não é oferenda: elas querem
+  **ajuda**, de algum jeito que ainda não sabemos. São indivíduos, por mais
+  aterrorizante que seja a aparência delas.
+- **O que é "essa coisa" que precisa de ajuda:** em aberto. Hipóteses:
+  - algo do mundo delas (um núcleo, um ser, a própria névoa) que só se mantém
+    com seres vivos por perto, e os levados ficam na "fila" sem morrer;
+  - um humano: alguém que abriu os portais (um cientista, talvez o construtor
+    das torres) e que escraviza e estuda as criaturas, que arrastam gente
+    para... pedir socorro? Cuidado para não ficar óbvio demais;
+  - outras, a pensar.
+- **Dois finais ambíguos:**
+  1. **Voltar e salvar só os humanos:** fechar tudo e deixar o outro lado ao
+     próprio destino.
+  2. **Entender e tentar ajudar:** descobrir o que elas querem e o que
+     está por trás.
+- **Sobreviventes no santuário:** quando um farol é aceso, sobreviventes
+  escondidos chegam e moram ali. Cada um com personalidade e crença
+  próprias: pedem coisas, trocam, contam boatos. Gente dos relatos pode
+  estar viva.
+- **"Missões" que não são missões:** sem recompensa de item. A recompensa é
+  o momento, como trazer a mãe do Caio de volta e ver os dois se
+  reencontrando. Com **conquistas**, por exemplo "Retorno ao lar".
+- **Vozes:** o autor grava o protagonista e alguns personagens; se aparecer
+  um dublador, melhor. Os áudios são gravados antes e tocados pelo app
+  (OGG/Opus, leve no M12). Roteiros em [voice-scripts.md](voice-scripts.md).
+- **Vozes aleatórias (se o jogo crescer):** personagens que surgem ao acaso
+  escolhem uma voz de um banco, pela semente. Um milhão de gravações não cabe
+  no celular, mas há dois caminhos que cabem: poucas vozes-base com variações
+  (tom, velocidade, timbre) feitas no próprio jogo; ou uma voz sintética com
+  muitos "falantes", em que cada voz é um vetor de poucos KB, com um modelo
+  de dezenas de MB baixado à parte.
+
 ## O que entra (primeira rodada)
 
 | Parte | Já existe no jogo? | Observação |
@@ -271,7 +330,8 @@ para quem quiser entrar na dimensão.
 ## Em aberto
 
 - O covil: "lá no fundo, onde a névoa é mais grossa", com a "fila" dos
-  levados. Achar o covil, resgatar alguém, ter chefes?
+  levados. O que está lá (ver "Decisões da quarta rodada")? Chefes?
+- Qual dos dois finais é o "verdadeiro", ou se os dois valem.
 - A revelação de que a névoa e os Nocturnes são coisas diferentes: em qual
   relato, ou num relato novo do outro lado?
 - Nome de trabalho para os Nocturnes (sugestões em "Decisões da segunda
