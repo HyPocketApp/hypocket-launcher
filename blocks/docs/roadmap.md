@@ -114,6 +114,10 @@ do motor do launcher.
   modelos do Blockbench descritos em arquivos.
 - [ ] **Mods, scripts em Lua:** lógica nova (criaturas, eventos, mecânicas,
   telas, geração do mundo).
+- [ ] **Mods em qualquer linguagem (WebAssembly):** quem quiser escreve em
+  C, C++, Rust, Zig ou outra que gere WebAssembly; o arquivo `.wasm` roda
+  igual no PC e no celular, protegido como o Lua e bem mais rápido que ele.
+  Lua fica para o que é simples; Wasm para o que é pesado.
 
 Como os mods funcionam (decidido com o autor):
 
@@ -131,7 +135,8 @@ Como os mods funcionam (decidido com o autor):
 - **Os mods moram no mundo.** O mundo guarda os mods que usa; quem entra num
   mundo (ou servidor) baixa os mods sozinho e joga, sem instalar nada antes.
   Isso só é seguro e portável porque os mods são dados e Lua, e não código
-  compilado: o mesmo mod roda no PC e no celular.
+  compilado para uma máquina (`.dll`, `.so`): o mesmo mod, em Lua ou Wasm,
+  roda no PC e no celular.
 - **Servidores grandes:** o autor mira 1000 a 3000 jogadores num servidor
   oficial de mod (mapa fixo, com menos sistemas). Isso pede servidor
   dedicado (PC ou nuvem, não celular), servidor que decide tudo e manda a
