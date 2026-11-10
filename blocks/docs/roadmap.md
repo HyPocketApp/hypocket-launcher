@@ -44,8 +44,9 @@ As regras estão em [story.md](story.md), "Oitava rodada".
   picareta e machado improvisados. Blocos com dureza.
 - [x] Gravetos e pedras pelo chão, que mudam a cada dia; faca e serra nas
   ruínas.
-- [x] Bancadas pelo lugar: forno (vidro, tijolo, reboco), fogueira (assar,
-  luz, calor) e fogão (fritar na banha; alguns nas ruínas).
+- [x] Bancadas pelo lugar: forno (vidro, tijolo, reboco), fogueira (modelo
+  baixo com chama, fumaça e faíscas; assar, luz, calor) e fogão (fritar na
+  banha; alguns nas ruínas).
 - [x] Caça das criaturas do amanhecer: carne, banha, couro e lã.
 - [x] Fome e frio, com o agasalho.
 - [ ] Criar as criaturas (farm).

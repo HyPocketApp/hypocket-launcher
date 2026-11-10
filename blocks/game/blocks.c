@@ -333,7 +333,7 @@ static int palette_index(int thing) {
 /* Texture layers. */
 enum { T_GRASS_TOP, T_GRASS_SIDE, T_DIRT, T_STONE, T_SAND, T_WOOD_SIDE, T_WOOD_TOP, T_LEAVES, T_WATER, T_PLANKS,
        T_STONE_BRICKS, T_BRICKS, T_GLASS, T_ROOF, T_PLASTER, T_LAMP, T_BEACON_OFF, T_BEACON_ON, T_SHADE,
-       T_KILN, T_KILN_FRONT, T_STOVE_TOP, T_STOVE_SIDE, T_CAMPFIRE_TOP, T_CAMPFIRE_SIDE, LAYERS };
+       T_KILN, T_KILN_FRONT, T_STOVE_TOP, T_STOVE_SIDE, LAYERS };
 
 static uint8_t world[MAX_W][WY][MAX_W];
 
@@ -344,7 +344,7 @@ static int block_at(int x, int y, int z) {
 }
 
 /* Blocks that hide the faces behind them. */
-static int is_opaque(int b) { return b != AIR && b != WATER && b != LEAVES && b != GLASS; }
+static int is_opaque(int b) { return b != AIR && b != WATER && b != LEAVES && b != GLASS && b != CAMPFIRE; }
 static int is_solid(int b) { return b != AIR && b != WATER; }
 /* Drawn after the opaque world, blended. */
 static int is_clear(int b) { return b == WATER || b == GLASS; }
@@ -370,7 +370,6 @@ static int texture_for(int block, int face) {
     case SHADE: return T_SHADE;
     case KILN: return face == 4 ? T_KILN_FRONT : T_KILN;
     case STOVE: return face == 2 ? T_STOVE_TOP : T_STOVE_SIDE;
-    case CAMPFIRE: return face == 2 || face == 3 ? T_CAMPFIRE_TOP : T_CAMPFIRE_SIDE;
     default: return T_PLANKS;
     }
 }
@@ -426,11 +425,17 @@ typedef struct {
     uint8_t uv, layer, ao, light;
 } Vertex;
 
+#define MAX_CHUNK_FIRES 8
+
 typedef struct {
     GLuint vao, vbo;
     int quads;       /* opaque quads, first in the buffer */
     int water_quads; /* water and glass quads, after the opaque ones */
     int dirty; /* 2: its blocks changed, mesh now; 1: only its lamp light did */
+    /* Campfires are not cubes: meshing lists them here and they are drawn
+     * as boxes with the creatures (see draw_campfire). */
+    int fire_count;
+    int16_t fires[MAX_CHUNK_FIRES][3];
 } Chunk;
 
 static Chunk chunks[MAX_CHUNKS][MAX_CHUNKS];
@@ -600,12 +605,20 @@ static void mesh_chunk(int ci, int cj) {
     scratch_quads = 0;
     chunk_light(ci, cj);
     int opaque = 0, water = 0;
+    ch->fire_count = 0;
     for (int pass = 0; pass < 2; pass++)
         for (int x = cx; x < cx + CHUNK; x++)
             for (int y = 0; y < WY; y++)
                 for (int z = cz; z < cz + CHUNK; z++) {
                     int b = world[x][y][z];
                     if (b == AIR || is_clear(b) != (pass == 1)) continue;
+                    if (b == CAMPFIRE) {
+                        if (ch->fire_count < MAX_CHUNK_FIRES) {
+                            int16_t* f = ch->fires[ch->fire_count++];
+                            f[0] = (int16_t)x; f[1] = (int16_t)y; f[2] = (int16_t)z;
+                        }
+                        continue;
+                    }
                     for (int f = 0; f < 6; f++) {
                         const int* n = face_normal[f];
                         int other = block_at(x + n[0], y + n[1], z + n[2]);
@@ -735,17 +748,6 @@ static void make_textures(void) {
                     if (x > 2 && x < 13 && y > 5 && y < 13) { r = 0.30f; g = 0.30f; b = 0.32f; }
                     if (y == 4 && x > 3 && x < 12) { r = 0.65f; g = 0.63f; b = 0.60f; n = 1.0f; } /* the handle */
                     if (edge) { r = g = b = 0.12f; n = 1.0f; }
-                    break;
-                case T_CAMPFIRE_TOP: { /* embers in a ring of stones */
-                    float dx = x - 7.5f, dy = y - 7.5f, d = sqrtf(dx * dx + dy * dy);
-                    if (d > 5.5f) { r = g = b = 0.45f; n = 0.75f + 0.3f * n; }
-                    else { r = 1.0f; g = 0.42f + 0.3f * n; b = 0.10f; n = 0.7f + 0.35f * rand01(x / 2, y / 2, 77); }
-                    break;
-                }
-                case T_CAMPFIRE_SIDE: /* logs below, flames above */
-                    if (y >= 11) { r = 0.40f; g = 0.28f; b = 0.16f; n = (x % 5 == 0 ? 0.6f : 0.9f) + 0.1f * n; }
-                    else if (rand01(x, y / 3, 79) < 0.25f + y * 0.05f) { r = 1.0f; g = 0.55f + 0.03f * y; b = 0.15f; n = 0.9f + 0.1f * n; }
-                    else { r = 0.16f; g = 0.11f; b = 0.08f; n = 0.7f + 0.3f * n; } /* soot */
                     break;
                 default: /* planks */
                     r = 0.70f; g = 0.54f; b = 0.32f;
@@ -905,14 +907,19 @@ typedef struct {
 #define PLAYER_HEIGHT 1.8f
 #define EYE_HEIGHT 1.62f
 
+/* A campfire is low: stones and logs, walked over rather than into. */
+#define CAMPFIRE_HEIGHT 0.25f
+
 static int collides(float x, float y, float z) {
     int x0 = (int)floorf(x - PLAYER_HALF), x1 = (int)floorf(x + PLAYER_HALF);
     int y0 = (int)floorf(y), y1 = (int)floorf(y + PLAYER_HEIGHT);
     int z0 = (int)floorf(z - PLAYER_HALF), z1 = (int)floorf(z + PLAYER_HALF);
     for (int bx = x0; bx <= x1; bx++)
         for (int by = y0; by <= y1; by++)
-            for (int bz = z0; bz <= z1; bz++)
-                if (is_solid(block_at(bx, by, bz))) return 1;
+            for (int bz = z0; bz <= z1; bz++) {
+                int b = block_at(bx, by, bz);
+                if (b == CAMPFIRE ? y < by + CAMPFIRE_HEIGHT : is_solid(b)) return 1;
+            }
     /* Keep the player inside the world. */
     return x < 0.5f || z < 0.5f || x > WX - 0.5f || z > WZ - 0.5f;
 }
@@ -2260,9 +2267,11 @@ static int creature_on_ray(float ox, float oy, float oz, float dx, float dy, flo
 typedef struct {
     float x, y, z, vx, vy, vz, life;
     float color[3];
+    float gravity; /* downward pull; smoke has none and drifts up */
+    float size, grow; /* half size, and how fast it grows (smoke spreads) */
 } Particle;
 
-#define MAX_PARTICLES 192
+#define MAX_PARTICLES 256
 static Particle particles[MAX_PARTICLES];
 
 static void block_color(int block, float* out) {
@@ -2290,6 +2299,9 @@ static void spawn_particles(int bx, int by, int bz, int block, uint32_t tick) {
         p->vy = 2 + 3 * r2;
         p->vz = (r3 - 0.5f) * 4;
         p->life = 0.6f + 0.6f * r2;
+        p->gravity = 18;
+        p->size = 0.06f;
+        p->grow = 0;
         block_color(block, p->color);
         float shade = 0.75f + 0.4f * r3;
         for (int k = 0; k < 3; k++) p->color[k] *= shade;
@@ -2311,6 +2323,9 @@ static void spawn_puff(float x, float y, float z, const float* color, int count,
         p->vy = 1 + 2 * r2;
         p->vz = (r3 - 0.5f) * 3;
         p->life = 0.4f + 0.5f * r3;
+        p->gravity = 18;
+        p->size = 0.06f;
+        p->grow = 0;
         for (int k = 0; k < 3; k++) p->color[k] = color[k] * (0.8f + 0.4f * r2);
         made++;
     }
@@ -2321,9 +2336,11 @@ static void update_particles(float dt) {
         Particle* p = &particles[i];
         if (p->life <= 0) continue;
         p->life -= dt;
-        p->vy -= 18 * dt;
+        p->vy -= p->gravity * dt;
+        p->size += p->grow * dt;
         float nx = p->x + p->vx * dt, ny = p->y + p->vy * dt, nz = p->z + p->vz * dt;
-        if (is_solid(block_at((int)floorf(nx), (int)floorf(ny), (int)floorf(nz)))) {
+        int b = block_at((int)floorf(nx), (int)floorf(ny), (int)floorf(nz));
+        if (is_solid(b) && b != CAMPFIRE) { /* smoke and sparks leave through the fire */
             p->vx *= 0.4f;
             p->vz *= 0.4f;
             p->vy = 0;
@@ -2332,6 +2349,40 @@ static void update_particles(float dt) {
             p->y = ny;
             p->z = nz;
         }
+    }
+}
+
+/* Smoke from a campfire: grey puffs that rise slowly, sway and spread, and
+ * now and then a spark, glowing (see BOX_GLOW), that flies up and falls. */
+static void spawn_smoke(float x, float y, float z, int spark, uint32_t tick) {
+    for (int i = 0; i < MAX_PARTICLES; i++) {
+        Particle* p = &particles[i];
+        if (p->life > 0) continue;
+        float r1 = rand01(i, (int)tick, 83), r2 = rand01(i, (int)tick, 89), r3 = rand01(i, (int)tick, 97);
+        p->x = x + (r1 - 0.5f) * 0.25f;
+        p->y = y;
+        p->z = z + (r3 - 0.5f) * 0.25f;
+        if (spark) {
+            p->vx = (r1 - 0.5f) * 1.2f;
+            p->vy = 2.5f + 1.5f * r2;
+            p->vz = (r3 - 0.5f) * 1.2f;
+            p->life = 0.5f + 0.4f * r2;
+            p->gravity = 4;
+            p->size = 0.025f;
+            p->grow = 0;
+            p->color[0] = 3.0f; p->color[1] = 2.55f + 0.3f * r2; p->color[2] = 2.12f;
+        } else {
+            p->vx = (r1 - 0.5f) * 0.3f;
+            p->vy = 0.7f + 0.5f * r2;
+            p->vz = (r3 - 0.5f) * 0.3f;
+            p->life = 1.5f + 0.9f * r2;
+            p->gravity = 0;
+            p->size = 0.035f + 0.02f * r3;
+            p->grow = 0.035f;
+            float grey = 0.50f + 0.15f * r2;
+            p->color[0] = grey; p->color[1] = grey; p->color[2] = grey * 1.04f;
+        }
+        return;
     }
 }
 
@@ -2413,6 +2464,56 @@ static const char* instanced_fs =
     "    float fog = clamp((dist - fog_end * 0.6) / (fog_end * 0.4), 0.0, 1.0);\n"
     "    frag = vec4(mix(v_color.r > 1.5 ? v_color - 2.0 : v_color * light * ambient, fog_color, fog), 1.0);\n"
     "}\n";
+
+/* A campfire as boxes: a ring of stones, three logs crossed over embers and
+ * a flame of stacked, flickering boxes that glow (red above 1.5, see
+ * BOX_GLOW). t is in seconds; each fire flickers on its own. glow (0-1)
+ * is how much the fire, not the sky, lights its stones and logs: at night
+ * they show warm in its light instead of dark. */
+#define CAMPFIRE_BOXES 14
+#define MAX_DRAWN_FIRES 16
+static int draw_campfire(float (*out)[INSTANCE_FLOATS], int n, int bx, int by, int bz, float t, float glow) {
+    float x = bx + 0.5f, y = (float)by, z = bz + 0.5f;
+    float seed = rand01(bx, by, bz) * 6.28f;
+    for (int i = 0; i < 6; i++) { /* stones */
+        float a = seed + i * 1.047f, shade = 0.40f + 0.12f * rand01(bx + i, by, bz);
+        float stone[INSTANCE_FLOATS] = {x + cosf(a) * 0.36f, y + 0.07f, z + sinf(a) * 0.36f, 0.1f, 0.07f, 0.08f, a,
+                                        shade, shade, shade * 1.05f};
+        memcpy(out[n++], stone, sizeof stone);
+    }
+    int first = n - 6;
+    for (int i = 0; i < 3; i++) { /* logs, crossed like a star */
+        float a = seed + i * 1.047f;
+        float log[INSTANCE_FLOATS] = {x, y + 0.07f + 0.04f * i, z, 0.05f, 0.05f, 0.3f, a, 0.38f, 0.26f, 0.15f};
+        memcpy(out[n++], log, sizeof log);
+    }
+    if (glow > 0) /* firelit: warm and unlit (BOX_GLOW) */
+        for (int i = first; i < n; i++) {
+            float* c = out[i] + 7;
+            c[0] = 2 + c[0] * (0.55f + 0.5f * glow);
+            c[1] = 2 + c[1] * (0.35f + 0.2f * glow);
+            c[2] = 2 + c[2] * 0.25f;
+        }
+    float embers[INSTANCE_FLOATS] = {x, y + 0.05f, z, 0.16f, 0.03f, 0.16f, seed, 2.9f, 2.25f, 2.05f};
+    memcpy(out[n++], embers, sizeof embers);
+    /* The flame: wide and orange below, thin and yellow on top, each layer
+     * swaying and changing height on its own. */
+    static const float layers[4][5] = { /* half width, height, red, green, blue */
+        {0.17f, 0.10f, 3.0f, 2.42f, 2.08f}, {0.13f, 0.10f, 3.0f, 2.55f, 2.12f},
+        {0.09f, 0.09f, 3.0f, 2.70f, 2.20f}, {0.05f, 0.08f, 3.0f, 2.85f, 2.35f}};
+    float base = y + 0.12f;
+    for (int i = 0; i < 4; i++) {
+        const float* l = layers[i];
+        float flick = sinf(t * (7.0f + i * 2.3f) + seed + i) * 0.5f + sinf(t * (11.0f + i) + seed * 2) * 0.5f;
+        float h = l[1] * (1.0f + 0.35f * flick), w = l[0] * (1.0f + 0.12f * flick);
+        float sway = 0.025f * i * sinf(t * 3.1f + seed);
+        float flame[INSTANCE_FLOATS] = {x + sway, base + h, z + sway * 0.6f, w, h, w, t * (0.8f + 0.3f * i) + seed,
+                                        l[2], l[3], l[4]};
+        memcpy(out[n++], flame, sizeof flame);
+        base += h * 1.6f;
+    }
+    return n;
+}
 
 /* ---- The other side ---------------------------------------------------- */
 
@@ -2998,7 +3099,8 @@ int main(int argc, char** argv) {
     GLint ui_fog_end = p_glGetUniformLocation(inst_program, "fog_end");
     GLint ui_ambient = p_glGetUniformLocation(inst_program, "ambient");
     /* Instances: two boxes per creature, one per particle. */
-    enum { MAX_INSTANCES = MAX_CREATURES * 2 + MAX_NIGHT * 4 + MAX_PARTICLES + MAX_PICKUPS * 2 + 64 };
+    enum { MAX_INSTANCES = MAX_CREATURES * 2 + MAX_NIGHT * 4 + MAX_PARTICLES + MAX_PICKUPS * 2 +
+                           MAX_DRAWN_FIRES * CAMPFIRE_BOXES + 64 };
     static float instances[MAX_INSTANCES][INSTANCE_FLOATS];
     GLuint inst_vao, inst_vbo;
     p_glGenVertexArrays(1, &inst_vao);
@@ -3122,6 +3224,7 @@ int main(int argc, char** argv) {
         day_seconds = (float)atof(getenv("HYPOCKET_BLOCKS_DAY_SECONDS"));
     const float default_far = heavy ? 128.0f : 72.0f;
     float far = default_far;
+    float fire_clock = 0, smoke_wait = 0; /* campfire flicker and smoke */
     /* Danger: night creatures and fall damage. Creative worlds have neither;
      * peaceful worlds (HYPOCKET_BLOCKS_PEACEFUL) keep falls but no attackers. */
     int peaceful = getenv("HYPOCKET_BLOCKS_PEACEFUL") != NULL;
@@ -3669,6 +3772,23 @@ int main(int argc, char** argv) {
                           (aiming_note ? STORY_AIM_NOTE : 0) | (away ? STORY_AWAY : 0) |
                           (aiming_pickup ? STORY_AIM_PICKUP : 0);
         update_particles(dt);
+        /* Campfires near the player smoke and spark. */
+        fire_clock += dt;
+        if ((smoke_wait -= dt) <= 0) {
+            smoke_wait = 0.25f;
+            int pci = (int)player.x / CHUNK, pcj = (int)player.z / CHUNK, smoking = 0;
+            for (int i = pci - 1; i <= pci + 1; i++)
+                for (int j = pcj - 1; j <= pcj + 1; j++) {
+                    if (i < 0 || j < 0 || i >= CHUNKS || j >= CHUNKS) continue;
+                    const Chunk* ch = &chunks[i][j];
+                    for (int f = 0; f < ch->fire_count && smoking < 6; f++, smoking++) {
+                        const int16_t* fp = ch->fires[f];
+                        uint32_t tick = (uint32_t)frames * 7u + (uint32_t)f;
+                        spawn_smoke(fp[0] + 0.5f, fp[1] + 0.7f, fp[2] + 0.5f, 0, tick);
+                        if (rand01(fp[0], (int)tick, fp[2]) < 0.3f) spawn_smoke(fp[0] + 0.5f, fp[1] + 0.3f, fp[2] + 0.5f, 1, tick);
+                    }
+                }
+        }
         /* Chunks whose blocks changed are meshed now; those where only lamp
          * light moved wait their turn, two a frame, to avoid a hitch. */
         int light_only = 2;
@@ -3900,10 +4020,23 @@ int main(int argc, char** argv) {
                 triangles += 24;
             }
         }
+        int fires_drawn = 0;
+        float fire_glow = fminf(fmaxf((0.6f - sk.ambient[1]) / 0.4f, 0), 1); /* 0 by day, 1 at night */
+        for (int k = 0; k < visible_count && fires_drawn < MAX_DRAWN_FIRES; k++) {
+            const Chunk* ch = &chunks[visible[k] / CHUNKS][visible[k] % CHUNKS];
+            for (int f = 0; f < ch->fire_count && fires_drawn < MAX_DRAWN_FIRES; f++) {
+                const int16_t* fp = ch->fires[f];
+                float dx = fp[0] + 0.5f - player.x, dz = fp[2] + 0.5f - player.z;
+                if (dx * dx + dz * dz > 48 * 48) continue;
+                n = draw_campfire(instances, n, fp[0], fp[1], fp[2], fire_clock, fire_glow);
+                fires_drawn++;
+                triangles += CAMPFIRE_BOXES * 12;
+            }
+        }
         for (int i = 0; i < MAX_PARTICLES; i++) {
             const Particle* pt = &particles[i];
             if (pt->life <= 0) continue;
-            float box[INSTANCE_FLOATS] = {pt->x, pt->y, pt->z, 0.06f, 0.06f, 0.06f, 0,
+            float box[INSTANCE_FLOATS] = {pt->x, pt->y, pt->z, pt->size, pt->size, pt->size, 0,
                                           pt->color[0], pt->color[1], pt->color[2]};
             memcpy(instances[n++], box, sizeof box);
             triangles += 12;

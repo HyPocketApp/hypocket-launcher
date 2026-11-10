@@ -226,7 +226,7 @@ para quem quiser entrar na dimensão.
 | Itens | Além dos blocos: graveto, pedra lascada, faca, serra, machado, picareta, frutinhas, carne crua, assada e frita, banha, couro, lã e agasalho. Ficam no inventário (bolinhas, não quadrados); só blocos e comida vão ao hotbar. |
 | Ferramentas | Servem carregadas, sem gastar. Sem picareta, pedra e o que é feito dela não saem (o app diz "Precisa de: Picareta"); com ela, dois golpes. A pedra-sombra cede à mão, devagar (6 golpes), para que um abrigo do outro lado seja sempre possível. Madeira leva 5 golpes à mão e 1 com machado. Uma barrinha sob a mira mostra o quanto falta. |
 | Chão | Por dia, de 24 a 64 gravetos (perto das árvores) e pedras lascadas, em lugares novos a cada dia; 3 gravetos e 3 pedras sempre perto do começo. A faca e a serra ficam no chão de duas casas, uma vez só. Folhas soltam às vezes graveto (35%) ou frutinhas (17%); pedra, pedra lascada (25%). |
-| Bancadas | Forno, fogão e fogueira: a receita confere se há uma a até 3 blocos. A fogueira ilumina (e espanta os Nocturnes fora da névoa, como a lâmpada). Mais da metade das casas em ruína tem um fogão. |
+| Bancadas | Forno, fogão e fogueira: a receita confere se há uma a até 3 blocos. A fogueira é um modelo baixo (pedras, lenha, chama, fumaça e faíscas), não um cubo; ilumina (e espanta os Nocturnes fora da névoa, como a lâmpada). Mais da metade das casas em ruína tem um fogão. |
 | Caça | 3 golpes (2 com faca ou machado): 2 carnes cruas; com faca, também banha e couro ou lã, conforme a criatura. Ela volta de dia. |
 | Fome | Cheia, dura 18 minutos (pouco mais que um dia); com frio, esvazia mais rápido. Vazia, tira 1 de vida a cada 8 s. A vida só volta com a barriga pelo menos meio cheia. Frutinha +1, carne crua +1,5, assada +4, frita +6 (de 10). |
 | Frio | De noite fora de abrigo (e mais na névoa) esfria; na água e do outro lado também. De dia, no abrigo, no santuário à noite ou perto de uma bancada (fogo) esquenta. Gelado, tira 1 de vida a cada 10 s. O agasalho segura 65% da perda. |
@@ -494,6 +494,12 @@ texto, não parecer de advogado):
   registrada e um aviso pedindo que não se treine IA com os do Firefly.
 - **Vozes:** as dublagens de [voice-scripts.md](voice-scripts.md) podem ser
   gravadas pelo autor ou geradas. Nada de imitar voz de gente real.
+- **Voz de criança:** entra, gerada por IA. Continua valendo que adulto não
+  força voz de criança.
+- **A fogueira deixou de ser um cubo:** pedras em roda, três lenhas cruzadas,
+  brasa e uma chama de caixas que tremula, com fumaça e faíscas subindo. É
+  feita no código, como as criaturas; não precisa de arquivo. À noite o fogo
+  ilumina as próprias pedras e lenhas. Ela é baixa: dá para passar por cima.
 
 Regras, pastas e formatos em [../assets/README.md](../assets/README.md).
 
@@ -538,6 +544,5 @@ Regras, pastas e formatos em [../assets/README.md](../assets/README.md).
 - Nome do jogador, quando houver multiplayer.
 - Animações e modelos (outra conta, com IA): hoje tudo é caixa; os pontos de
   troca são os Nocturnes, as criaturas, os relatos, as fendas e o portal.
-- Voz de criança gerada por IA: vale, ou essas falas ficam sem voz?
 - O jogo tocar arquivos de áudio (hoje os sons são feitos no código) e ler
   texturas de arquivo, quando chegarem os primeiros em `blocks/assets/`.
