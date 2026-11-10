@@ -23,7 +23,7 @@ A história e as decisões estão em [story.md](story.md); os roteiros de voz em
 
 | # | Épico | Jira | Estado |
 |---|---|---|---|
-| 1 | Sobrevivência viva e dinâmica | HPK-22 | Planejar |
+| 1 | Sobrevivência viva e dinâmica | HPK-22 | Primeira parte no jogo |
 | 2 | Sobreviventes nos santuários | HPK-23 | A fazer |
 | 3 | O cientista, o laboratório portátil e os finais | HPK-24 | A fazer |
 | 4 | Vozes | HPK-25 | Roteiros prontos, falta gravar |
@@ -35,13 +35,21 @@ A história e as decisões estão em [story.md](story.md); os roteiros de voz em
 Criativa e original, sem cópia direta. O mundo tem gosto de vida: o dia é
 leve, a noite é pesada, e o contraste equilibra a dificuldade.
 
-- Gravetos das árvores e do chão; ferramentas feitas com eles.
-- Bancadas que dependem do lugar: algo que esquente materiais (o vidro sai
-  daí), fogão nas casas para a comida.
-- Criaturas do amanhecer: couro, lã, carne e banha para roupas, utensílios e
-  comida frita.
-- A decidir: fome e frio (à noite e do outro lado).
-- Já feito: 1 madeira vira 1 tábua.
+As regras estão em [story.md](story.md), "Oitava rodada".
+
+- [x] 1 madeira vira 1 tábua (agora com faca).
+- [x] Itens que não são blocos: gravetos, pedra lascada, ferramentas, comida,
+  couro, lã, banha e agasalho.
+- [x] Ferramentas que tornam coisas possíveis: faca, serra (achada),
+  picareta e machado improvisados. Blocos com dureza.
+- [x] Gravetos e pedras pelo chão, que mudam a cada dia; faca e serra nas
+  ruínas.
+- [x] Bancadas pelo lugar: forno (vidro, tijolo, reboco), fogueira (assar,
+  luz, calor) e fogão (fritar na banha; alguns nas ruínas).
+- [x] Caça das criaturas do amanhecer: carne, banha, couro e lã.
+- [x] Fome e frio, com o agasalho.
+- [ ] Criar as criaturas (farm).
+- [ ] Mais roupas e utensílios; desgaste das ferramentas improvisadas.
 
 ### 2. Sobreviventes nos santuários
 

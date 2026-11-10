@@ -81,7 +81,7 @@
     <string name="blocks_day_always_night">Sempre noite</string>
     <string name="blocks_day_mode_hint">Fixar a hora não muda a hora guardada no mundo: de volta aos dias de 15 min, ela continua de onde estava.</string>
     <string name="blocks_recipes">Receitas</string>
-    <string name="blocks_inventory_hint_recipes">Escolha um lugar na barra e depois o bloco para pôr nele, ou toque numa receita para fabricar. Controle: direcional e A, B fecha. Teclado: setas e Enter, I fecha.</string>
+    <string name="blocks_inventory_hint_recipes">Escolha um lugar na barra e depois o bloco para pôr nele, ou toque numa receita para fabricar (algumas pedem uma ferramenta ou uma bancada perto). Comida: ponha na barra e use Colocar para comer. Controle: direcional e A, B fecha. Teclado: setas e Enter, I fecha.</string>
     <string name="blocks_peaceful">Pacífico</string>
     <string name="blocks_peaceful_on">Nenhuma criatura vem atrás de você. Quedas ainda machucam.</string>
     <string name="blocks_peaceful_off">À noite, criaturas saem do escuro e da névoa para arrastar você. Fuja: elas não podem ser mortas. Lâmpadas as mantêm longe, fora da névoa.</string>
@@ -205,4 +205,29 @@
     <string name="blocks_away">O outro lado</string>
     <string name="blocks_away_arrived">Você acordou num lugar sem dia. Não corra: esconda-se atrás de paredes, e escute.</string>
     <string name="blocks_away_back">Você voltou. A névoa deixou você ir.</string>
+    <!-- Survival: workstations, items, meters and notices. -->
+    <string name="block_kiln">Forno</string>
+    <string name="block_stove">Fogão</string>
+    <string name="block_campfire">Fogueira</string>
+    <string name="item_stick">Graveto</string>
+    <string name="item_flint">Pedra lascada</string>
+    <string name="item_knife">Faca</string>
+    <string name="item_saw">Serra</string>
+    <string name="item_axe">Machado</string>
+    <string name="item_pick">Picareta</string>
+    <string name="item_berries">Frutinhas</string>
+    <string name="item_raw_meat">Carne crua</string>
+    <string name="item_cooked_meat">Carne assada</string>
+    <string name="item_fried_meat">Carne frita</string>
+    <string name="item_fat">Banha</string>
+    <string name="item_hide">Couro</string>
+    <string name="item_wool">Lã</string>
+    <string name="item_coat">Agasalho</string>
+    <string name="blocks_recipe_tool">com %1$s</string>
+    <string name="blocks_recipe_station">perto: %1$s</string>
+    <string name="blocks_meter_food">Comida</string>
+    <string name="blocks_meter_warmth">Calor</string>
+    <string name="blocks_picked">Pegou: %1$s</string>
+    <string name="blocks_needs_tool">Precisa de: %1$s</string>
+    <string name="blocks_pickup_aim">Pegar: use Colocar</string>
 </resources>

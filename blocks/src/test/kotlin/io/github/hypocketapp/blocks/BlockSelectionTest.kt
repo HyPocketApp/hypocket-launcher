@@ -65,6 +65,21 @@ class BlockSelectionTest {
     }
 
     @Test
+    fun toolsAndMaterialsDoNotTakePlacesButFoodDoes() {
+        val s = selection(listOf(9, 7, 8, 10, 11, 0, 1, 3, 6))
+        val counts = MutableList(BuildBlock.entries.size) { 0 }
+        counts[BuildBlock.KNIFE.ordinal] = 1
+        counts[BuildBlock.STICK.ordinal] = 4
+        s.fill(counts)
+        assertTrue(BuildBlock.KNIFE.ordinal !in s.slots && BuildBlock.STICK.ordinal !in s.slots)
+        s.assign(BuildBlock.KNIFE.ordinal) // chosen in the inventory: still no place
+        assertTrue(BuildBlock.KNIFE.ordinal !in s.slots)
+        counts[BuildBlock.BERRIES.ordinal] = 2
+        s.fill(counts)
+        assertTrue(BuildBlock.BERRIES.ordinal in s.slots)
+    }
+
+    @Test
     fun creativeNeverRearranges() {
         val s = selection(creative = true)
         val before = s.slots.toList()
@@ -82,8 +97,8 @@ class BlockSelectionTest {
         assertEquals(Inventory.BLOCKS, inventory.cursor.intValue)
         inventory.move(0, -1) // up from the first recipe: the last one
         assertEquals(Inventory.BLOCKS + 2, inventory.cursor.intValue)
-        inventory.move(-1, 0) // back to the grid's last column
-        assertEquals(2 * Inventory.COLUMNS - 1, inventory.cursor.intValue)
+        inventory.move(-1, 0) // back to the grid's last column, on the recipe's row
+        assertEquals(minOf(2, Inventory.BLOCKS / Inventory.COLUMNS - 1) * Inventory.COLUMNS + Inventory.COLUMNS - 1, inventory.cursor.intValue)
         val made = mutableListOf<Int>()
         inventory.cursor.intValue = Inventory.BLOCKS + 1
         inventory.confirm(selection(), craft = { made += it })
