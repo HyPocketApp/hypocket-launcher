@@ -265,6 +265,9 @@ static void notice(uint32_t color, const char* text) {
     notices[0].color = color;
 }
 
+/* A mod's script says something (blocks.say). */
+static void screens_say(const char* text) { notice(0xFFFFE3A8, text); }
+
 static int thing_count(int p) { return creative ? 1 : inventory[palette[p]]; }
 static int thing_usable(int p) { return thing_kind(p) == THING_BLOCK || thing_kind(p) == THING_FOOD; }
 

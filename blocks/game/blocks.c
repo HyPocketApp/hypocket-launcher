@@ -110,6 +110,10 @@ static int replace_file(const char* from, const char* to) {
 #endif
 #include "third_party/stb_vorbis.c"
 #pragma GCC diagnostic pop
+/* stb_vorbis leaves these defined, and Lua names parameters L. */
+#undef L
+#undef C
+#undef R
 
 /* ---- Shared input/statistics file ------------------------------------- */
 
@@ -1271,7 +1275,9 @@ static int load_world(const char* path, Player* p) {
         ok = cellv != NULL;
         for (uint32_t i = 0; ok && i + 1 < h.data_size; i += 2) {
             int run = data[i], b = data[i + 1];
-            if (run == 0 || b >= BLOCK_TYPES || done + run > cells) { ok = 0; break; }
+            if (run == 0 || b >= ITEM_BASE || done + run > cells) { ok = 0; break; }
+            /* A mod's block whose mod is gone becomes stone. */
+            if (b >= BLOCK_TYPES && !is_mod_block(b)) b = STONE;
             memset(cellv + done, b, run);
             done += run;
         }
@@ -1840,6 +1846,9 @@ static float food_value(int item) {
     default: return 0;
     }
 }
+
+/* Mods' scripts: Lua and WebAssembly (scripts.c). */
+#include "scripts.c"
 
 /* ---- Shelters ---------------------------------------------------------- */
 
@@ -3411,6 +3420,11 @@ int blocks_main(int argc, char** argv) {
     int peaceful = getenv("HYPOCKET_BLOCKS_PEACEFUL") != NULL;
     night_limit = creative || peaceful || (max_frames && getenv("HYPOCKET_BLOCKS_BENCH")) ? 0 : heavy ? MAX_NIGHT : 10;
     float health = saved_health, calm = 0; /* calm: seconds until health starts coming back */
+    script_player = &player;
+    script_health = &health;
+    scripts_load();
+    if (platform && platform->game_screens) script_say = screens_say;
+    scripts_start();
     /* Survival: hunger and cold (not in creative worlds or the benchmark). */
     int survival = !creative && !(max_frames && getenv("HYPOCKET_BLOCKS_BENCH"));
     int stations = 0, dig_x = -1, dig_y = -1, dig_z = -1, dig_blows = 0, dig_need = 1, aiming_pickup = 0;
@@ -3522,13 +3536,13 @@ int blocks_main(int argc, char** argv) {
         }
         float len = sqrtf(mx * mx + my * my);
         if (len > 1) { mx /= len; my /= len; }
-        float speed = 4.3f;
+        float speed = 4.3f * script_walk;
         float sy = sinf(player.yaw), cy = cosf(player.yaw);
         float vx = (mx * cy + my * sy) * speed, vz = (mx * sy - my * cy) * speed;
         int in_water = block_at((int)floorf(player.x), (int)floorf(player.y + 0.5f), (int)floorf(player.z)) == WATER;
         if ((jump_held || (max_frames && player.on_ground && grab_by < 0)) && (player.on_ground || in_water)) {
             if (player.on_ground && !in_water) play_sound(SND_JUMP, 0.25f, 0, 1.0f);
-            player.vy = in_water ? 3.5f : 8.2f;
+            player.vy = in_water ? 3.5f : 8.2f * sqrtf(script_jump);
             player.on_ground = 0;
         }
         /* Climbing out: in the water, or just above it, with a block ahead,
@@ -3640,6 +3654,7 @@ int blocks_main(int argc, char** argv) {
                         inventory[thing]--;
                         food = fminf(MAX_FOOD, food + food_value(thing));
                         io->eats++;
+                        scripts_thing("on_eat", thing, 1);
                         world_changed = 1;
                         play_sound(SND_STEP2, 0.5f, 0, 1.7f);
                         play_sound(SND_STEP, 0.4f, 0, 1.9f);
@@ -3734,6 +3749,7 @@ int blocks_main(int argc, char** argv) {
                                 0.9f + 0.2f * rand01(hit[0], hit[1], hit[2]));
                         set_block(hit[0], hit[1], hit[2], AIR);
                         flood_from(hit[0], hit[1], hit[2]);
+                        scripts_block("on_break", hit[0], hit[1], hit[2], broken);
                     }
                 } else if (block_at(before[0], before[1], before[2]) == AIR || block_at(before[0], before[1], before[2]) == WATER) {
                     int selected = io->selected;
@@ -3746,6 +3762,7 @@ int blocks_main(int argc, char** argv) {
                         } else {
                             if (!creative) inventory[block]--;
                             play_at(SND_PLACE, &player, before[0] + 0.5f, before[1] + 0.5f, before[2] + 0.5f, 1.0f);
+                            scripts_block("on_place", before[0], before[1], before[2], block);
                         }
                     }
                 }
@@ -3819,6 +3836,7 @@ int blocks_main(int argc, char** argv) {
             if (times < 1 || times > 64) times = 1;
             int here = stations_near(player.x, player.y + 0.5f, player.z); /* now, not at the last check */
             for (int t = 0; t < times && !creative; t++) made += craft(recipe, here);
+            if (made && recipe[4] < PALETTE_SIZE) scripts_thing("on_craft", palette[recipe[4]], made * recipe[5]);
             if (made) {
                 play_sound(SND_PLACE, 0.35f, 0, 1.4f);
                 world_changed = 1; /* the inventory is in the save */
@@ -3920,6 +3938,9 @@ int blocks_main(int argc, char** argv) {
         }
         io->grab_percent = grab_by >= 0 ? (int)(grab_escape * 100) : 0;
 
+        /* ---- Mods' scripts ---- */
+        if (!paused) scripts_tick(dt);
+
         /* ---- Hunger and cold ---- */
         float wear = 0; /* health lost per second to hunger and cold */
         if (survival && !paused) {
@@ -3933,10 +3954,11 @@ int blocks_main(int argc, char** argv) {
             else if (is_night) cold_rate = sheltered || sanctuary > 0.5f ? 0.08f : -(0.045f + 0.02f * mist_here);
             else cold_rate = mist_here > 0.5f ? -0.02f : 0.15f;
             if (cold_rate < 0 && inventory[COAT]) cold_rate *= 0.35f;
-            warmth = fminf(MAX_WARMTH, fmaxf(0, warmth + cold_rate * dt));
+            if (cold_rate < 0) cold_rate *= script_cold;
+            if (!script_no_cold) warmth = fminf(MAX_WARMTH, fmaxf(0, warmth + cold_rate * dt));
             /* A full belly lasts a little more than a day; cold makes it empty faster. */
             float hunger = MAX_FOOD / (day_seconds * 1.2f) * (warmth <= 0 ? 2.0f : warmth < 3 ? 1.5f : 1.0f);
-            food = fmaxf(0, food - hunger * dt);
+            if (!script_no_hunger) food = fmaxf(0, food - hunger * script_hunger * dt);
             if (food <= 0) wear += 1 / 8.0f;
             if (warmth <= 0) wear += 1 / 10.0f;
             health -= wear * dt;

@@ -27,7 +27,10 @@ linux() {
     dir="$out/pc-linux"
     mkdir -p "$dir"
     # shellcheck disable=SC2086
-    gcc $flags $(pkg-config --cflags sdl2) -o "$dir/blocks" $sources $(pkg-config --libs sdl2) -lm -pthread
+    gcc -O2 -w -c -o "$out/lua-linux.o" "$here/third_party/lua_one.c"
+    gcc -O2 -w -c -o "$out/wasm3-linux.o" "$here/third_party/wasm3_one.c"
+    gcc $flags $(pkg-config --cflags sdl2) -o "$dir/blocks" $sources "$out/lua-linux.o" "$out/wasm3-linux.o" \
+        $(pkg-config --libs sdl2) -lm -pthread
     copy_media "$dir"
     echo "Built $dir/blocks"
 }
@@ -42,7 +45,10 @@ windows() {
     fi
     mkdir -p "$dir"
     # shellcheck disable=SC2086
+    x86_64-w64-mingw32-gcc-posix -O2 -w -c -o "$out/lua-windows.o" "$here/third_party/lua_one.c"
+    x86_64-w64-mingw32-gcc-posix -O2 -w -c -o "$out/wasm3-windows.o" "$here/third_party/wasm3_one.c"
     x86_64-w64-mingw32-gcc-posix $flags -I"$sdl/include/SDL2" -o "$dir/blocks.exe" $sources \
+        "$out/lua-windows.o" "$out/wasm3-windows.o" \
         -L"$sdl/lib" -lmingw32 -lSDL2main -lSDL2 -lm -static-libgcc -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic -mwindows
     cp "$sdl/bin/SDL2.dll" "$dir/"
     cp "$out/SDL2-$sdl_version/LICENSE.txt" "$dir/SDL2-LICENSE.txt"

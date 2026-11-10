@@ -1,0 +1,5 @@
+name = WebAssembly example
+name.pt = Exemplo em WebAssembly
+version = 1
+description = A script compiled to WebAssembly (from C, in src/): every fifth stone gives a flint.
+description.pt = Um script compilado para WebAssembly (de C, em src/): a cada cinco pedras, um sílex.
