@@ -49,6 +49,9 @@ import io.github.hypocketapp.blocks.BlocksWorlds
 import io.github.hypocketapp.blocks.R
 import io.github.hypocketapp.blocks.BlocksConfig
 import io.github.hypocketapp.blocks.BlocksProfile
+import io.github.hypocketapp.blocks.BlocksMods
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import io.github.hypocketapp.blocks.DayMode
 
 /**
@@ -65,6 +68,8 @@ fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) 
     val prefs = remember { context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE) }
     var dayMode by remember { mutableStateOf(DayMode.fromName(prefs.getString(KEY_DAY_MODE, null))) }
     var emulated by remember { mutableStateOf(prefs.getBoolean(KEY_EMULATED, false)) }
+    var gameScreens by remember { mutableStateOf(prefs.getBoolean(KEY_SCREENS, false)) }
+    var modsOf by remember { mutableStateOf<BlocksWorld?>(null) }
     var worlds by remember { mutableStateOf(store.list()) }
     var creating by rememberSaveable { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<BlocksWorld?>(null) }
@@ -94,18 +99,19 @@ fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) 
         worlds.forEach { world ->
             WorldCard(
                 world,
-                onPlay = { BlocksActivity.start(context, config(), heavy, world, dayMode, emulated) },
+                onPlay = { BlocksActivity.start(context, config(), heavy, world, dayMode, emulated, gameScreens) },
                 onRename = { renaming = world },
                 onDuplicate = {
                     store.duplicate(world.id, copyName.format(world.name))
                     worlds = store.list()
                 },
                 onDelete = { deleting = world },
+                onMods = { modsOf = world },
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { creating = true }) { Text(stringResource(R.string.blocks_new_world)) }
-            OutlinedButton(onClick = { BlocksActivity.start(context, config(), heavy, null, dayMode, emulated) }) {
+            OutlinedButton(onClick = { BlocksActivity.start(context, config(), heavy, null, dayMode, emulated, gameScreens) }) {
                 Text(stringResource(R.string.blocks_open))
             }
         }
@@ -138,6 +144,20 @@ fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) 
                     },
                 )
             }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(stringResource(R.string.blocks_game_screens), modifier = Modifier.weight(1f))
+                Switch(
+                    checked = gameScreens,
+                    onCheckedChange = {
+                        gameScreens = it
+                        prefs.edit { putBoolean(KEY_SCREENS, it) }
+                    },
+                )
+            }
             Text(stringResource(R.string.blocks_day_mode), style = MaterialTheme.typography.labelLarge)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DayMode.entries.forEach { mode ->
@@ -159,13 +179,15 @@ fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) 
         }
     }
 
+    modsOf?.let { world -> ModsDialog(world, onDismiss = { modsOf = null }) }
+
     if (creating) {
         NewWorldDialog(
             onCreate = { name, chunks, creative, peaceful ->
                 creating = false
                 val world = store.create(name, chunks, creative, peaceful)
                 worlds = store.list()
-                BlocksActivity.start(context, config(), heavy, world, dayMode, emulated)
+                BlocksActivity.start(context, config(), heavy, world, dayMode, emulated, gameScreens)
             },
             onDismiss = { creating = false },
         )
@@ -199,7 +221,14 @@ fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) 
 }
 
 @Composable
-private fun WorldCard(world: BlocksWorld, onPlay: () -> Unit, onRename: () -> Unit, onDuplicate: () -> Unit, onDelete: () -> Unit) {
+private fun WorldCard(
+    world: BlocksWorld,
+    onPlay: () -> Unit,
+    onRename: () -> Unit,
+    onDuplicate: () -> Unit,
+    onDelete: () -> Unit,
+    onMods: () -> Unit,
+) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
             Row(
@@ -248,6 +277,7 @@ private fun WorldCard(world: BlocksWorld, onPlay: () -> Unit, onRename: () -> Un
                 TextButton(onClick = onRename) { Text(stringResource(R.string.blocks_rename)) }
                 TextButton(onClick = onDuplicate) { Text(stringResource(R.string.blocks_duplicate)) }
                 TextButton(onClick = onDelete) { Text(stringResource(R.string.blocks_delete)) }
+                TextButton(onClick = onMods) { Text(stringResource(R.string.blocks_mods)) }
             }
         }
     }
@@ -349,6 +379,7 @@ private fun NewWorldDialog(onCreate: (String, Int, Boolean, Boolean) -> Unit, on
 private const val PREFS = io.github.hypocketapp.blocks.BlocksSettings.PREFS
 private const val KEY_DAY_MODE = "day_mode"
 private const val KEY_EMULATED = "emulated"
+private const val KEY_SCREENS = "game_screens"
 
 private fun dayModeLabel(mode: DayMode): Int = when (mode) {
     DayMode.CYCLE -> R.string.blocks_day_cycle
@@ -401,4 +432,46 @@ private fun ProfileCard() {
             Text(stringResource(R.string.blocks_profile_hint), style = MaterialTheme.typography.bodySmall)
         }
     }
+}
+
+/** A world's mods: add one from a .zip file, or remove one. */
+@Composable
+private fun ModsDialog(world: BlocksWorld, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val mods = remember(world.id) { BlocksMods(world) }
+    var names by remember { mutableStateOf(mods.list()) }
+    var message by remember { mutableStateOf<String?>(null) }
+    val added = stringResource(R.string.blocks_mods_added)
+    val failed = stringResource(R.string.blocks_mods_failed)
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val fileName = uri.lastPathSegment?.substringAfterLast('/') ?: "mod"
+        message = runCatching {
+            val stream = context.contentResolver.openInputStream(uri) ?: error("no file")
+            stream.use { mods.add(it, fileName) }
+        }.fold({ added.format(it) }, { failed.format(it.message ?: it.javaClass.simpleName) })
+        names = mods.list()
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.blocks_mods_title, world.name)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (names.isEmpty()) Text(stringResource(R.string.blocks_mods_empty), style = MaterialTheme.typography.bodySmall)
+                names.forEach { name ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(name, modifier = Modifier.weight(1f))
+                        TextButton(onClick = {
+                            mods.remove(name)
+                            names = mods.list()
+                        }) { Text(stringResource(R.string.blocks_mods_remove)) }
+                    }
+                }
+                message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                Text(stringResource(R.string.blocks_mods_hint), style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = { TextButton(onClick = { pick.launch("*/*") }) { Text(stringResource(R.string.blocks_mods_add)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.blocks_close)) } },
+    )
 }

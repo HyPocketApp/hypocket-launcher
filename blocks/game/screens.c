@@ -528,7 +528,8 @@ static void draw_hud(SharedIo* io, float dt) {
     /* The first seconds: how to play here. F3: the statistics. */
     if (hint_time > 0) {
         hint_time -= dt;
-        ui_wrapped(6 * s, (show_stats ? 30 : 6) * s, ui_w / 3.0f, 1, 0xC0FFFFFF, T(STR_blocks_hint_mouse), 1);
+        ui_wrapped(6 * s, (show_stats ? 30 : 6) * s, ui_w / 3.0f, 1, 0xC0FFFFFF,
+                   T(blocks_platform->input && blocks_platform->input->touch ? STR_blocks_hint : STR_blocks_hint_mouse), 1);
     }
     if (show_stats) {
         snprintf(line, sizeof line, T(STR_blocks_stats), io->fps, io->frame_ms, io->triangles);
@@ -818,10 +819,158 @@ static void draw_note(SharedIo* io) {
     }
 }
 
+/* ---- Touch (the phone) ----
+ * Like the app's touch screen: the left half is a joystick where the thumb
+ * lands, the right half turns the camera and a tap there breaks or hits;
+ * round buttons jump and place; the menu and the bag are buttons too, and a
+ * hotbar place is chosen by touching it. On a screen (menu, inventory) a
+ * tap is a click and a drag scrolls. */
+
+enum { OWN_NONE, OWN_STICK, OWN_LOOK, OWN_JUMP, OWN_PLACE, OWN_MENU, OWN_BAG, OWN_SLOT, OWN_UI };
+static struct { int id, owner, slot; float sx, sy, lx, ly, travel; } fingers[8];
+static PlatformInput touch_in; /* what the screens' widgets see while touched */
+static int stick_was, jump_was_touched;
+static float stick_x, stick_y; /* the joystick's centre while held */
+
+typedef struct { float x, y, w, h; } Rect;
+static int in_rect(Rect r, float x, float y) { return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h; }
+
+/* Where the touch buttons are, for drawing and for fingers alike. */
+static Rect touch_jump(void) { float d = 36.0f * ui_s; return (Rect){ui_w - d - 10.0f * ui_s, ui_h - d - 30.0f * ui_s, d, d}; }
+static Rect touch_place(void) { Rect j = touch_jump(); return (Rect){j.x - j.w - 10.0f * ui_s, j.y + 6.0f * ui_s, j.w, j.h}; }
+static Rect touch_menu(void) {
+    float w = ui_text_width(T(STR_blocks_menu), ui_s) + 12.0f * ui_s;
+    return (Rect){ui_w - w - 6.0f * ui_s, 6.0f * ui_s, w, 14.0f * ui_s};
+}
+static Rect hotbar_slot(int i) {
+    float slot = 20.0f * ui_s, gap = 2.0f * ui_s, bar_w = HOTBAR * slot + (HOTBAR - 1) * gap;
+    return (Rect){(ui_w - bar_w) / 2 + i * (slot + gap), ui_h - slot - 6.0f * ui_s, slot, slot};
+}
+static Rect touch_bag(void) {
+    Rect last = hotbar_slot(HOTBAR - 1);
+    return (Rect){last.x + last.w + 4.0f * ui_s, last.y, 22.0f * ui_s, last.h};
+}
+
+static void touch_frame(SharedIo* io) {
+    const PlatformInput* raw = blocks_platform->input;
+    memset(&touch_in, 0, sizeof touch_in);
+    touch_in.pointer_x = touch_in.pointer_y = -1;
+    memcpy(touch_in.keys, raw->keys, sizeof raw->keys);
+    touch_in.key_count = raw->key_count;
+    float look = 0.0072f / ui_s * (raw->look_scale > 0 ? raw->look_scale : 1.0f), radius = 28.0f * ui_s;
+    int stick = 0, jump = 0;
+    for (int i = 0; i < raw->touch_count; i++) {
+        float x = raw->touches[i].x, y = raw->touches[i].y;
+        int f = -1;
+        for (int k = 0; k < 8; k++)
+            if (fingers[k].owner != OWN_NONE && fingers[k].id == raw->touches[i].id) f = k;
+        if (f < 0) {
+            if (!raw->touches[i].pressed) continue;
+            for (int k = 0; k < 8 && f < 0; k++)
+                if (fingers[k].owner == OWN_NONE) f = k;
+            if (f < 0) continue;
+            fingers[f].id = raw->touches[i].id;
+            fingers[f].sx = fingers[f].lx = x;
+            fingers[f].sy = fingers[f].ly = y;
+            fingers[f].travel = 0;
+            int owner = OWN_LOOK;
+            if (screen != SCR_NONE) owner = OWN_UI;
+            else if (in_rect(touch_menu(), x, y)) owner = OWN_MENU;
+            else if (in_rect(touch_bag(), x, y)) owner = OWN_BAG;
+            else if (in_rect(touch_jump(), x, y)) owner = OWN_JUMP;
+            else if (in_rect(touch_place(), x, y)) { owner = OWN_PLACE; io->places++; }
+            else {
+                for (int h = 0; h < HOTBAR; h++)
+                    if (in_rect(hotbar_slot(h), x, y)) owner = OWN_SLOT, fingers[f].slot = h;
+                if (owner == OWN_LOOK && x < ui_w / 2.0f) {
+                    owner = OWN_STICK;
+                    stick_x = x;
+                    stick_y = y;
+                }
+            }
+            fingers[f].owner = owner;
+        }
+        float dx = x - fingers[f].lx, dy = y - fingers[f].ly;
+        fingers[f].travel += fabsf(dx) + fabsf(dy);
+        fingers[f].lx = x;
+        fingers[f].ly = y;
+        int up = raw->touches[i].released, tap = up && fingers[f].travel < 12.0f * ui_s;
+        switch (fingers[f].owner) {
+        case OWN_STICK: {
+            float mx = (x - stick_x) / radius, my = (stick_y - y) / radius, len = sqrtf(mx * mx + my * my);
+            if (len > 1) mx /= len, my /= len;
+            io->move_x = up ? 0 : mx;
+            io->move_y = up ? 0 : my;
+            stick = !up;
+            break;
+        }
+        case OWN_LOOK:
+            io->look_yaw += dx * look;
+            io->look_pitch -= dy * look;
+            if (tap) io->breaks++;
+            break;
+        case OWN_JUMP: jump |= !up; break;
+        case OWN_MENU: if (tap) open_screen(SCR_MENU, io); break;
+        case OWN_BAG: if (tap) open_screen(SCR_INVENTORY, io); break;
+        case OWN_SLOT: if (tap) hot_sel = fingers[f].slot; break;
+        case OWN_UI:
+            touch_in.pointer_x = (int)x;
+            touch_in.pointer_y = (int)y;
+            if (tap) touch_in.clicks = 1;
+            /* Dragging scrolls a list, a step per 18 UI pixels. */
+            if (fabsf(fingers[f].sy - y) >= 18.0f * ui_s) {
+                touch_in.wheel = fingers[f].sy - y > 0 ? -1 : 1;
+                fingers[f].sy = y;
+            }
+            break;
+        }
+        if (up) fingers[f].owner = OWN_NONE;
+    }
+    /* Fingers the platform no longer has (the app was paused). */
+    for (int k = 0; k < 8; k++) {
+        int found = 0;
+        for (int i = 0; i < raw->touch_count; i++) found |= raw->touches[i].id == fingers[k].id;
+        if (!found) fingers[k].owner = OWN_NONE;
+    }
+    if (stick_was && !stick) io->move_x = io->move_y = 0;
+    stick_was = stick;
+    if (jump || jump_was_touched) io->jump = jump;
+    jump_was_touched = jump;
+}
+
+static void draw_touch_controls(void) {
+    int s = ui_s;
+    for (int k = 0; k < 8; k++)
+        if (fingers[k].owner == OWN_STICK) {
+            float r = 28.0f * s;
+            ui_frame_rect(stick_x - r, stick_y - r, 2 * r, 2 * r, s, 0x60FFFFFF);
+            float kx = fingers[k].lx - stick_x, ky = fingers[k].ly - stick_y, len = sqrtf(kx * kx + ky * ky);
+            if (len > r) kx *= r / len, ky *= r / len;
+            ui_rect(stick_x + kx - 9 * s, stick_y + ky - 9 * s, 18 * s, 18 * s, 0x80FFFFFF);
+        }
+    Rect j = touch_jump(), p = touch_place(), m = touch_menu(), b = touch_bag();
+    ui_rect(j.x, j.y, j.w, j.h, 0x40FFFFFF);
+    ui_label_centered(j.x + j.w / 2, j.y + j.h / 2 - 4 * s, 1, 0xFFFFFFFF, T(STR_blocks_jump));
+    ui_rect(p.x, p.y, p.w, p.h, 0x40FFFFFF);
+    ui_label_centered(p.x + p.w / 2, p.y + p.h / 2 - 4 * s, 1, 0xFFFFFFFF, T(STR_blocks_place));
+    ui_rect(m.x, m.y, m.w, m.h, 0x70000000);
+    ui_frame_rect(m.x, m.y, m.w, m.h, s, 0xA0FFFFFF);
+    ui_text(m.x + 6 * s, m.y + 3 * s, s, 0xFFFFFFFF, T(STR_blocks_menu));
+    ui_rect(b.x, b.y, b.w, b.h, 0x70000000);
+    ui_label_centered(b.x + b.w / 2, b.y + b.h / 2 - 4, 1, 0xFFFFFFFF, T(STR_blocks_inventory_short));
+}
+
 /* Each frame, after the world and before the frame is shown. */
 static void screens_frame(SharedIo* io, int width, int height, float dt) {
     const BlocksPlatform* platform = blocks_platform;
     in = platform->input;
+    if (in && in->touch) {
+        ui_w = width;
+        ui_h = height;
+        ui_s = height >= 1000 ? 3 : height >= 600 ? 2 : 1;
+        touch_frame(io);
+        in = &touch_in;
+    }
     ui_w = width;
     ui_h = height;
     ui_s = height >= 1000 ? 3 : height >= 600 ? 2 : 1;
@@ -858,6 +1007,7 @@ static void screens_frame(SharedIo* io, int width, int height, float dt) {
     platform->input->look_scale = sensitivity_percent / 100.0f;
 
     draw_hud(io, dt);
+    if (platform->input && platform->input->touch && screen == SCR_NONE) draw_touch_controls();
     switch (screen) {
     case SCR_INVENTORY: draw_inventory(io); break;
     case SCR_MENU: draw_menu(io); break;
@@ -868,7 +1018,7 @@ static void screens_frame(SharedIo* io, int width, int height, float dt) {
     if (focus_count > 0) focus = (focus % focus_count + focus_count) % focus_count;
 
     int capture = screen == SCR_NONE;
-    if (capture != captured_now && platform->capture_pointer) {
+    if (capture != captured_now && platform->capture_pointer && !(platform->input && platform->input->touch)) {
         platform->capture_pointer(capture);
         captured_now = capture;
     }

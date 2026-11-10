@@ -32,6 +32,35 @@ static void frame(void* io, int* w, int* h) {
         keys = strchr(keys, ',');
         if (keys) keys++;
     }
+    /* HEADLESS_TOUCH="<frame>:<down|move|up>:<id>:<x>:<y>,...": fingers, in pixels. */
+    const char* touches = getenv("HEADLESS_TOUCH");
+    int n = 0;
+    for (int i = 0; i < input.touch_count; i++)
+        if (!input.touches[i].released) { input.touches[n] = input.touches[i]; input.touches[n++].pressed = 0; }
+    input.touch_count = n;
+    while (touches && *touches) {
+        int at, id;
+        char kind[8];
+        float x, y;
+        if (sscanf(touches, "%d:%7[a-z]:%d:%f:%f", &at, kind, &id, &x, &y) == 5 && at == frame_number) {
+            int t = -1;
+            for (int i = 0; i < input.touch_count; i++) if (input.touches[i].id == id) t = i;
+            if (!strcmp(kind, "down") && t < 0 && input.touch_count < 8) {
+                t = input.touch_count++;
+                input.touches[t].id = id;
+                input.touches[t].pressed = 1;
+                input.touches[t].released = 0;
+            }
+            if (t >= 0) {
+                input.touches[t].x = x;
+                input.touches[t].y = y;
+                if (!strcmp(kind, "up")) input.touches[t].released = 1;
+            }
+        }
+        touches = strchr(touches, ',');
+        if (touches) touches++;
+    }
+    input.touch = getenv("HEADLESS_TOUCH") != NULL;
     const char* pointer = getenv("HEADLESS_POINTER");
     input.pointer_x = input.pointer_y = -1;
     if (pointer) sscanf(pointer, "%d,%d", &input.pointer_x, &input.pointer_y);

@@ -64,6 +64,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import io.github.hypocketapp.blocks.BlocksBenchmark
 import io.github.hypocketapp.blocks.BlocksConfig
+import io.github.hypocketapp.blocks.BlocksMods
 import io.github.hypocketapp.blocks.BlocksOptions
 import io.github.hypocketapp.blocks.BlocksProfile
 import io.github.hypocketapp.blocks.BlocksRecipes
@@ -111,6 +112,9 @@ class BlocksActivity : ComponentActivity() {
 
     /** The game runs natively in this process, which then must end with it (see NativeGame). */
     private var native = false
+
+    /** The game draws its screens itself and gets the touches (see NativeGame.touch). */
+    private var gameScreens = false
 
     /** The pointer was captured when a screen opened over the game: capture it again on closing. */
     private var recapture = false
@@ -166,6 +170,10 @@ class BlocksActivity : ComponentActivity() {
         // Back: closes the inventory, steps back in the menu, or opens it.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                if (gameScreens) {
+                    NativeGame.key(NativeGame.KEY_MENU) // the game's own menu
+                    return
+                }
                 when {
                     inventory.open.value -> inventory.close()
                     pause.open.value -> pause.back()
@@ -183,6 +191,8 @@ class BlocksActivity : ComponentActivity() {
         val dayMode = DayMode.fromName(intent.getStringExtra(EXTRA_DAY_MODE))
         // Native unless the tester asked for the emulated program (it tests the engine).
         native = NativeGame.isAvailable && !intent.getBooleanExtra(EXTRA_EMULATED, false)
+        // The game draws its own screens (touch controls, inventory, menu), as on PC: only natively.
+        gameScreens = native && intent.getBooleanExtra(EXTRA_SCREENS, false)
         setContent {
             BlocksTheme {
                 BlocksScreen(
@@ -211,9 +221,10 @@ class BlocksActivity : ComponentActivity() {
                         extraEnv = BlocksProfile.environment(
                             intent.getStringExtra(EXTRA_NAME).orEmpty(),
                             intent.getStringExtra(EXTRA_VOICE).orEmpty(),
-                        ),
+                        ) + (if (gameScreens) mapOf("HYPOCKET_BLOCKS_SCREENS" to "1") else emptyMap()),
                     ),
                     onClose = { finish() },
+                    gameScreens = gameScreens,
                 )
             }
         }
@@ -299,6 +310,7 @@ class BlocksActivity : ComponentActivity() {
         private const val EXTRA_EMULATED = "emulated"
         private const val EXTRA_NAME = "player_name"
         private const val EXTRA_VOICE = "player_voice"
+        private const val EXTRA_SCREENS = "game_screens"
 
         /** Creatures outside heavy mode: some life without the heavy load. */
         private const val NORMAL_CREATURES = 40
@@ -314,11 +326,15 @@ class BlocksActivity : ComponentActivity() {
             world: BlocksWorld?,
             dayMode: DayMode = DayMode.CYCLE,
             emulated: Boolean = false,
+            gameScreens: Boolean = false,
         ) {
+            // A world with mods needs the game's own screens to show its things and recipes.
+            val screens = gameScreens || (world != null && BlocksMods(world).list().isNotEmpty())
             val profile = BlocksProfile(context)
             val intent = Intent(context, BlocksActivity::class.java).putExtra(EXTRA_HEAVY, heavy).putExtra(EXTRA_WORLD, world?.id)
                 .putExtra(EXTRA_DAY_MODE, dayMode.name).putExtra(EXTRA_EMULATED, emulated)
                 .putExtra(EXTRA_NAME, profile.name).putExtra(EXTRA_VOICE, profile.voice.code)
+                .putExtra(EXTRA_SCREENS, screens)
             context.startActivity(config.putInto(intent))
         }
 
@@ -357,6 +373,7 @@ private fun BlocksScreen(
     versionLine: String,
     options: BlocksOptions,
     onClose: () -> Unit,
+    gameScreens: Boolean = false,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val directDisplay = remember { CompletableDeferred<DirectDisplay?>() }
@@ -410,13 +427,13 @@ private fun BlocksScreen(
     // A note picked up in the world opens at once.
     var notesSeen by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(stats.ready, stats.notesOpened) {
-        if (!stats.ready) return@LaunchedEffect
+        if (!stats.ready || gameScreens) return@LaunchedEffect
         val seen = notesSeen
         if (seen != null && stats.notesOpened > seen) pause.showNote(stats.noteId)
         notesSeen = stats.notesOpened
     }
     // Survival: blocks just collected get a place in the hotbar.
-    LaunchedEffect(stats.counts) { if (stats.ready) selection.fill(stats.counts) }
+    LaunchedEffect(stats.counts) { if (stats.ready && !gameScreens) selection.fill(stats.counts) }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
@@ -425,8 +442,12 @@ private fun BlocksScreen(
                     directDisplay.complete(null)
                     val (screenW, screenH) = landscapeScreen(it)
                     // The phone's scaler stretches the smaller frame to the screen for free.
-                    nativeSurface(it, (screenW * renderScalePercent / 100) and 1.inv(), (screenH * renderScalePercent / 100) and 1.inv())
-                        .also { view -> mouse.attach(view) }
+                    nativeSurface(
+                        it,
+                        (screenW * renderScalePercent / 100) and 1.inv(),
+                        (screenH * renderScalePercent / 100) and 1.inv(),
+                        touches = gameScreens,
+                    ).also { view -> mouse.attach(view) }
                 } else {
                     FrameSurfaceView(it, session.frameFile, direct = true) { display -> directDisplay.complete(display) }
                         .also { view -> mouse.attach(view) }
@@ -435,7 +456,9 @@ private fun BlocksScreen(
             modifier = Modifier.fillMaxSize(),
         )
         val finished = report
-        if (finished == null && inventory.open.value) {
+        if (gameScreens) {
+            // The game draws everything; only the report is the app's.
+        } else if (finished == null && inventory.open.value) {
             InventoryPanel(
                 inventory, selection, stats.counts, options.creative, stats.survivalFlags, onCraft = { session.craft(it) },
             )
@@ -1072,8 +1095,18 @@ private fun BlocksReport.toShareText(versionLine: String, inputLines: List<Strin
 }
 
 /** The native game's window: its surface goes to the game as it comes and goes. */
-private fun nativeSurface(context: Context, width: Int, height: Int): android.view.SurfaceView =
-    android.view.SurfaceView(context).apply {
+private fun nativeSurface(context: Context, width: Int, height: Int, touches: Boolean): android.view.SurfaceView =
+    object : android.view.SurfaceView(context) {
+        /** With the game's own screens, every finger goes to the game. */
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            if (!touches) return super.onTouchEvent(event)
+            forwardTouches(this, event)
+            if (event.actionMasked == MotionEvent.ACTION_UP) performClick()
+            return true
+        }
+
+        override fun performClick(): Boolean = super.performClick()
+    }.apply {
         holder.setFixedSize(width, height)
         holder.addCallback(object : android.view.SurfaceHolder.Callback {
             override fun surfaceCreated(holder: android.view.SurfaceHolder) = NativeGame.setSurface(holder.surface)
@@ -1084,3 +1117,18 @@ private fun nativeSurface(context: Context, width: Int, height: Int): android.vi
             override fun surfaceDestroyed(holder: android.view.SurfaceHolder) = NativeGame.setSurface(null)
         })
     }
+
+/** Hands a touch screen's fingers to the native game, from 0 to 1 across the view. */
+private fun forwardTouches(view: android.view.View, event: MotionEvent): Boolean {
+    val w = view.width.coerceAtLeast(1).toFloat()
+    val h = view.height.coerceAtLeast(1).toFloat()
+    fun send(action: Int, index: Int) =
+        NativeGame.touch(action, event.getPointerId(index), event.getX(index) / w, event.getY(index) / h)
+    when (event.actionMasked) {
+        MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> send(0, event.actionIndex)
+        MotionEvent.ACTION_MOVE -> for (i in 0 until event.pointerCount) send(1, i)
+        MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> send(2, event.actionIndex)
+        MotionEvent.ACTION_CANCEL -> for (i in 0 until event.pointerCount) send(2, i)
+    }
+    return true
+}

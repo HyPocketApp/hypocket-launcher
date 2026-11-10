@@ -74,6 +74,50 @@ static void take_window(void) {
     }
 }
 
+/* ---- Touches and keys, for the game's own screens ---- */
+
+#define QUEUE 64
+static struct { int kind, id; float x, y; } queue[QUEUE]; /* kind: 0 down, 1 move, 2 up, 3 key */
+static int queued;
+static PlatformInput input;
+static int frame_w, frame_h;
+
+static void take_input(void) {
+    /* Fingers that left last frame are gone; the rest are no longer new. */
+    int n = 0;
+    for (int i = 0; i < input.touch_count; i++)
+        if (!input.touches[i].released) {
+            input.touches[n] = input.touches[i];
+            input.touches[n].pressed = 0;
+            n++;
+        }
+    input.touch_count = n;
+    input.key_count = 0;
+    pthread_mutex_lock(&lock);
+    for (int q = 0; q < queued; q++) {
+        int kind = queue[q].kind, id = queue[q].id;
+        if (kind == 3) {
+            if (input.key_count < 16) input.keys[input.key_count++] = id;
+            continue;
+        }
+        int t = -1;
+        for (int i = 0; i < input.touch_count; i++)
+            if (input.touches[i].id == id && !input.touches[i].released) t = i;
+        if (kind == 0 && t < 0 && input.touch_count < 8) {
+            t = input.touch_count++;
+            input.touches[t].id = id;
+            input.touches[t].pressed = 1;
+            input.touches[t].released = 0;
+        }
+        if (t < 0) continue;
+        input.touches[t].x = queue[q].x * frame_w;
+        input.touches[t].y = queue[q].y * frame_h;
+        if (kind == 2) input.touches[t].released = 1;
+    }
+    queued = 0;
+    pthread_mutex_unlock(&lock);
+}
+
 static void frame(void* io, int* width, int* height) {
     (void)io;
     pthread_mutex_lock(&lock);
@@ -92,7 +136,10 @@ static void frame(void* io, int* width, int* height) {
     if (w > 0 && h > 0) {
         *width = w;
         *height = h;
+        frame_w = w;
+        frame_h = h;
     }
+    if (blocks_platform && blocks_platform->game_screens) take_input();
 }
 
 /* ---- Sound ---- */
@@ -145,6 +192,37 @@ JNIEXPORT void JNICALL Java_io_github_hypocketapp_blocks_NativeGame_setSurface(J
     next_window = w;
     window_changed = 1;
     pthread_cond_broadcast(&changed);
+    pthread_mutex_unlock(&lock);
+}
+
+/* A finger: action 0 down, 1 move, 2 up or cancelled; x and y from 0 to 1 across the view. */
+JNIEXPORT void JNICALL Java_io_github_hypocketapp_blocks_NativeGame_touch(JNIEnv* env, jclass cls, jint action, jint id,
+                                                                           jfloat x, jfloat y) {
+    (void)env;
+    (void)cls;
+    pthread_mutex_lock(&lock);
+    /* Moves of the same finger in a row: only the last one counts. */
+    if (action == 1 && queued > 0 && queue[queued - 1].kind == 1 && queue[queued - 1].id == id) queued--;
+    if (queued < QUEUE) {
+        queue[queued].kind = action;
+        queue[queued].id = id;
+        queue[queued].x = x;
+        queue[queued].y = y;
+        queued++;
+    }
+    pthread_mutex_unlock(&lock);
+}
+
+/* A key for the game's screens (BLOCKS_KEY_* in platform.h), such as Back for the menu. */
+JNIEXPORT void JNICALL Java_io_github_hypocketapp_blocks_NativeGame_key(JNIEnv* env, jclass cls, jint key) {
+    (void)env;
+    (void)cls;
+    pthread_mutex_lock(&lock);
+    if (queued < QUEUE) {
+        queue[queued].kind = 3;
+        queue[queued].id = key;
+        queued++;
+    }
     pthread_mutex_unlock(&lock);
 }
 
@@ -234,6 +312,14 @@ JNIEXPORT jint JNICALL Java_io_github_hypocketapp_blocks_NativeGame_run(JNIEnv* 
     platform.present = present;
     platform.frame = frame;
     platform.audio_ring = audio_ring;
+    /* The game's own screens, with touch controls, instead of the app's. */
+    const char* screens = getenv("HYPOCKET_BLOCKS_SCREENS");
+    if (screens && screens[0] == '1') {
+        platform.game_screens = 1;
+        input.touch = 1;
+        input.pointer_x = input.pointer_y = -1;
+        platform.input = &input;
+    }
     blocks_platform = &platform;
     int code = blocks_main(arg_count + 1, argv);
 

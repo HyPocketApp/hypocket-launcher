@@ -30,6 +30,15 @@
     <string name="blocks_menu">Menu</string>
     <string name="blocks_heavy">Modo pesado: 300 criaturas andando e visão mais longa (e mundo quatro vezes maior no jogo rápido)</string>
     <string name="blocks_emulated">Rodar emulado: o jogo como programa de PC pelo motor do launcher (mais lento; testa o motor)</string>
+    <string name="blocks_mods">Mods</string>
+    <string name="blocks_mods_title">Mods de “%1$s”</string>
+    <string name="blocks_mods_empty">Nenhum mod ainda. Um mod é um arquivo .zip com coisas novas, receitas e scripts.</string>
+    <string name="blocks_mods_add">Adicionar .zip</string>
+    <string name="blocks_mods_remove">Remover</string>
+    <string name="blocks_mods_added">Adicionado: %1$s</string>
+    <string name="blocks_mods_failed">Não foi possível adicionar o mod: %1$s</string>
+    <string name="blocks_mods_hint">Os mods mudam só este mundo. Um mundo com mods usa as telas do próprio jogo.</string>
+    <string name="blocks_game_screens">Usar as telas do próprio jogo, como no PC (mundos com mods sempre usam)</string>
     <string name="blocks_profile">Perfil</string>
     <string name="blocks_profile_name">Seu nome</string>
     <string name="blocks_voice">Voz</string>

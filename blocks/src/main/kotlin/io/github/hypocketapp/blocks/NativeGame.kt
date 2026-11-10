@@ -24,6 +24,15 @@ object NativeGame {
     /** The window to draw into, or null while there is none (the app is in the background). */
     @JvmStatic external fun setSurface(surface: Surface?)
 
+    /** A finger on the game's own screens: [action] 0 down, 1 move, 2 up; [x] and [y] from 0 to 1 across the view. */
+    @JvmStatic external fun touch(action: Int, id: Int, x: Float, y: Float)
+
+    /** A key for the game's own screens (BLOCKS_KEY_* in blocks/game/platform.h). */
+    @JvmStatic external fun key(key: Int)
+
+    /** BLOCKS_KEY_MENU: open the menu, or go back. */
+    const val KEY_MENU = 1
+
     /** Asks the game to stop waiting for a window; it quits when it sees the shared file's request. */
     @JvmStatic external fun stop()
 }

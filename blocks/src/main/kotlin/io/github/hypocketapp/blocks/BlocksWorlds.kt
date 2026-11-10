@@ -129,6 +129,8 @@ class BlocksWorlds(private val directory: File) {
         properties.setProperty(KEY_CREATED, System.currentTimeMillis().toString())
         if (source.saveFile.exists()) source.saveFile.copyTo(File(directory, copy + SAVE))
         if (source.thumbnailFile.exists()) source.thumbnailFile.copyTo(File(directory, "$copy$SAVE.thumb"))
+        val mods = File(source.saveFile.path + BlocksMods.SUFFIX)
+        if (mods.isDirectory) mods.copyRecursively(File(directory, copy + SAVE + BlocksMods.SUFFIX))
         store(copy, properties)
         return get(copy)
     }
@@ -140,6 +142,8 @@ class BlocksWorlds(private val directory: File) {
         File(directory, "$id$SAVE.unreadable").delete()
         File(directory, "$id$SAVE.thumb").delete()
         File(directory, "$id$SAVE.thumb.tmp").delete()
+        File(directory, "$id$SAVE.hotbar").delete()
+        File(directory, id + SAVE + BlocksMods.SUFFIX).deleteRecursively()
         File(directory, id + SAVE).delete()
         File(directory, id + META).delete()
     }

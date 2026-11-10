@@ -70,6 +70,15 @@ typedef struct {
     int keys[16];             /* BLOCKS_KEY_* pressed since the last frame */
     int key_count;
     float look_scale;         /* written by the game: the camera speed setting, 1 by default */
+    /* A touch screen (the phone): the game draws touch controls and reads
+     * the fingers here instead of the pointer. */
+    int touch;
+    struct {
+        int id;              /* stays the same while the finger is down */
+        float x, y;          /* pixels from the top left of the frame */
+        int pressed, released; /* it touched or left since the last frame */
+    } touches[8];
+    int touch_count;          /* fingers down, or released this frame */
 } PlatformInput;
 
 typedef struct {
