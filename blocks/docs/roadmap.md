@@ -26,9 +26,15 @@ A história e as decisões estão em [story.md](story.md); os roteiros de voz em
 | 1 | Sobrevivência viva e dinâmica | HPK-22 | Primeira parte no jogo |
 | 2 | Sobreviventes nos santuários | HPK-23 | A fazer |
 | 3 | O cientista, o laboratório portátil e os finais | HPK-24 | A fazer |
-| 4 | Vozes | HPK-25 | Roteiros prontos, falta gravar |
+| 4 | Vozes | HPK-25 | Jogo já toca arquivos; sons sendo gerados |
 | 5 | Acabamento | HPK-26 | A fazer |
 | 6 | Desempenho no M12 | HPK-27 | Contínuo |
+| 7 | Base nativa (celular e PC) e mods | ainda sem tarefa | A fazer |
+
+**Ordem de agora:** terminar o áudio do épico 4 (o jogo tocar os sons
+gerados), depois o **7**, depois o 2, o 3 e o resto. O 7 vem antes dos
+sobreviventes porque, quanto mais o jogo cresce, mais caro fica trocar a
+base. O 1 continua aos poucos, com o retorno dos testes.
 
 ### 1. Sobrevivência viva e dinâmica
 
@@ -87,6 +93,42 @@ finais vão para [../assets/](../assets/README.md), com a origem registrada.
 
 Animações e modelos (hoje tudo é caixa: Nocs, criaturas, relatos, fendas,
 portal), sons de ambiente, um tutorial leve na primeira noite, conquistas.
+
+### 7. Base nativa (celular e PC) e mods
+
+O jogo deixa de depender do emulador: o mesmo código em C vira um app
+Android nativo e um programa de PC (Windows e Linux). A versão emulada
+(x86-64 rodando pelo Box64) continua existindo, para não quebrar os testes
+do motor do launcher.
+
+- [ ] **Gráficos para os dois:** o jogo funcionando com OpenGL ES 3 (celular)
+  e OpenGL de PC, com as mesmas telas.
+- [ ] **App Android nativo,** sem Box64 nem VirGL: o ganho maior de
+  desempenho no M12.
+- [ ] **Versão de PC** com SDL2 (janela, teclado, mouse, controle e som
+  iguais em todo lugar).
+- [ ] **Telas dentro do jogo:** inventário, menu, barra de itens, fome e
+  frio desenhados pelo próprio jogo, para ficarem iguais no celular e no PC
+  (hoje são do app Android). É a maior parte do trabalho.
+- [ ] **Mods, pacotes de dados:** blocos, itens, receitas, sons, texturas e
+  modelos do Blockbench descritos em arquivos.
+- [ ] **Mods, scripts em Lua:** lógica nova (criaturas, eventos, mecânicas,
+  telas, geração do mundo).
+
+Como os mods funcionam (decidido com o autor):
+
+- **Sem limite dentro do jogo.** O próprio jogo oficial vira o "mod base",
+  feito com os mesmos pacotes e Lua que qualquer um usa. Então um mod pode
+  trocar, tirar ou refazer qualquer coisa, até virar outro jogo. O C fica só
+  com o que precisa ser rápido (desenhar, montar os blocos, física), sempre
+  exposto para o Lua.
+- **O limite é só fora do jogo:** um mod não lê nem apaga arquivos fora da
+  pasta dele e do mundo, não acessa a internet sozinho e não roda programas.
+  É isso que protege o celular de quem entra num mundo com mods.
+- **Os mods moram no mundo.** O mundo guarda os mods que usa; quem entra num
+  mundo (ou servidor) baixa os mods sozinho e joga, sem instalar nada antes.
+  Isso só é seguro e portável porque os mods são dados e Lua, e não código
+  compilado: o mesmo mod roda no PC e no celular.
 
 ### 6. Desempenho no M12
 
