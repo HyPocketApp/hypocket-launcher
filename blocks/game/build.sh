@@ -8,3 +8,12 @@ here=$(cd "$(dirname "$0")" && pwd)
 out="$here/../src/main/assets/guest-tests/blocks-x86_64"
 gcc -O2 -s -Wall -Wextra -Wno-unused-parameter -o "$out" "$here/blocks.c" -lEGL -lm -pthread
 echo "Built $out"
+
+# The same game through the native platform interface, without a window,
+# for tests on this machine (tools/headless.c). Not committed.
+if [ "${1:-}" = "headless" ]; then
+    mkdir -p "$here/out"
+    gcc -O2 -Wall -Wextra -Wno-unused-parameter -DBLOCKS_LIBRARY -o "$here/out/blocks-headless" \
+        "$here/tools/headless.c" "$here/blocks.c" -lEGL -lm -pthread
+    echo "Built $here/out/blocks-headless"
+fi

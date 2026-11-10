@@ -63,9 +63,12 @@
  * the other side. HYPOCKET_BLOCKS_PEACEFUL=1 leaves the creatures out, and
  * HYPOCKET_BLOCKS_TEST_ROOM=1 (2: with a doorway) builds a closed room with a
  * lamp around the start, for testing shelters. */
+#ifndef BLOCKS_LIBRARY
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
-#include <GL/glcorearb.h>
+#endif
+#include "third_party/GL/glcorearb.h" /* Khronos, MIT: types and names for OpenGL and OpenGL ES 3 alike */
+#include "platform.h"
 #include <fcntl.h>
 #include <pthread.h>
 #include <math.h>
@@ -73,7 +76,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <sys/mman.h>
+#endif
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -242,10 +247,15 @@ typedef struct {
     X(PFNGLCHECKFRAMEBUFFERSTATUSPROC, glCheckFramebufferStatus) \
     X(PFNGLFENCESYNCPROC, glFenceSync) \
     X(PFNGLCLIENTWAITSYNCPROC, glClientWaitSync) \
-    X(PFNGLDELETESYNCPROC, glDeleteSync)
+    X(PFNGLDELETESYNCPROC, glDeleteSync) \
+    X(PFNGLDELETEFRAMEBUFFERSPROC, glDeleteFramebuffers) \
+    X(PFNGLDELETERENDERBUFFERSPROC, glDeleteRenderbuffers)
 
 #define DECLARE(type, name) static type p_##name;
 GL_FUNCTIONS(DECLARE)
+
+const BlocksPlatform* blocks_platform;
+static int gl_es; /* OpenGL ES 3: the shaders get its header (see compile) */
 
 /* ---- Small helpers ---------------------------------------------------- */
 
@@ -875,14 +885,24 @@ static const char* sky_fs =
     "        float a = smoothstep(1.0, 0.45, r) * 0.55 + smoothstep(0.5, 0.42, r) * 0.45;\n"
     "        color = vec4(sun_color.rgb, sun_color.a * a);\n"
     "    } else {\n" /* a pale disc with two darker patches */
-    "        float patch = smoothstep(0.32, 0.22, length(q - vec2(0.25, 0.2))) + smoothstep(0.22, 0.14, length(q + vec2(0.3, 0.1)));\n"
-    "        color = vec4(moon_color.rgb * (1.0 - 0.18 * patch), moon_color.a * smoothstep(0.62, 0.56, r));\n"
+    "        float spots = smoothstep(0.32, 0.22, length(q - vec2(0.25, 0.2))) + smoothstep(0.22, 0.14, length(q + vec2(0.3, 0.1)));\n"
+    "        color = vec4(moon_color.rgb * (1.0 - 0.18 * spots), moon_color.a * smoothstep(0.62, 0.56, r));\n"
     "    }\n"
     "}\n";
 
+/* The shaders are written for OpenGL 3.3 core; OpenGL ES 3.0 takes the same
+ * code with its own first line and default precisions. */
 static GLuint compile(GLenum type, const char* source) {
     GLuint shader = p_glCreateShader(type);
-    p_glShaderSource(shader, 1, &source, NULL);
+    static const char desktop[] = "#version 330 core\n";
+    static const char es[] = "#version 300 es\nprecision highp float;\nprecision highp int;\n"
+                             "precision mediump sampler2DArray;\n";
+    if (gl_es && strncmp(source, desktop, sizeof desktop - 1) == 0) {
+        const char* parts[2] = {es, source + sizeof desktop - 1};
+        p_glShaderSource(shader, 2, parts, NULL);
+    } else {
+        p_glShaderSource(shader, 1, &source, NULL);
+    }
     p_glCompileShader(shader);
     GLint ok = 0;
     p_glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
@@ -2699,15 +2719,9 @@ static void view_projection(float* out, const Player* p, float aspect, float far
 
 /* ---- Audio ------------------------------------------------------------ */
 
-/* Ring of 16-bit stereo samples shared with the app; must match
+/* The ring of samples (AudioRing) is in platform.h. In the emulated build
+ * it is a file shared with the app and must match
  * engine/src/main/cpp/audio_output.cpp. */
-#define AUDIO_MAGIC 0x41425048u /* "HPBA" */
-typedef struct {
-    uint32_t magic, version, rate, channels, capacity, reserved;
-    uint64_t write_pos, read_pos;
-    uint32_t underruns;
-    uint32_t finished; /* set by the game when it stops writing */
-} AudioRing;
 
 enum { SND_STEP, SND_STEP2, SND_BREAK, SND_PLACE, SND_JUMP, SND_SPLASH, SND_CHIRP, SOUNDS };
 /* Their file names, under sfx/ (see Sound files). */
@@ -2991,7 +3005,36 @@ static void stop_speech(void) {
     pthread_mutex_unlock(&audio.lock);
 }
 
+/* Starts the sound on a ring that is ready to be read. */
+static void start_audio_ring(AudioRing* ring) {
+    audio.rate = (int)ring->rate;
+    static const float lengths[SOUNDS] = {0.12f, 0.12f, 0.45f, 0.16f, 0.25f, 0.6f, 0.33f};
+    media_dir = getenv("HYPOCKET_BLOCKS_MEDIA");
+    for (int i = 0; i < SOUNDS; i++) {
+        char name[64];
+        snprintf(name, sizeof name, "sfx/%s.ogg", sound_names[i]);
+        if (!load_sound(name, &audio.sounds[i])) audio.sounds[i] = make_sound(lengths[i], i);
+    }
+    for (int i = 0; i < LOOPS; i++) load_sound(loop_files[i], &audio.loops[i].sound);
+    if (!audio.loops[LOOP_CAMPFIRE].sound.data) audio.loops[LOOP_CAMPFIRE].sound = make_sound(4.0f, SOUNDS);
+    audio.loops[LOOP_WIND].target = 0.5f;
+    audio.samples = (int16_t*)((char*)ring + 64);
+    audio.ring = ring;
+    audio.running = 1;
+    if (pthread_create(&audio.thread, NULL, audio_thread, NULL) != 0) {
+        audio.ring = NULL;
+        return;
+    }
+    printf("blocks: audio %d Hz, %u frames of ring\n", audio.rate, ring->capacity);
+}
+
 static void start_audio(void) {
+    AudioRing* own = blocks_platform && blocks_platform->audio_ring ? blocks_platform->audio_ring() : NULL;
+    if (own) {
+        start_audio_ring(own);
+        return;
+    }
+#ifndef _WIN32
     const char* path = getenv("HYPOCKET_AUDIO_PATH");
     if (!path) return;
     int fd = open(path, O_RDWR);
@@ -3008,25 +3051,8 @@ static void start_audio(void) {
         printf("blocks: audio ring not usable\n");
         return;
     }
-    audio.rate = (int)ring->rate;
-    static const float lengths[SOUNDS] = {0.12f, 0.12f, 0.45f, 0.16f, 0.25f, 0.6f, 0.33f};
-    media_dir = getenv("HYPOCKET_BLOCKS_MEDIA");
-    for (int i = 0; i < SOUNDS; i++) {
-        char name[64];
-        snprintf(name, sizeof name, "sfx/%s.ogg", sound_names[i]);
-        if (!load_sound(name, &audio.sounds[i])) audio.sounds[i] = make_sound(lengths[i], i);
-    }
-    for (int i = 0; i < LOOPS; i++) load_sound(loop_files[i], &audio.loops[i].sound);
-    if (!audio.loops[LOOP_CAMPFIRE].sound.data) audio.loops[LOOP_CAMPFIRE].sound = make_sound(4.0f, SOUNDS);
-    audio.loops[LOOP_WIND].target = 0.5f;
-    audio.samples = (int16_t*)((char*)map + 64);
-    audio.ring = ring;
-    audio.running = 1;
-    if (pthread_create(&audio.thread, NULL, audio_thread, NULL) != 0) {
-        audio.ring = NULL;
-        return;
-    }
-    printf("blocks: audio %d Hz, %u frames of ring\n", audio.rate, ring->capacity);
+    start_audio_ring(ring);
+#endif
 }
 
 static void stop_audio(void) {
@@ -3048,6 +3074,18 @@ static void play_at(int id, const Player* p, float x, float y, float z, float pi
 
 /* ---- Main ------------------------------------------------------------- */
 
+/* The renderbuffers of each framebuffer made here, to free them with it. */
+static struct { GLuint fbo, rb[2]; } targets[4];
+
+static void delete_target(GLuint fbo) {
+    for (int i = 0; i < 4; i++)
+        if (targets[i].fbo == fbo && fbo) {
+            p_glDeleteRenderbuffers(2, targets[i].rb);
+            p_glDeleteFramebuffers(1, &targets[i].fbo);
+            targets[i].fbo = 0;
+        }
+}
+
 static int create_target(int width, int height, GLuint* fbo) {
     GLuint rb[2];
     p_glGenFramebuffers(1, fbo);
@@ -3059,6 +3097,13 @@ static int create_target(int width, int height, GLuint* fbo) {
     p_glBindRenderbuffer(GL_RENDERBUFFER, rb[1]);
     p_glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
     p_glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rb[1]);
+    for (int i = 0; i < 4; i++)
+        if (!targets[i].fbo) {
+            targets[i].fbo = *fbo;
+            targets[i].rb[0] = rb[0];
+            targets[i].rb[1] = rb[1];
+            break;
+        }
     return p_glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
 }
 
@@ -3095,6 +3140,10 @@ static void save_thumbnail(const char* save_path, GLuint source, int w, int h) {
 static SharedIo* open_io(void) {
     static SharedIo local = {.volume_percent = 100};
     const char* path = getenv("HYPOCKET_INPUT_PATH");
+#ifdef _WIN32
+    (void)path;
+    return &local;
+#else
     if (!path) return &local;
     int fd = open(path, O_RDWR);
     if (fd < 0) return &local;
@@ -3102,9 +3151,14 @@ static SharedIo* open_io(void) {
     close(fd);
     if (map == MAP_FAILED || ((SharedIo*)map)->magic != IO_MAGIC) return &local;
     return map;
+#endif
 }
 
-int main(int argc, char** argv) {
+#ifndef BLOCKS_LIBRARY
+int main(int argc, char** argv) { return blocks_main(argc, argv); }
+#endif
+
+int blocks_main(int argc, char** argv) {
     _Static_assert(sizeof(SharedIo) <= IO_SIZE, "shared file too small");
     _Static_assert(sizeof(SaveHeader) == 64, "the save header must keep its size");
     _Static_assert(__builtin_offsetof(SharedIo, counts) == 128, "must match BlocksSession.kt");
@@ -3124,11 +3178,17 @@ int main(int argc, char** argv) {
     int max_frames = argc > 4 ? atoi(argv[4]) : 0;
     if (w < 64 || h < 64 || w > 4096 || h > 4096) return 2;
     SharedIo* io = open_io();
-    int present = getenv("HYPOCKET_PRESENT") != NULL;
+    const BlocksPlatform* platform = blocks_platform;
+    /* present: frames go to a window (or the engine's direct display). */
+    int present = platform || getenv("HYPOCKET_PRESENT") != NULL;
     const char* frame_path = present ? NULL : getenv("HYPOCKET_FRAME_PATH");
+#ifdef _WIN32
+    frame_path = NULL;
+#endif
 
     uint32_t* header = NULL;
     unsigned char* pixels = NULL;
+#ifndef _WIN32
     if (frame_path) {
         size_t size = 64 + (size_t)w * h * 4;
         int fd = open(frame_path, O_RDWR | O_CREAT, 0600);
@@ -3143,7 +3203,19 @@ int main(int argc, char** argv) {
         header[4] = 1;
         header[0] = 0x42465048;
     }
+#endif
 
+    int window_target = 0; /* draw into the pbuffer itself, without our own framebuffer */
+#ifdef BLOCKS_LIBRARY
+    /* The platform made the context current: only the functions to look up. */
+    if (!platform) return 1;
+    gl_es = platform->gles;
+#define LOAD(type, name) \
+    p_##name = (type)platform->get_proc(#name); \
+    if (!p_##name) { printf("blocks: missing %s\n", #name); return 1; }
+    GL_FUNCTIONS(LOAD)
+#undef LOAD
+#else
     EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (!eglInitialize(display, NULL, NULL) || !eglBindAPI(EGL_OPENGL_API)) return 1;
     /* With direct present, draw straight into the pbuffer like a game draws
@@ -3155,7 +3227,6 @@ int main(int argc, char** argv) {
                                      EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_NONE};
     EGLConfig config;
     EGLint count = 0;
-    int window_target = 0; /* draw into the pbuffer itself, without our own framebuffer */
     if (present && eglChooseConfig(display, depth_attribs, &config, 1, &count) && count > 0) window_target = 1;
     else eglChooseConfig(display, config_attribs, &config, 1, &count);
     /* With direct present the pbuffer is the frame; otherwise it is unused. */
@@ -3172,6 +3243,8 @@ int main(int argc, char** argv) {
     p_##name = (type)eglGetProcAddress(#name); \
     if (!p_##name) { printf("blocks: missing %s\n", #name); return 1; }
     GL_FUNCTIONS(LOAD)
+#undef LOAD
+#endif
     printf("blocks: GL_RENDERER %s\n", p_glGetString(GL_RENDERER));
     printf("blocks: %dx%d, fps limit %d\n", w, h, fps_limit);
     fflush(stdout);
@@ -3415,6 +3488,27 @@ int main(int argc, char** argv) {
     if (bench) save_path = NULL; /* the benchmark never touches saves */
 
     while (!io->quit && (max_frames == 0 || frames < max_frames)) {
+        /* Native ways: input and window events; a window can change size. */
+        if (platform && platform->frame) {
+            int nw = w, nh = h;
+            platform->frame(io, &nw, &nh);
+            if ((nw != w || nh != h) && nw >= 64 && nh >= 64 && nw <= 8192 && nh <= 8192) {
+                w = nw;
+                h = nh;
+                delete_target(fbo);
+                if (!create_target(w, h, &fbo)) break;
+                if (scene_fbo) {
+                    delete_target(scene_fbo);
+                    if (!create_target(w, h, &scene_fbo)) scene_fbo = 0, dynamic = 0;
+                }
+                p_glUseProgram(sky_program);
+                p_glUniform1f(p_glGetUniformLocation(sky_program, "aspect"), (float)w / h);
+                p_glUseProgram(hud_program);
+                p_glUniform2f(p_glGetUniformLocation(hud_program, "pixel"), 2.0f / w * (h / 540.0f), 2.0f / h * (h / 540.0f));
+                io->width = w;
+                io->height = h;
+            }
+        }
         double frame_start = now_ms();
         float dt = (float)((frame_start - last) / 1000.0);
         last = frame_start;
@@ -4269,7 +4363,11 @@ int main(int argc, char** argv) {
                 p_glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
                 p_glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
             }
+#ifdef BLOCKS_LIBRARY
+            platform->present();
+#else
             eglSwapBuffers(display, surface);
+#endif
         } else if (header) {
             double read_start = now_ms(); /* reading back waits for the GPU too */
             p_glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
