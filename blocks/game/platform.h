@@ -48,6 +48,29 @@ static inline void audio_ring_read(AudioRing* ring, int16_t* out, int frames) {
     __atomic_store_n(&ring->read_pos, read, __ATOMIC_RELEASE);
 }
 
+/* Keys the game's own screens use (PlatformInput.keys). */
+enum {
+    BLOCKS_KEY_MENU = 1,   /* Esc: open the menu, or back */
+    BLOCKS_KEY_INVENTORY,  /* E or Tab */
+    BLOCKS_KEY_CONFIRM,    /* Enter */
+    BLOCKS_KEY_UP, BLOCKS_KEY_DOWN, BLOCKS_KEY_LEFT, BLOCKS_KEY_RIGHT,
+    BLOCKS_KEY_HOTBAR_1,   /* 1-9: BLOCKS_KEY_HOTBAR_1 + n */
+    BLOCKS_KEY_HOTBAR_9 = BLOCKS_KEY_HOTBAR_1 + 8,
+    BLOCKS_KEY_DEBUG,      /* F3: the statistics */
+};
+
+/* What a platform without an app around the game (the PC) sends to the
+ * game's own screens each frame, besides the movement and actions it
+ * writes into SharedIo. */
+typedef struct {
+    int pointer_x, pointer_y; /* pixels from the top left of the frame; -1 when there is none */
+    int clicks;               /* left button presses since the last frame, on a free pointer */
+    int right_clicks;
+    int wheel;                /* wheel steps since the last frame, up positive */
+    int keys[16];             /* BLOCKS_KEY_* pressed since the last frame */
+    int key_count;
+} PlatformInput;
+
 typedef struct {
     /* The context is OpenGL ES 3.0 (else desktop OpenGL 3.3 core or newer). */
     int gles;
@@ -61,9 +84,14 @@ typedef struct {
     void (*frame)(void* io, int* width, int* height);
     /* A ring for the game's sound, already being played (NULL: silent). */
     AudioRing* (*audio_ring)(void);
-    /* Draws the game's own screens (menus, inventory) over the frame: the PC
-     * version has no app around the game to draw them. */
+    /* The game draws its own screens (menus, inventory, hotbar, meters)
+     * over the frame: the PC version has no app around the game to draw
+     * them. Then [input] is filled by [frame] and the game tells the
+     * platform with [capture_pointer] whether the mouse looks around (1) or
+     * points at its screens (0). */
     int game_screens;
+    PlatformInput* input;
+    void (*capture_pointer)(int captured);
 } BlocksPlatform;
 
 /* Set before blocks_main() by the native ways; NULL in the emulated build. */
