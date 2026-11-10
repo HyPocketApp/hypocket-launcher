@@ -1164,7 +1164,9 @@ static int load_world(const char* path, Player* p) {
  * the seed puts them (so saves need not keep where). Near an unlit one there
  * is a mist, where night creatures come out even by day. Lighting a beacon
  * (BEACON_COST) clears its mist, lights the blocks around it and keeps night
- * creatures BEACON_CALM blocks away. Lighting all five finishes the world. */
+ * creatures BEACON_CALM blocks away: around it is a sanctuary, free of mist and
+ * lit even at night, whose edge night creatures do not cross. Lighting all
+ * five finishes the world. */
 #define BEACONS 5
 #define BEACON_CALM 40.0f
 #define MIST_NEAR 22.0f /* thick mist this close to an unlit beacon */
@@ -1286,14 +1288,36 @@ static int nearest_unlit(float x, float z, float* d) {
     return best;
 }
 
-/* How thick the mist is at x, z: 1 near an unlit beacon, 0 away from them. */
+/* The lit beacon nearest to x, z (or -1), and its distance in *d. */
+static int nearest_lit(float x, float z, float* d) {
+    int best = -1;
+    *d = 1e9f;
+    for (int k = 0; k < BEACONS; k++) {
+        if (!beacon_lit(k)) continue;
+        float dx = beacon_x[k] + 0.5f - x, dz = beacon_z[k] + 0.5f - z, dist = sqrtf(dx * dx + dz * dz);
+        if (dist < *d) { *d = dist; best = k; }
+    }
+    return best;
+}
+
+/* A lit beacon's sanctuary: 1 well inside BEACON_CALM, fading to 0 at its edge. */
+static float sanctuary_at(float x, float z) {
+    float d;
+    if (away || nearest_lit(x, z, &d) < 0) return 0;
+    float t = (d - (BEACON_CALM - 10)) / 10;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    return 1 - t * t * (3 - 2 * t);
+}
+
+/* How thick the mist is at x, z: 1 near an unlit beacon, 0 away from them
+ * and inside a lit beacon's sanctuary. */
 static float mist_at(float x, float z) {
     if (away) return 1;
     float d;
     if (nearest_unlit(x, z, &d) < 0) return 0;
     float t = (d - MIST_NEAR) / (MIST_FAR - MIST_NEAR);
     t = t < 0 ? 0 : t > 1 ? 1 : t;
-    return 1 - t * t * (3 - 2 * t);
+    return (1 - t * t * (3 - 2 * t)) * (1 - sanctuary_at(x, z));
 }
 
 /* Whether a lit beacon keeps night creatures away from x, z. */
@@ -1502,12 +1526,12 @@ static int note_on_ray(const float* o, const float* d, float max_t, float* t) {
 
 /* ---- Shelters ---------------------------------------------------------- */
 
-/* A shelter is a closed room with light in it: the mist does not come in and
- * night creatures can neither find nor reach the player there. The air
- * around the player is filled outwards, through anything that is not a wall
- * (leaves and water let the mist through); if it runs out within
- * SHELTER_CELLS without leaving the box around the player, the room is
- * closed, and a lamp in its walls, floor or ceiling makes it lit. */
+/* A shelter is a closed room: the mist does not come in and night creatures
+ * can neither find nor reach the player there (a lamp inside is only for
+ * seeing). The air around the player is filled outwards, through anything
+ * that is not a wall (leaves and water let the mist through); if it runs out
+ * within SHELTER_CELLS without leaving the box around the player, the room
+ * is closed. */
 #define SHELTER_CELLS 600
 #define SHELTER_R 12
 #define SHELTER_SIDE (SHELTER_R * 2 + 1)
@@ -1520,7 +1544,7 @@ static int shelter_at(float px, float py, float pz) {
     static int16_t queue[SHELTER_CELLS + 8][3];
     if (++mark == 0) { memset(seen, 0, sizeof seen); mark = 1; }
     int ox = (int)floorf(px), oy = (int)floorf(py + 0.2f), oz = (int)floorf(pz);
-    int head = 0, tail = 0, lit = 0;
+    int head = 0, tail = 0;
     for (int dy = 0; dy <= 1; dy++) {
         if (is_wall(block_at(ox, oy + dy, oz))) continue;
         seen[SHELTER_R][SHELTER_R + dy][SHELTER_R] = mark;
@@ -1538,16 +1562,13 @@ static int shelter_at(float px, float py, float pz) {
             if (*s == mark) continue;
             *s = mark;
             int b = block_at(wx, wy, wz);
-            if (is_wall(b)) {
-                lit |= gives_light(b);
-                continue;
-            }
+            if (is_wall(b)) continue;
             if (tail >= SHELTER_CELLS) return 0; /* too big to be a room */
             queue[tail][0] = (int16_t)nx; queue[tail][1] = (int16_t)ny; queue[tail][2] = (int16_t)nz;
             tail++;
         }
     }
-    return tail > 0 && lit;
+    return tail > 0;
 }
 
 /* ---- Creatures and particles ----------------------------------------- */
@@ -1852,6 +1873,13 @@ static int update_night(float dt, uint32_t tick, int is_night, float px, float p
                     c->timer = 2;
                 }
             }
+        }
+        /* A lit beacon's sanctuary: they stop at its edge and watch. */
+        if (c->speed > 0 && !calm_at(c->x, c->z) &&
+            calm_at(c->x + sinf(c->yaw) * 0.8f, c->z - cosf(c->yaw) * 0.8f)) {
+            c->speed = 0;
+            c->target_yaw = atan2f(dx, -dz);
+            c->prey = 0;
         }
         c->cooldown -= dt;
         if (c->hunting && d < 1.25f && fabsf(py - c->y) < 1.6f && c->stun <= 0 && c->cooldown <= 0 && grab_by < 0 &&
@@ -3015,7 +3043,16 @@ int main(int argc, char** argv) {
             if (time_lock < 0) day_time += dt / day_seconds;
             if (day_time >= 1.0f) { day_time -= 1.0f; day_count++; }
         }
-        const Sky sk = away ? other_sky() : sky_at(shown_time());
+        Sky sk = away ? other_sky() : sky_at(shown_time());
+        /* Inside a lit beacon's sanctuary the night is lit by its pale light. */
+        float sanctuary = sanctuary_at(player.x, player.z);
+        if (sanctuary > 0) {
+            static const float beacon_light[3] = {0.46f, 0.53f, 0.62f}, beacon_sky[3] = {0.16f, 0.21f, 0.27f};
+            for (int k = 0; k < 3; k++) {
+                sk.ambient[k] = fmaxf(sk.ambient[k], beacon_light[k] * sanctuary);
+                sk.sky[k] = fmaxf(sk.sky[k], beacon_sky[k] * sanctuary);
+            }
+        }
         float sky[3] = {sk.sky[0], sk.sky[1], sk.sky[2]};
         if (!paused) play_seconds += dt;
         /* The mist near unlit beacons: a thicker, closer fog in a dim violet. */
@@ -3320,24 +3357,48 @@ int main(int argc, char** argv) {
                 spawn_puff(rift_x[k], rift_y[k] + 0.6f + rand01(frames, k, 3) * 1.2f, rift_z[k], haze, 1, (uint32_t)(frames + k));
             }
         }
-        /* The portal: a broken stone frame around a tall, dim violet light. */
+        /* The portal: no frame, just a tall, jagged tear in the air, black
+         * inside with pale cracks of light along its edges, stones it tore
+         * loose drifting round it, and mist pouring out. */
         if (portal_here) {
             float dx = portal_x - player.x, dz = portal_z - player.z;
             if (dx * dx + dz * dz < far * far) {
-                float yaw = portal_yaw, sy = sinf(yaw), cy = cosf(yaw), pulse = 0.15f * sinf(frames * 0.05f);
-                for (int e = -1; e <= 1; e += 2) {
-                    float pillar[INSTANCE_FLOATS] = {portal_x + cy * 1.1f * e, portal_y + 1.5f, portal_z + sy * 1.1f * e,
-                                                     0.25f, 1.5f, 0.3f, yaw, 0.24f, 0.22f, 0.27f};
-                    memcpy(instances[n++], pillar, sizeof pillar);
+                float yaw = portal_yaw, sy = sinf(yaw), cy = cosf(yaw), t = frames * 0.02f;
+                static const float tear_jag[7] = {0.35f, -0.2f, 0.25f, 0.0f, 0.3f, -0.15f, 0.2f};
+                for (int i = -3; i <= 3; i++) {
+                    float h = 1.75f * (1 - fabsf((float)i) / 4.5f) + tear_jag[i + 3] * 0.4f;
+                    float cx = portal_x + cy * i * 0.2f, cz = portal_z + sy * i * 0.2f;
+                    float cyy = portal_y + 1.9f + tear_jag[(i + 5) % 7] * 0.3f;
+                    float wob = 0.03f * sinf(t * 3 + i);
+                    /* A pale edge behind (taller, thinner), the black inside in front. */
+                    float edge[INSTANCE_FLOATS] = {cx, cyy, cz, 0.14f + wob, h + 0.08f, 0.03f, yaw, 2.78f, 2.74f, 2.86f};
+                    float core[INSTANCE_FLOATS] = {cx, cyy, cz, 0.12f + wob, h, 0.05f, yaw, 0.02f, 0.015f, 0.03f};
+                    memcpy(instances[n++], edge, sizeof edge);
+                    memcpy(instances[n++], core, sizeof core);
                 }
-                float lintel[INSTANCE_FLOATS] = {portal_x - cy * 0.2f, portal_y + 3.15f, portal_z - sy * 0.2f, 1.2f, 0.2f, 0.3f, yaw,
-                                                 0.24f, 0.22f, 0.27f};
-                float light[INSTANCE_FLOATS] = {portal_x, portal_y + 1.45f, portal_z, 0.85f, 1.45f, 0.06f, yaw,
-                                                2.3f + pulse, 2.12f + pulse, 2.55f + pulse};
-                memcpy(instances[n++], lintel, sizeof lintel);
-                memcpy(instances[n++], light, sizeof light);
-                triangles += 48;
+                for (int k = 0; k < 6; k++) {
+                    float a = t * (0.4f + 0.07f * k) + k * 1.047f, r = 1.6f + 0.25f * (k % 3);
+                    float stone[INSTANCE_FLOATS] = {portal_x + cosf(a) * r, portal_y + 0.7f + 0.45f * k + 0.2f * sinf(t + k),
+                                                    portal_z + sinf(a) * r, 0.14f + 0.03f * (k % 2), 0.12f, 0.15f, a * 1.7f,
+                                                    0.36f, 0.34f, 0.33f};
+                    memcpy(instances[n++], stone, sizeof stone);
+                }
+                triangles += 20 * 12;
+                if (rift_puff && dx * dx + dz * dz < 40 * 40) {
+                    static const float haze[3] = {0.7f, 0.66f, 0.78f};
+                    spawn_puff(portal_x, portal_y + 0.5f + rand01(frames, 7, 3) * 3.0f, portal_z, haze, 2, (uint32_t)frames + 11);
+                }
             }
+        }
+        /* A lit beacon sends a beam of light up: the sanctuary can be seen from afar. */
+        for (int k = 0; k < BEACONS; k++) {
+            if (!beacon_lit(k)) continue;
+            float dx = beacon_x[k] + 0.5f - player.x, dz = beacon_z[k] + 0.5f - player.z;
+            if (dx * dx + dz * dz > far * far * 1.5f) continue;
+            float beam[INSTANCE_FLOATS] = {beacon_x[k] + 0.5f, beacon_y[k] + 13.0f, beacon_z[k] + 0.5f, 0.14f, 12.0f, 0.14f,
+                                           frames * 0.01f, 2.72f, 2.95f, 3.0f};
+            memcpy(instances[n++], beam, sizeof beam);
+            triangles += 12;
         }
         /* The way back from the other side: a tall white light. */
         if (away) {
