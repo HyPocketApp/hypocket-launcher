@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="bench_hint">Cerca de 2 a 3 minutos. Deixe o app aberto.</string>
     <string name="bench_legend">Jogo: o trabalho do próprio jogo por quadro, pelo tradutor. Espera: pela GPU e pelo servidor VirGL. Servidor: tempo rodando os comandos gráficos do jogo por quadro.</string>
     <string name="bench_row">%1$s: %2$.1f fps · jogo %3$.1f ms · espera %4$.1f ms · servidor %5$.1f ms</string>
@@ -26,12 +26,12 @@
     <string name="blocks_delete">Apagar</string>
     <string name="blocks_delete_text">O mundo e tudo o que foi construído nele serão apagados para sempre.</string>
     <string name="blocks_delete_title">Apagar “%1$s”?</string>
-    <string name="blocks_description">Um jogo de blocos original feito para o HyPocket, de código aberto e sem relação com nenhum outro jogo. Construa com 12 tipos de blocos e guarde seus mundos. Ele roda pelo mesmo caminho que um jogo de verdade vai rodar (tradutor x86-64, OpenGL de PC e exibição direta). Funciona com toque, controle, teclado e mouse (clique para prender o ponteiro). A escala de renderização, o limite de FPS, a resolução dinâmica e a sensibilidade da câmera ficam nas Configurações.</string>
-    <string name="blocks_exit">Sair</string>
+    <string name="blocks_description">Um jogo de blocos original feito para o HyPocket, de código aberto e sem relação com nenhum outro jogo. Colete blocos e construa com eles (ou escolha o modo criativo, com blocos sem limite) e guarde seus mundos. Seu objetivo: acender os cinco faróis apagados escondidos na névoa. Os dias passam e as noites são escuras: ilumine-as com lâmpadas. Ele roda pelo mesmo caminho que um jogo de verdade vai rodar (tradutor x86-64, OpenGL de PC e exibição direta). Funciona com toque, controle, teclado e mouse (clique para prender o ponteiro). A escala de renderização, o limite de FPS, a resolução dinâmica e a sensibilidade da câmera ficam nas Configurações.</string>
+    <string name="blocks_menu">Menu</string>
     <string name="blocks_heavy">Modo pesado: 300 criaturas andando e visão mais longa (e mundo quatro vezes maior no jogo rápido)</string>
-    <string name="blocks_hint">Esquerda: andar · Direita: arraste para olhar, toque para quebrar · Embaixo: escolha o bloco</string>
-    <string name="blocks_hint_controller">Analógico esquerdo: andar · Direito: olhar · A: pular · X/RT: quebrar · B/LT: colocar · Y: próximo bloco · Start: sair</string>
-    <string name="blocks_hint_mouse">Mouse: mexa para olhar · Botão esquerdo: quebrar · Direito: colocar · Roda ou 1-9: bloco · WASD: andar · Espaço: pular · Esc: soltar o ponteiro</string>
+    <string name="blocks_hint">Esquerda: andar · Direita: arraste para olhar, toque para quebrar ou golpear · Embaixo: escolha o bloco</string>
+    <string name="blocks_hint_controller">Analógico esquerdo: andar · Direito: olhar · A: pular · X/RT: quebrar ou golpear · B/LT: colocar · Y: próximo bloco · Select: inventário · Start: menu</string>
+    <string name="blocks_hint_mouse">Mouse: mexa para olhar · Botão esquerdo: quebrar ou golpear · Direito: colocar · Roda ou 1-9: bloco · I: inventário · WASD: andar · Espaço: pular · Esc: menu</string>
     <string name="blocks_jump">Pular</string>
     <string name="blocks_loading">Construindo o mundo…</string>
     <string name="blocks_new_world">Novo mundo</string>
@@ -50,7 +50,6 @@
     <string name="blocks_status_ended">O jogo rodou e fechou normalmente.</string>
     <string name="blocks_summary">%1$d quadros, %2$.1f fps em média</string>
     <string name="blocks_title">HyPocket Blocks</string>
-    <string name="blocks_world_info">%1$s · %2$s</string>
     <string name="blocks_world_name">Nome</string>
     <string name="blocks_world_new">ainda não jogado</string>
     <string name="blocks_world_played">jogado %1$s</string>
@@ -64,6 +63,67 @@
     <string name="probe_status_failed">Falhou: o programa traduzido não terminou corretamente.</string>
     <string name="probe_status_not_available">O tradutor não está disponível neste aparelho.</string>
     <string name="probe_status_timed_out">Tempo esgotado: o programa traduzido demorou demais.</string>
+    <string name="blocks_clock">Dia %1$d · %2$02d:%3$02d</string>
+    <string name="blocks_block_count">%1$s · %2$d</string>
+    <string name="blocks_creative">Modo criativo</string>
+    <string name="blocks_creative_on">Blocos de todos os tipos sem limite. Nada para coletar.</string>
+    <string name="blocks_creative_off">Sobrevivência: quebre blocos para coletá-los e construa com o que juntou.</string>
+    <string name="blocks_inventory">Inventário</string>
+    <string name="blocks_inventory_short">Bolsa</string>
+    <string name="blocks_inventory_hint">Escolha um lugar na barra e depois o bloco para pôr nele. Controle: direcional e A, B fecha. Teclado: setas e Enter, I fecha.</string>
+    <string name="blocks_mode_creative">criativo</string>
+    <string name="blocks_mode_survival">sobrevivência</string>
+    <string name="blocks_world_info_mode">%1$s · %2$s · %3$s</string>
+    <string name="blocks_day_mode">Hora do dia (para testes)</string>
+    <string name="blocks_day_cycle">Dias de 15 min</string>
+    <string name="blocks_day_fast">Dias de 2 min</string>
+    <string name="blocks_day_always_day">Sempre dia</string>
+    <string name="blocks_day_always_night">Sempre noite</string>
+    <string name="blocks_day_mode_hint">Fixar a hora não muda a hora guardada no mundo: de volta aos dias de 15 min, ela continua de onde estava.</string>
+    <string name="blocks_recipes">Receitas</string>
+    <string name="blocks_inventory_hint_recipes">Escolha um lugar na barra e depois o bloco para pôr nele, ou toque numa receita para fabricar. Controle: direcional e A, B fecha. Teclado: setas e Enter, I fecha.</string>
+    <string name="blocks_peaceful">Pacífico</string>
+    <string name="blocks_peaceful_on">Nenhuma criatura vem atrás de você. Quedas ainda machucam.</string>
+    <string name="blocks_peaceful_off">À noite, criaturas saem do escuro e da névoa para arrastar você. Fuja: elas não podem ser mortas. Lâmpadas as mantêm longe, fora da névoa.</string>
+    <string name="blocks_mode_peaceful">pacífico</string>
+    <string name="blocks_fainted">Você desmaiou e acordou no ponto de partida. O que você carregava continua com você.</string>
+    <string name="blocks_paused">Pausado</string>
+    <string name="blocks_resume">Continuar</string>
+    <string name="blocks_settings">Configurações</string>
+    <string name="blocks_save_and_exit">Salvar e sair</string>
+    <string name="blocks_back">Voltar</string>
+    <string name="blocks_setting_sensitivity">Velocidade da câmera</string>
+    <string name="blocks_setting_view">Distância de visão</string>
+    <string name="blocks_setting_resolution">Resolução 3D</string>
+    <string name="blocks_setting_volume">Volume</string>
+    <string name="blocks_setting_fps">Limite de FPS</string>
+    <string name="blocks_setting_stats">Mostrar estatísticas</string>
+    <string name="blocks_setting_default">Padrão</string>
+    <plurals name="blocks_setting_blocks">
+        <item quantity="one">%1$d bloco</item>
+        <item quantity="other">%1$d blocos</item>
+    </plurals>
+    <string name="blocks_setting_no_limit">Sem limite</string>
+    <string name="blocks_rename">Renomear</string>
+    <string name="blocks_duplicate">Duplicar</string>
+    <string name="blocks_save">Salvar</string>
+    <string name="blocks_copy_name">%1$s (cópia)</string>
+    <string name="blocks_test_options">Opções de teste…</string>
+    <string name="blocks_test_options_hide">Esconder opções de teste</string>
+    <string name="blocks_back_to_worlds">Voltar aos mundos</string>
+    <string name="blocks_beacons_far">Faróis %1$d/%2$d · %3$d m</string>
+    <plurals name="blocks_beacons_all">
+        <item quantity="one">O %1$d farol está aceso</item>
+        <item quantity="other">Todos os %1$d faróis acesos</item>
+    </plurals>
+    <string name="blocks_beacon_aim">Farol apagado: use Colocar para acendê-lo com 2 lâmpadas e 3 vidros</string>
+    <string name="blocks_beacon_aim_free">Farol apagado: use Colocar para acendê-lo</string>
+    <string name="blocks_goal_done_title">Todos os faróis acesos!</string>
+    <string name="blocks_goal_done_text">A névoa sumiu e as criaturas noturnas ficam longe. Você terminou este mundo em %1$s de jogo.</string>
+    <string name="blocks_keep_playing">Continuar jogando</string>
+    <string name="blocks_duration_hours">%1$d h %2$02d min</string>
+    <string name="blocks_duration_minutes">%1$d min %2$02d s</string>
+    <string name="blocks_world_completed">Terminado em %1$s</string>
     <string name="blocks_close">Fechar</string>
     <string name="blocks_copy_report">Copiar relatório</string>
     <string name="blocks_status_server_failed">Falhou: o servidor de gráficos não iniciou.</string>
@@ -71,4 +131,78 @@
     <string name="blocks_status_failed">Falhou: o programa traduzido não terminou corretamente.</string>
     <string name="blocks_status_not_available">O tradutor não está disponível neste aparelho.</string>
     <string name="blocks_status_timed_out">Tempo esgotado: o programa traduzido demorou demais.</string>
+    <string name="blocks_taken">Algo arrastou você para a névoa…</string>
+    <string name="blocks_grabbed">Ele te pegou! Aperte Pular várias vezes para se soltar</string>
+    <string name="blocks_sheltered">Abrigado: a névoa e as criaturas ficam do lado de fora</string>
+
+    <!-- The story's notes (see StoryNotes.kt and blocks/docs/story.md). -->
+    <string name="story_note_0_title">Para quem vier</string>
+    <string name="story_note_0_text">Eles vêm com a névoa e a escuridão. Se são um só com a névoa ou se aproveitam dela à noite para fugir das fontes de luz, não sabemos. A única coisa que os que ainda estão vivos sabem é que eles não param depois de encontrar você. São criaturas espertas, que farão de tudo para te arrastar. Para onde? Também não fazemos ideia.\n\nTudo o que sabemos é que não parecem comer carne humana. Mas por que pegar sobreviventes e arrastá-los para onde quer que seja o covil dessas coisas? Mais uma vez, não sabemos. O porquê é um mistério assustador. Eles pegam qualquer ser vivo que encontram e o arrastam pela névoa.\n\nSão difíceis de matar. Se vir um, não atire nem tente lutar: apenas corra. Esse é o último ato de desespero que pode fazer para poupar sua vida. Foi assim que pude escrever este relato para aqueles que virão até aqui.\n\nE saiba: se estiver lendo isto, provavelmente eu já estou morto.</string>
+    <string name="story_note_1_title">Caderno da Dona Lurdes</string>
+    <string name="story_note_1_text">Dia 3. Os demônios da névoa voltaram. O padre dizia que o fim viria com fogo, mas veio com névoa. Deixei a vela acesa na janela. Deus há de ver.\n\nDia 5. Os vizinhos foram embora pela estrada. Eu fico. Esta casa é minha há quarenta anos.\n\nDia 6. A névoa encostou na janela hoje. A vela tremeu, mas não apagou. Eles ficaram parados lá fora, olhando. Não entram onde tem luz e porta fechada. Ainda não.\n\nDia 9. Acabaram as velas.</string>
+    <string name="story_note_2_title">Mãe</string>
+    <string-array name="story_note_2_chat" tools:ignore="Typos">
+        <item>|mãe cadê vc</item>
+        <item>|a névoa chegou na escola, mandaram todo mundo pra casa</item>
+        <item>Mãe|Filho, fica em casa, tranca a porta e acende todas as luzes. Tô indo</item>
+        <item>|mãe tem uma coisa na rua</item>
+        <item>|alta, parada, com os olhos brilhando</item>
+        <item>|tá olhando pra janela</item>
+        <item>Mãe|Não abre a porta pra ninguém</item>
+        <item>|ela não tá batendo. tá esperando</item>
+        <item>|a luz da cozinha queimou</item>
+        <item>|mãe</item>
+        <item>Mãe|Caio?</item>
+        <item>Mãe|Caio me responde</item>
+        <item>Mãe|Tô chegando, filho</item>
+        <item>Mãe|Caio</item>
+    </string-array>
+    <string name="story_note_3_title">Anotações de R. Teixeira, técnico das torres</string>
+    <string name="story_note_3_text">As torres de farol foram construídas antes de eu nascer. Ninguém mais lembrava para que serviam. Agora eu sei.\n\nA névoa não é fumaça nem gás. Ela sai de rachaduras no ar, uma ao lado de cada torre apagada. O ar está rasgado ali, e do outro lado é escuro. Acho que os de lá passam por elas.\n\nCom o cristal da torre aceso, a rachadura fecha. Para religar o cristal são duas lâmpadas e três vidros. Religuei uma torre e a névoa recuou na hora.\n\nVou tentar a próxima. Se alguém achar isto: acenda as torres.</string>
+    <string name="story_note_4_title">Rua das Acácias</string>
+    <string-array name="story_note_4_chat">
+        <item>Seu Jorge|Pessoal, quem tiver tijolo sobrando me avisa</item>
+        <item>Bia|pra quê?</item>
+        <item>Seu Jorge|Fechar o quarto dos fundos. Sem janela, sem fresta. A névoa não entra onde é bem fechado</item>
+        <item>Marta|e deixa uma luz lá dentro. eles odeiam luz</item>
+        <item>Bia|aqui em casa a gente chama eles de sombras. minha vó diz que são almas</item>
+        <item>Seu Jorge|Alma não arrasta gente, Bia</item>
+        <item>Marta|levaram o cavalo do Toninho ontem. puxaram pela névoa e sumiu. nem sangue ficou</item>
+        <item>Bia|alguém viu o Toninho?</item>
+        <item>Seu Jorge|Fiquem nos quartos fechados. Amanhã cedo a gente se fala</item>
+        <item>Bia|gente?</item>
+        <item>Bia|tem alguém aí?</item>
+    </string-array>
+    <string name="story_note_5_title">Bilhete da Ana</string>
+    <string name="story_note_5_text">Pai, o Biscoito saiu pra latir pra névoa e as sombras levaram ele. Eu vi. Elas não morderam ele, só puxaram.\n\nEle vai voltar, né? Deixei a ração na porta.\n\nDesculpa eu ter aberto a porta.\n\nAna</string>
+    <string name="story_note_6_title">Pedro</string>
+    <string-array name="story_note_6_chat" tools:ignore="Typos">
+        <item>|Pedro, sou eu, o Lucas</item>
+        <item>|eu sei que faz duas semanas</item>
+        <item>|eu voltei</item>
+        <item>Pedro|Lucas??? todo mundo achou que vc tinha morrido</item>
+        <item>|me levaram. me arrastaram pela névoa e eu apaguei</item>
+        <item>|acordei num lugar sem dia. chão escuro, tudo violeta, e eles andam lá às dezenas</item>
+        <item>|lá eles correm mais que a gente. não adianta correr</item>
+        <item>|luz também não adianta. me escondi num buraco de pedra e fechei com o que achei. eles passavam e não me viam</item>
+        <item>|aí ouvi um zumbido. fui seguindo devagar e achei uma luz. entrei nela e acordei no mato</item>
+        <item>Pedro|onde vc tá? vou te buscar</item>
+        <item>|não vem de noite</item>
+        <item>|Pedro, tinha outras pessoas lá. vivas. paradas</item>
+        <item>|acho que eles não querem matar a gente. acho que querem outra coisa</item>
+        <item>Pedro|Lucas?</item>
+    </string-array>
+    <string name="story_note_7_title">Folheto rasgado</string>
+    <string name="story_note_7_text">ELES NÃO SÃO DEMÔNIOS. São mensageiros.\n\nQuem é levado é escolhido. A névoa é uma passagem, não uma praga.\n\nNÃO ACENDAM AS TORRES. A luz os afasta e nos afasta da passagem.\n\nEu vou esperar a névoa de braços abertos. Venha comigo.</string>
+    <string name="story_note_8_title">Rabiscado numa pedra</string>
+    <string name="story_note_8_text">não sei quantos dias. aqui não tem dia.\n\neles trazem gente e bicho e deixam lá no fundo, onde a névoa é mais grossa. ninguém come, ninguém dorme, ninguém morre. só ficam parados.\n\neu fugi da fila. se você está lendo isto, você também fugiu.\n\nnão corra. esconda-se. luz não adianta aqui, só parede. e escute.</string>
+    <string name="blocks_note_aim">Ler: use Colocar</string>
+    <string name="blocks_notes">Relatos encontrados (%1$d de %2$d)</string>
+    <string name="blocks_notes_title">Relatos encontrados</string>
+    <string name="blocks_note_paper">Papel: %1$s</string>
+    <string name="blocks_note_phone">Celular: %1$s</string>
+    <string name="block_shade">Pedra-sombra</string>
+    <string name="blocks_away">O outro lado</string>
+    <string name="blocks_away_arrived">Você acordou num lugar sem dia. Não corra: esconda-se atrás de paredes, e escute.</string>
+    <string name="blocks_away_back">Você voltou. A névoa deixou você ir.</string>
 </resources>

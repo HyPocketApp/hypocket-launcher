@@ -9,9 +9,9 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -20,7 +20,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -42,6 +44,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerId
@@ -49,6 +54,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -59,11 +65,14 @@ import androidx.core.view.WindowInsetsControllerCompat
 import io.github.hypocketapp.blocks.BlocksBenchmark
 import io.github.hypocketapp.blocks.BlocksConfig
 import io.github.hypocketapp.blocks.BlocksOptions
+import io.github.hypocketapp.blocks.BlocksRecipes
+import io.github.hypocketapp.blocks.BlocksSettings
 import io.github.hypocketapp.blocks.BlocksReport
 import io.github.hypocketapp.blocks.BlocksSession
 import io.github.hypocketapp.blocks.BlocksStats
 import io.github.hypocketapp.blocks.BlocksWorld
 import io.github.hypocketapp.blocks.BlocksWorlds
+import io.github.hypocketapp.blocks.DayMode
 import io.github.hypocketapp.engine.DirectDisplay
 import io.github.hypocketapp.engine.DisplayStatus
 import io.github.hypocketapp.engine.RunLogs
@@ -92,7 +101,17 @@ class BlocksActivity : ComponentActivity() {
     private lateinit var controller: ControllerInput
     private lateinit var mouse: MouseInput
     private lateinit var selection: BlockSelection
+    private lateinit var inventory: Inventory
+    private lateinit var pause: PauseMenu
+    private lateinit var settingsStore: BlocksSettings
+    private val settings = mutableStateOf<BlocksSettings.Values?>(null)
     private var benchmark: BlocksBenchmark? = null
+
+    /** The pointer was captured when a screen opened over the game: capture it again on closing. */
+    private var recapture = false
+
+    /** The menu key (Esc or Start) pressed while the menu is open; it acts when released. */
+    private var menuKey = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -108,10 +127,47 @@ class BlocksActivity : ComponentActivity() {
         }
         session = BlocksSession(this)
         val config = BlocksConfig.from(intent)
-        val sensitivity = config.lookSensitivityPercent / 100f
-        selection = BlockSelection(session)
-        controller = ControllerInput(session, sensitivity, selection, onExit = { session.stop() })
-        mouse = MouseInput(session, sensitivity, selection)
+        settingsStore = BlocksSettings.of(this, config)
+        settings.value = settingsStore.load()
+        val sensitivity = { (settings.value?.sensitivityPercent ?: config.lookSensitivityPercent) / 100f }
+        val store = worlds(this)
+        val world = intent.getStringExtra(EXTRA_WORLD)?.let { store.get(it) }
+        // Quick games are creative, like before worlds could be survival ones.
+        val creative = world?.creative ?: true
+        selection = BlockSelection(
+            initial = world?.hotbar.orEmpty(),
+            creative = creative,
+            send = { session.selectBlock(it) },
+            onArranged = { slots -> world?.let { store.saveHotbar(it.id, slots) } },
+        )
+        inventory = Inventory(recipes = if (creative) 0 else BlocksRecipes.ALL.size) { open ->
+            // Stop walking and free the pointer while the inventory is up.
+            controller.reset()
+            pointerFor(open)
+        }
+        pause = PauseMenu { open ->
+            // The world stands still and the pointer is free while the menu is up.
+            session.setPaused(open)
+            controller.reset()
+            pointerFor(open)
+        }
+        controller = ControllerInput(
+            session, sensitivity, selection, inventory,
+            craft = { i -> BlocksRecipes.ALL.getOrNull(i)?.let { session.craft(it) } },
+            onExit = { pause.show() },
+        )
+        mouse = MouseInput(session, sensitivity, selection, paused = { inventory.open.value || pause.open.value })
+        settings.value?.let { session.applySettings(it) }
+        // Back: closes the inventory, steps back in the menu, or opens it.
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                when {
+                    inventory.open.value -> inventory.close()
+                    pause.open.value -> pause.back()
+                    else -> pause.show()
+                }
+            }
+        })
         if (intent.getBooleanExtra(EXTRA_BENCHMARK, false)) {
             val run = BlocksBenchmark(this).also { benchmark = it }
             val (width, height) = landscapeScreen(this)
@@ -119,7 +175,7 @@ class BlocksActivity : ComponentActivity() {
             return
         }
         val heavy = intent.getBooleanExtra(EXTRA_HEAVY, false)
-        val world = intent.getStringExtra(EXTRA_WORLD)?.let { worlds(this).get(it) }
+        val dayMode = DayMode.fromName(intent.getStringExtra(EXTRA_DAY_MODE))
         setContent {
             BlocksTheme {
                 BlocksScreen(
@@ -127,8 +183,12 @@ class BlocksActivity : ComponentActivity() {
                     controller = controller,
                     mouse = mouse,
                     selection = selection,
+                    inventory = inventory,
+                    pause = pause,
+                    settings = settings.value ?: settingsStore.load(),
+                    onSettings = { changed -> changeSettings(changed) },
                     world = world,
-                    lookSensitivity = sensitivity,
+                    lookSensitivity = sensitivity(),
                     renderScalePercent = config.renderScalePercent,
                     fpsLimit = config.fpsLimit,
                     versionLine = config.versionLine,
@@ -136,6 +196,9 @@ class BlocksActivity : ComponentActivity() {
                         dynamicResolution = config.dynamicResolution,
                         heavy = heavy,
                         world = world,
+                        creative = creative,
+                        peaceful = world?.peaceful ?: false,
+                        dayMode = dayMode,
                         creatures = if (heavy) 0 else NORMAL_CREATURES,
                     ),
                     onClose = { finish() },
@@ -149,11 +212,25 @@ class BlocksActivity : ComponentActivity() {
     // this public Activity method as restricted, which lint flags wrongly.
     @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        // With the mouse captured, Esc gives the pointer back instead of exiting.
-        if (event.keyCode == KeyEvent.KEYCODE_ESCAPE && mouse.captured.value) {
-            if (event.action == KeyEvent.ACTION_UP) mouse.release()
-            return true
+        // The pause menu is an ordinary screen: Android and Compose take the
+        // keys (a controller's A falls back to the d-pad centre, B to Back).
+        if (::pause.isInitialized && pause.open.value) {
+            val code = event.keyCode
+            if (code == KeyEvent.KEYCODE_BUTTON_START || code == KeyEvent.KEYCODE_ESCAPE) {
+                // Act on release of a press made with the menu open: the release of
+                // the press that opened it, and held-key repeats, change nothing.
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                    menuKey = code
+                } else if (event.action == KeyEvent.ACTION_UP && menuKey == code) {
+                    menuKey = 0
+                    if (code == KeyEvent.KEYCODE_BUTTON_START) pause.resume() else pause.back()
+                }
+                return true
+            }
+            return super.dispatchKeyEvent(event)
         }
+        menuKey = 0
+        // Esc opens the menu straight away, captured pointer or not (the menu frees it).
         return controller.onKey(event) || super.dispatchKeyEvent(event)
     }
 
@@ -167,6 +244,23 @@ class BlocksActivity : ComponentActivity() {
     override fun onPointerCaptureChanged(hasCapture: Boolean) {
         super.onPointerCaptureChanged(hasCapture)
         mouse.onCaptureChanged(hasCapture)
+    }
+
+    /** Frees the pointer while a screen is over the game, and captures it again after. */
+    private fun pointerFor(open: Boolean) {
+        if (open) {
+            recapture = mouse.release() || recapture
+        } else if (recapture && !inventory.open.value && !pause.open.value) {
+            recapture = false
+            mouse.capture()
+        }
+    }
+
+    private fun changeSettings(changed: BlocksSettings.Values) {
+        val before = settings.value ?: return
+        settings.value = changed
+        settingsStore.save(before, changed)
+        session.applySettings(changed)
     }
 
     override fun onStop() {
@@ -185,6 +279,7 @@ class BlocksActivity : ComponentActivity() {
 
     companion object {
         private const val EXTRA_HEAVY = "heavy"
+        private const val EXTRA_DAY_MODE = "day_mode"
         private const val EXTRA_WORLD = "world"
         private const val EXTRA_BENCHMARK = "benchmark"
 
@@ -195,8 +290,9 @@ class BlocksActivity : ComponentActivity() {
         fun worlds(context: Context) = BlocksWorlds(File(context.filesDir, "blocks-worlds"))
 
         /** Plays [world], loading and saving it, or a fresh unsaved world without one. */
-        fun start(context: Context, config: BlocksConfig, heavy: Boolean, world: BlocksWorld?) {
+        fun start(context: Context, config: BlocksConfig, heavy: Boolean, world: BlocksWorld?, dayMode: DayMode = DayMode.CYCLE) {
             val intent = Intent(context, BlocksActivity::class.java).putExtra(EXTRA_HEAVY, heavy).putExtra(EXTRA_WORLD, world?.id)
+                .putExtra(EXTRA_DAY_MODE, dayMode.name)
             context.startActivity(config.putInto(intent))
         }
 
@@ -224,6 +320,10 @@ private fun BlocksScreen(
     controller: ControllerInput,
     mouse: MouseInput,
     selection: BlockSelection,
+    inventory: Inventory,
+    pause: PauseMenu,
+    settings: BlocksSettings.Values,
+    onSettings: (BlocksSettings.Values) -> Unit,
     world: BlocksWorld?,
     lookSensitivity: Float,
     renderScalePercent: Int,
@@ -238,6 +338,12 @@ private fun BlocksScreen(
     var stats by remember { mutableStateOf(BlocksStats()) }
     fun inputLines(finished: BlocksReport) = listOfNotNull(
         world?.let { "World: ${it.chunks}x${it.chunks} chunks, saved ${finished.stats.saves} times" },
+        "Health: ${finished.stats.healthTenths / 10.0}, fainted ${finished.stats.deaths} times, " +
+            "hurt ${finished.stats.hurts} times, peaceful: ${options.peaceful}",
+        "Mode: ${if (options.creative) "creative" else "survival"}, carrying " +
+            BuildBlock.entries.mapIndexedNotNull { i, block ->
+                finished.stats.counts.getOrElse(i) { 0 }.takeIf { it > 0 }?.let { "${block.name.lowercase()} $it" }
+            }.ifEmpty { listOf("nothing") }.joinToString(),
         "Input devices used: " +
             (controller.deviceNames + mouse.deviceNames).ifEmpty { setOf("touch only") }.joinToString(),
         "Input devices connected: " +
@@ -270,9 +376,19 @@ private fun BlocksScreen(
     LaunchedEffect(Unit) {
         while (report == null) {
             stats = session.stats
-            delay(500)
+            delay(250)
         }
     }
+    // A note picked up in the world opens at once.
+    var notesSeen by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(stats.ready, stats.notesOpened) {
+        if (!stats.ready) return@LaunchedEffect
+        val seen = notesSeen
+        if (seen != null && stats.notesOpened > seen) pause.showNote(stats.noteId)
+        notesSeen = stats.notesOpened
+    }
+    // Survival: blocks just collected get a place in the hotbar.
+    LaunchedEffect(stats.counts) { if (stats.ready) selection.fill(stats.counts) }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
@@ -283,12 +399,79 @@ private fun BlocksScreen(
             modifier = Modifier.fillMaxSize(),
         )
         val finished = report
-        if (finished == null) {
-            TouchControls(session, lookSensitivity)
-            Hud(stats, session, controller.used.value, mouse.captured.value, onExit = { session.stop() })
-            Hotbar(selection, Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp))
-            if (world != null) SavedNotice(stats.saves, Modifier.align(Alignment.TopCenter).padding(top = 16.dp))
-        } else {
+        if (finished == null && inventory.open.value) {
+            InventoryPanel(inventory, selection, stats.counts, options.creative, onCraft = { session.craft(it) })
+        } else if (finished == null) {
+            if (!pause.open.value) TouchControls(session, lookSensitivity)
+            Hud(stats, session, controller.used.value, mouse, settings.showStats, onMenu = { pause.show() })
+            Hotbar(
+                selection,
+                stats.counts,
+                options.creative,
+                onInventory = { inventory.show() },
+                mouse = mouse,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
+            )
+            Column(
+                Modifier.align(Alignment.TopCenter).padding(top = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (stats.ready && stats.away) {
+                    Text(
+                        stringResource(R.string.blocks_away),
+                        color = Color(0xFFD9C8FF),
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                } else if (stats.ready && stats.day > 0) {
+                    Clock(stats)
+                }
+                if (stats.ready && stats.beacons > 0) BeaconCompass(stats)
+                if (stats.sheltered) {
+                    Text(
+                        stringResource(R.string.blocks_sheltered),
+                        color = Color(0xFFFFE3A8),
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
+                if (world != null) SavedNotice(stats.saves, Modifier)
+                EventNotice(stats.deaths, R.string.blocks_fainted)
+                EventNotice(stats.takes, R.string.blocks_taken, Color(0xAA3A2466))
+                AwayNotice(stats.ready, stats.away)
+            }
+            if (stats.grabbed) GrabOverlay(stats.grabPercent)
+            if (!options.creative) {
+                HealthBar(stats.healthTenths, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp))
+                HurtFlash(stats.hurts)
+            }
+            if (stats.aimingBeacon) {
+                Text(
+                    stringResource(if (options.creative) R.string.blocks_beacon_aim_free else R.string.blocks_beacon_aim),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.align(Alignment.Center).padding(top = 72.dp)
+                        .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                )
+            }
+            GoalDone(stats)
+            if (stats.aimingNote && !stats.aimingBeacon) {
+                Text(
+                    stringResource(R.string.blocks_note_aim),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.align(Alignment.Center).padding(top = 72.dp)
+                        .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                )
+            }
+            if (pause.open.value) PausePanel(pause, settings, onSettings, onSaveAndExit = { session.stop() }, notesFound = stats.notesFound)
+        }
+        if (finished != null) {
             // The pointer works normally again on the report.
             LaunchedEffect(Unit) { mouse.stop() }
             ReportPanel(finished, versionLine, inputLines(finished), onClose)
@@ -307,7 +490,7 @@ private fun TouchControls(session: BlocksSession, sensitivity: Float) {
     var stickKnob by remember { mutableStateOf(Offset.Zero) }
 
     Box(
-        Modifier.fillMaxSize().pointerInput(Unit) {
+        Modifier.fillMaxSize().pointerInput(lookPerPx) {
             var stickPointer: PointerId? = null
             val lookStart = mutableMapOf<PointerId, Offset>()
             val lookMoved = mutableMapOf<PointerId, Boolean>()
@@ -391,14 +574,16 @@ private fun Hud(
     stats: BlocksStats,
     session: BlocksSession,
     controllerUsed: Boolean,
-    mouseCaptured: Boolean,
-    onExit: () -> Unit,
+    mouse: MouseInput,
+    showStats: Boolean,
+    onMenu: () -> Unit,
 ) {
+    val mouseCaptured = mouse.captured.value
     Box(Modifier.fillMaxSize().padding(16.dp)) {
         Column(Modifier.align(Alignment.TopStart), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             if (!stats.ready) {
                 Text(stringResource(R.string.blocks_loading), color = Color.White)
-            } else {
+            } else if (showStats) {
                 Text(
                     stringResource(R.string.blocks_stats, stats.fps, stats.frameMillis, stats.triangles),
                     color = Color.White,
@@ -424,8 +609,8 @@ private fun Hud(
             }
             Text(stringResource(hint), color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
         }
-        OutlinedButton(onClick = onExit, modifier = Modifier.align(Alignment.TopEnd)) {
-            Text(stringResource(R.string.blocks_exit), color = Color.White)
+        OutlinedButton(onClick = onMenu, modifier = Modifier.align(Alignment.TopEnd).mouseClickArea(mouse, "menu")) {
+            Text(stringResource(R.string.blocks_menu), color = Color.White)
         }
         Row(Modifier.align(Alignment.BottomEnd), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             // These sit above the touch layer, so pressing them does not turn the camera.
@@ -439,32 +624,226 @@ private fun Hud(
     }
 }
 
-/** The blocks to build with; tap one to choose it. */
+/** The hotbar, the chosen block's name and count, and the inventory button. */
 @Composable
-private fun Hotbar(selection: BlockSelection, modifier: Modifier) {
-    val selected = selection.index.intValue
+private fun Hotbar(
+    selection: BlockSelection,
+    counts: List<Int>,
+    creative: Boolean,
+    onInventory: () -> Unit,
+    mouse: MouseInput,
+    modifier: Modifier,
+) {
+    val block = selection.block
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        val name = stringResource(block.label)
         Text(
-            stringResource(BuildBlock.entries[selected].label),
+            if (creative) name else stringResource(R.string.blocks_block_count, name, counts.getOrElse(block.ordinal) { 0 }),
             color = Color.White,
             style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
                 .padding(horizontal = 6.dp, vertical = 2.dp),
         )
-        Row(
-            Modifier.padding(top = 4.dp).background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
-                .padding(3.dp),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
+        Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            HotbarRow(selection, counts, creative)
+            // Above the touch layer, so pressing it does not turn the camera.
+            Box(
+                Modifier.padding(start = 6.dp).size(width = 44.dp, height = 36.dp)
+                    .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                    .mouseClickArea(mouse, "inventory")
+                    .clickable(onClick = onInventory),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(stringResource(R.string.blocks_inventory_short), color = Color.White, style = MaterialTheme.typography.labelMedium)
+            }
+        }
+    }
+}
+
+/** Where the nearest dark beacon is: an arrow turned towards it, how many are lit and how far. */
+@Composable
+private fun BeaconCompass(stats: BlocksStats) {
+    Row(
+        Modifier.background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (stats.beaconsLit < stats.beacons) {
+            Text(
+                stringResource(R.string.blocks_compass_arrow),
+                color = Color(0xFFBFF4FF),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.rotate(stats.beaconAngle.toFloat()),
+            )
+            Text(
+                stringResource(R.string.blocks_beacons_far, stats.beaconsLit, stats.beacons, stats.beaconDistance),
+                color = Color.White,
+                style = MaterialTheme.typography.labelLarge,
+            )
+        } else {
+            Text(pluralStringResource(R.plurals.blocks_beacons_all, stats.beacons, stats.beacons), color = Color(0xFFBFF4FF), style = MaterialTheme.typography.labelLarge)
+        }
+    }
+}
+
+/** Once, when the last beacon is lit: the world is finished, with the time it took. */
+@Composable
+private fun GoalDone(stats: BlocksStats) {
+    var seenDone by remember { mutableStateOf<Boolean?>(null) }
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(stats.ready, stats.goalDone) {
+        if (!stats.ready) return@LaunchedEffect
+        // A world finished before this session opens without the banner.
+        if (seenDone == null) seenDone = stats.goalDone else if (stats.goalDone && seenDone == false) {
+            seenDone = true
+            visible = true
+        }
+    }
+    if (!visible) return
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) {
+        Column(
+            Modifier.background(Color(0xEE14303A), RoundedCornerShape(10.dp)).padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            BuildBlock.entries.forEachIndexed { i, block ->
-                val shape = RoundedCornerShape(3.dp)
+            Text(stringResource(R.string.blocks_goal_done_title), color = Color.White, style = MaterialTheme.typography.headlineSmall)
+            Text(
+                stringResource(R.string.blocks_goal_done_text, formatDuration(stats.doneSeconds)),
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Button(onClick = { visible = false }) { Text(stringResource(R.string.blocks_keep_playing)) }
+        }
+    }
+}
+
+/** "1 h 05 min" or "12 min 30 s". */
+@Composable
+fun formatDuration(seconds: Int): String =
+    if (seconds >= 3600) {
+        stringResource(R.string.blocks_duration_hours, seconds / 3600, seconds % 3600 / 60)
+    } else {
+        stringResource(R.string.blocks_duration_minutes, seconds / 60, seconds % 60)
+    }
+
+/** The game's day and time, like "Day 2 · 18:40". */
+@Composable
+private fun Clock(stats: BlocksStats) {
+    Text(
+        stringResource(R.string.blocks_clock, stats.day, stats.clockMinutes / 60, stats.clockMinutes % 60),
+        color = Color.White,
+        style = MaterialTheme.typography.labelLarge,
+        modifier = Modifier.background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    )
+}
+
+/** Ten bars of health, red ones lost; it only shows when health is not full. */
+@Composable
+private fun HealthBar(tenths: Int, modifier: Modifier) {
+    if (tenths >= BlocksStats.MAX_HEALTH_TENTHS) return
+    Row(
+        modifier.background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(4.dp)).padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        repeat(BlocksStats.MAX_HEALTH_TENTHS / 10) { i ->
+            val fill = ((tenths - i * 10) / 10f).coerceIn(0f, 1f)
+            Box(Modifier.size(width = 14.dp, height = 8.dp).background(Color(0xFF5A1E1E), RoundedCornerShape(2.dp))) {
+                Box(Modifier.fillMaxHeight().fillMaxWidth(fill).background(Color(0xFFE8574A), RoundedCornerShape(2.dp)))
+            }
+        }
+    }
+}
+
+/** A short red flash over the screen each time the player is hurt. */
+@Composable
+private fun HurtFlash(hurts: Int) {
+    var seen by remember { mutableIntStateOf(hurts) }
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(hurts) {
+        if (hurts > seen) {
+            seen = hurts
+            visible = true
+            delay(250)
+            visible = false
+        }
+    }
+    if (visible) Box(Modifier.fillMaxSize().background(Color(0x55D02020)))
+}
+
+/** Says for a few seconds what happened, each time [count] goes up. */
+@Composable
+private fun EventNotice(count: Int, text: Int, background: Color = Color(0xAA6E1A1A)) {
+    var seen by remember { mutableIntStateOf(count) }
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(count) {
+        if (count > seen) {
+            seen = count
+            visible = true
+            delay(5000)
+            visible = false
+        }
+    }
+    if (visible) {
+        Text(
+            stringResource(text),
+            color = Color.White,
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.background(background, RoundedCornerShape(4.dp)).padding(horizontal = 10.dp, vertical = 4.dp),
+        )
+    }
+}
+
+/** Says where the player woke up when they reach the other side, and when they get back. */
+@Composable
+private fun AwayNotice(ready: Boolean, away: Boolean) {
+    var was by remember { mutableStateOf<Boolean?>(null) }
+    var text by remember { mutableIntStateOf(0) }
+    LaunchedEffect(ready, away) {
+        if (!ready) return@LaunchedEffect
+        val before = was
+        was = away
+        if (before == null || before == away) return@LaunchedEffect
+        text = if (away) R.string.blocks_away_arrived else R.string.blocks_away_back
+        delay(7000)
+        text = 0
+    }
+    if (text != 0) {
+        Text(
+            stringResource(text),
+            color = Color.White,
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.background(Color(0xAA3A2466), RoundedCornerShape(4.dp)).padding(horizontal = 10.dp, vertical = 4.dp),
+        )
+    }
+}
+
+/**
+ * While a night creature drags the player: the screen closes in, and a bar
+ * shows how far they have got free (each press of jump helps).
+ */
+@Composable
+private fun GrabOverlay(percent: Int) {
+    Box(
+        Modifier.fillMaxSize().background(
+            androidx.compose.ui.graphics.Brush.radialGradient(
+                0.35f to Color.Transparent,
+                1f to Color(0xE0100818),
+            ),
+        ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            Modifier.padding(top = 140.dp).background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(stringResource(R.string.blocks_grabbed), color = Color.White, style = MaterialTheme.typography.titleSmall)
+            Box(Modifier.size(width = 160.dp, height = 8.dp).background(Color(0xFF3A2466), RoundedCornerShape(3.dp))) {
                 Box(
-                    Modifier.size(if (i == selected) 32.dp else 28.dp)
-                        .align(Alignment.CenterVertically)
-                        .border(if (i == selected) 2.dp else 1.dp, if (i == selected) Color.White else block.accent, shape)
-                        .padding(3.dp)
-                        .background(block.color, shape)
-                        .clickable { selection.select(i) },
+                    Modifier.fillMaxHeight().fillMaxWidth((percent / 100f).coerceIn(0f, 1f))
+                        .background(Color(0xFFD9C8FF), RoundedCornerShape(3.dp)),
                 )
             }
         }
@@ -528,14 +907,18 @@ private fun ReportPanel(report: BlocksReport, versionLine: String, inputLines: L
         Text(stringResource(report.status.label()), color = Color.White)
         val averageFps = if (report.seconds > 0) report.stats.frames / report.seconds else 0.0
         Text(stringResource(R.string.blocks_summary, report.stats.frames, averageFps), color = Color.White)
+        val first = remember { FocusRequester() }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
+            Button(onClick = onClose, modifier = Modifier.focusRequester(first)) {
+                Text(stringResource(R.string.blocks_back_to_worlds))
+            }
+            OutlinedButton(onClick = {
                 scope.launch {
                     clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("HyPocket report", report.toShareText(versionLine, inputLines))))
                 }
-            }) { Text(stringResource(R.string.blocks_copy_report)) }
-            OutlinedButton(onClick = onClose) { Text(stringResource(R.string.blocks_close), color = Color.White) }
+            }) { Text(stringResource(R.string.blocks_copy_report), color = Color.White) }
         }
+        LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
     }
 }
 
@@ -557,8 +940,10 @@ private fun BlocksReport.toShareText(versionLine: String, inputLines: List<Strin
     appendLine("Renderer: ${renderer ?: "-"}")
     appendLine("Resolution: ${stats.width}x${stats.height}, 3D at ${stats.scalePercent}% at the end")
     appendLine("World built in: %.0f ms".format(stats.buildMillis))
-    appendLine("Heavy mode: ${options.heavy}, dynamic resolution: ${options.dynamicResolution}")
+    appendLine("Heavy mode: ${options.heavy}, dynamic resolution: ${options.dynamicResolution}, creative: ${options.creative}, time: ${options.dayMode}")
     appendLine("Frames: ${stats.frames} in %.1f s".format(seconds))
+    appendLine("Beacons: ${stats.beaconsLit} of ${stats.beacons} lit, goal done: ${stats.goalDone}, played ${stats.playSeconds} s")
+    appendLine("Time in the game at the end: day ${stats.day}, %02d:%02d".format(stats.clockMinutes / 60, stats.clockMinutes % 60))
     appendLine("Exit code: ${exitCode ?: "-"}")
     memory?.toLines()?.forEach { appendLine("Memory: $it") }
     appendLine("Audio: $audioInfo")

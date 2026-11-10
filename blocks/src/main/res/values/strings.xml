@@ -26,12 +26,12 @@
     <string name="blocks_delete">Delete</string>
     <string name="blocks_delete_text">The world and everything built in it are deleted for good.</string>
     <string name="blocks_delete_title">Delete “%1$s”?</string>
-    <string name="blocks_description">An original block game made for HyPocket, open source and not related to any other game. Build with 12 kinds of blocks and keep your worlds. It runs through the same path a real game will (x86-64 translator, desktop OpenGL and the direct display). Works with touch, game controllers, keyboards and mice (click to capture the pointer). The render scale, FPS limit, dynamic resolution and camera sensitivity are in Settings.</string>
-    <string name="blocks_exit">Exit</string>
+    <string name="blocks_description">An original block game made for HyPocket, open source and not related to any other game. Collect blocks and build with them (or pick creative mode for unlimited blocks), and keep your worlds. Your goal: light the five dark beacons hidden in the mist. Days pass and nights get dark: light them with lamps. It runs through the same path a real game will (x86-64 translator, desktop OpenGL and the direct display). Works with touch, game controllers, keyboards and mice (click to capture the pointer). The render scale, FPS limit, dynamic resolution and camera sensitivity are in Settings.</string>
+    <string name="blocks_menu">Menu</string>
     <string name="blocks_heavy">Heavy mode: 300 wandering creatures and a longer view (and a world four times larger in the quick game)</string>
-    <string name="blocks_hint">Left: walk · Right: drag to look, tap to break · Bottom: choose a block</string>
-    <string name="blocks_hint_controller">Left stick: walk · Right stick: look · A: jump · X/RT: break · B/LT: place · Y: next block · Start: exit</string>
-    <string name="blocks_hint_mouse">Mouse: move to look · Left button: break · Right button: place · Wheel or 1-9: block · WASD: walk · Space: jump · Esc: free the pointer</string>
+    <string name="blocks_hint">Left: walk · Right: drag to look, tap to break or hit · Bottom: choose a block</string>
+    <string name="blocks_hint_controller">Left stick: walk · Right stick: look · A: jump · X/RT: break or hit · B/LT: place · Y: next block · Select: inventory · Start: menu</string>
+    <string name="blocks_hint_mouse">Mouse: move to look · Left button: break or hit · Right button: place · Wheel or 1-9: block · I: inventory · WASD: walk · Space: jump · Esc: menu</string>
     <string name="blocks_jump">Jump</string>
     <string name="blocks_loading">Building the world…</string>
     <string name="blocks_new_world">New world</string>
@@ -50,7 +50,6 @@
     <string name="blocks_status_ended">The game ran and closed normally.</string>
     <string name="blocks_summary">%1$d frames, %2$.1f fps on average</string>
     <string name="blocks_title">HyPocket Blocks</string>
-    <string name="blocks_world_info">%1$s · %2$s</string>
     <string name="blocks_world_name">Name</string>
     <string name="blocks_world_new">not played yet</string>
     <string name="blocks_world_played">played %1$s</string>
@@ -64,6 +63,69 @@
     <string name="probe_status_failed">Failed: the translated program did not finish correctly.</string>
     <string name="probe_status_not_available">The translator is not available on this device.</string>
     <string name="probe_status_timed_out">Timed out: the translated program took too long.</string>
+    <string name="blocks_clock">Day %1$d · %2$02d:%3$02d</string>
+    <string name="blocks_block_count">%1$s · %2$d</string>
+    <string name="blocks_creative">Creative mode</string>
+    <string name="blocks_creative_on">Unlimited blocks of every kind. Nothing to collect.</string>
+    <string name="blocks_creative_off">Survival: break blocks to collect them, and build with what you collected.</string>
+    <string name="blocks_inventory">Inventory</string>
+    <string name="blocks_inventory_short">Bag</string>
+    <string name="blocks_inventory_hint">Choose a place in the bar, then the block to put there. Controller: d-pad and A, B closes. Keyboard: arrows and Enter, I closes.</string>
+    <string name="blocks_mode_creative">creative</string>
+    <string name="blocks_mode_survival">survival</string>
+    <string name="blocks_world_info_mode">%1$s · %2$s · %3$s</string>
+    <string name="blocks_day_mode">Time of day (for testing)</string>
+    <string name="blocks_day_cycle">15-minute days</string>
+    <string name="blocks_day_fast">2-minute days</string>
+    <string name="blocks_day_always_day">Always day</string>
+    <string name="blocks_day_always_night">Always night</string>
+    <string name="blocks_day_mode_hint">Holding the time does not change the time kept in the world: back on 15-minute days, it continues where it was.</string>
+    <string name="blocks_recipes">Recipes</string>
+    <string name="blocks_inventory_hint_recipes">Choose a place in the bar, then the block to put there, or tap a recipe to make it. Controller: d-pad and A, B closes. Keyboard: arrows and Enter, I closes.</string>
+    <string name="blocks_recipe_arrow" translatable="false">→</string>
+    <string name="blocks_peaceful">Peaceful</string>
+    <string name="blocks_peaceful_on">No creatures come for you. Falls still hurt.</string>
+    <string name="blocks_peaceful_off">At night, creatures come out of the dark and the mist to drag you away. Run: they cannot be killed. Lamps keep them away, outside the mist.</string>
+    <string name="blocks_mode_peaceful">peaceful</string>
+    <string name="blocks_fainted">You fainted and woke up at the start. What you carried is still with you.</string>
+    <string name="blocks_paused">Paused</string>
+    <string name="blocks_resume">Continue</string>
+    <string name="blocks_settings">Settings</string>
+    <string name="blocks_save_and_exit">Save and exit</string>
+    <string name="blocks_back">Back</string>
+    <string name="blocks_setting_sensitivity">Camera speed</string>
+    <string name="blocks_setting_view">View distance</string>
+    <string name="blocks_setting_resolution">3D resolution</string>
+    <string name="blocks_setting_volume">Volume</string>
+    <string name="blocks_setting_fps">FPS limit</string>
+    <string name="blocks_setting_stats">Show statistics</string>
+    <string name="blocks_setting_default">Default</string>
+    <plurals name="blocks_setting_blocks">
+        <item quantity="one">%1$d block</item>
+        <item quantity="other">%1$d blocks</item>
+    </plurals>
+    <string name="blocks_setting_no_limit">None</string>
+    <string name="blocks_rename">Rename</string>
+    <string name="blocks_duplicate">Duplicate</string>
+    <string name="blocks_save">Save</string>
+    <string name="blocks_copy_name">%1$s (copy)</string>
+    <string name="blocks_test_options">Test options…</string>
+    <string name="blocks_test_options_hide">Hide test options</string>
+    <string name="blocks_back_to_worlds">Back to worlds</string>
+    <string name="blocks_compass_arrow" translatable="false">▲</string>
+    <string name="blocks_beacons_far">Beacons %1$d/%2$d · %3$d m</string>
+    <plurals name="blocks_beacons_all">
+        <item quantity="one">The %1$d beacon is lit</item>
+        <item quantity="other">All %1$d beacons lit</item>
+    </plurals>
+    <string name="blocks_beacon_aim">Dark beacon: place to light it with 2 lamps and 3 glass</string>
+    <string name="blocks_beacon_aim_free">Dark beacon: place to light it</string>
+    <string name="blocks_goal_done_title">Every beacon is lit!</string>
+    <string name="blocks_goal_done_text">The mist is gone and the night creatures keep away. You finished this world in %1$s of play.</string>
+    <string name="blocks_keep_playing">Keep playing</string>
+    <string name="blocks_duration_hours">%1$d h %2$02d min</string>
+    <string name="blocks_duration_minutes">%1$d min %2$02d s</string>
+    <string name="blocks_world_completed">Finished in %1$s</string>
     <string name="blocks_close">Close</string>
     <string name="blocks_copy_report">Copy report</string>
     <string name="blocks_status_server_failed">Failed: the graphics server did not start.</string>
@@ -71,4 +133,78 @@
     <string name="blocks_status_failed">Failed: the translated program did not finish correctly.</string>
     <string name="blocks_status_not_available">The translator is not available on this device.</string>
     <string name="blocks_status_timed_out">Timed out: the translated program took too long.</string>
+    <string name="blocks_taken">Something dragged you into the mist…</string>
+    <string name="blocks_grabbed">It has you! Press jump again and again to break free</string>
+    <string name="blocks_sheltered">Sheltered: the mist and the creatures stay outside</string>
+
+    <!-- The story's notes (see StoryNotes.kt and blocks/docs/story.md). -->
+    <string name="story_note_0_title">To whoever comes</string>
+    <string name="story_note_0_text">They come with the mist and the dark. Whether they are one with the mist, or use it at night to hide from the light, we don’t know. The only thing those still alive know is that they don’t stop once they find you. They are clever, and they will do anything to drag you away. Where to? We have no idea either.\n\nAll we know is that they don’t seem to eat human flesh. So why take survivors and drag them to wherever their lair is? Again, we don’t know. The why is a frightening mystery. They take any living thing they find and drag it through the mist.\n\nThey are hard to kill. If you see one, don’t shoot and don’t try to fight: just run. That is the last desperate thing you can do to save your life. It is how I lived long enough to write this for those who will come here.\n\nAnd know this: if you are reading it, I am probably already dead.</string>
+    <string name="story_note_1_title">Mrs. Lurdes’s notebook</string>
+    <string name="story_note_1_text">Day 3. The mist demons came back. The priest used to say the end would come with fire, but it came with mist. I left the candle burning in the window. God will see it.\n\nDay 5. The neighbours left down the road. I am staying. This house has been mine for forty years.\n\nDay 6. The mist touched the window today. The candle flickered but did not go out. They stood outside, watching. They don’t come in where there is light and a closed door. Not yet.\n\nDay 9. The candles are gone.</string>
+    <string name="story_note_2_title">Mom</string>
+    <string-array name="story_note_2_chat">
+        <item>|mom where are u</item>
+        <item>|the mist got to school, they sent everyone home</item>
+        <item>Mom|Stay home, lock the door and turn on every light. I’m coming</item>
+        <item>|mom there’s something in the street</item>
+        <item>|tall, standing still, eyes glowing</item>
+        <item>|it’s looking at the window</item>
+        <item>Mom|Don’t open the door for anyone</item>
+        <item>|it’s not knocking. it’s waiting</item>
+        <item>|the kitchen light just died</item>
+        <item>|mom</item>
+        <item>Mom|Caio?</item>
+        <item>Mom|Caio answer me</item>
+        <item>Mom|I’m almost there, son</item>
+        <item>Mom|Caio</item>
+    </string-array>
+    <string name="story_note_3_title">Notes of R. Teixeira, tower technician</string>
+    <string name="story_note_3_text">The beacon towers were built before I was born. Nobody remembered what they were for. Now I know.\n\nThe mist is not smoke and not gas. It comes out of cracks in the air, one next to each dark tower. The air is torn there, and the other side is dark. I think the ones from over there come through them.\n\nWith the tower’s crystal lit, the crack closes. Relighting a crystal takes two lamps and three panes of glass. I relit one tower and the mist drew back at once.\n\nI’ll try the next one. If anyone finds this: light the towers.</string>
+    <string name="story_note_4_title">Acacia Street</string>
+    <string-array name="story_note_4_chat">
+        <item>Mr. Jorge|Folks, if anyone has spare bricks let me know</item>
+        <item>Bia|what for?</item>
+        <item>Mr. Jorge|To close up the back room. No window, no gap. The mist doesn’t get in where it’s sealed tight</item>
+        <item>Marta|and leave a light in there. they hate light</item>
+        <item>Bia|at home we call them shadows. my grandma says they’re souls</item>
+        <item>Mr. Jorge|Souls don’t drag people away, Bia</item>
+        <item>Marta|they took Toninho’s horse yesterday. pulled it into the mist and it was gone. not even blood</item>
+        <item>Bia|has anyone seen Toninho?</item>
+        <item>Mr. Jorge|Stay in the closed rooms. We’ll talk early tomorrow</item>
+        <item>Bia|guys?</item>
+        <item>Bia|is anyone there?</item>
+    </string-array>
+    <string name="story_note_5_title">Ana’s note</string>
+    <string name="story_note_5_text">Dad, Biscuit went out to bark at the mist and the shadows took him. I saw it. They didn’t bite him, they just pulled.\n\nHe’s coming back, right? I left his food by the door.\n\nI’m sorry I opened the door.\n\nAna</string>
+    <string name="story_note_6_title">Pedro</string>
+    <string-array name="story_note_6_chat">
+        <item>|Pedro, it’s me, Lucas</item>
+        <item>|I know it’s been two weeks</item>
+        <item>|I came back</item>
+        <item>Pedro|Lucas??? everyone thought you were dead</item>
+        <item>|they took me. dragged me through the mist and I blacked out</item>
+        <item>|I woke up somewhere with no day. dark ground, everything violet, and dozens of them walking around</item>
+        <item>|over there they run faster than us. running is no use</item>
+        <item>|light is no use either. I hid in a hole in the rock and closed it with whatever I found. they walked past and didn’t see me</item>
+        <item>|then I heard a hum. I followed it slowly and found a light. I walked into it and woke up in the woods</item>
+        <item>Pedro|where are you? I’ll come get you</item>
+        <item>|don’t come at night</item>
+        <item>|Pedro, there were other people there. alive. standing still</item>
+        <item>|I don’t think they want to kill us. I think they want something else</item>
+        <item>Pedro|Lucas?</item>
+    </string-array>
+    <string name="story_note_7_title">Torn leaflet</string>
+    <string name="story_note_7_text">THEY ARE NOT DEMONS. They are messengers.\n\nThose who are taken are chosen. The mist is a passage, not a plague.\n\nDO NOT LIGHT THE TOWERS. The light drives them away, and drives us away from the passage.\n\nI will wait for the mist with open arms. Come with me.</string>
+    <string name="story_note_8_title">Scratched on a stone</string>
+    <string name="story_note_8_text">I don’t know how many days. there is no day here.\n\nthey bring people and animals and leave them down deep, where the mist is thickest. nobody eats, nobody sleeps, nobody dies. they just stand there.\n\nI got out of the line. if you are reading this, you got out too.\n\ndon’t run. hide. light is no use here, only walls. and listen.</string>
+    <string name="blocks_note_aim">Read: use place</string>
+    <string name="blocks_notes">Notes found (%1$d of %2$d)</string>
+    <string name="blocks_notes_title">Notes found</string>
+    <string name="blocks_note_paper">Paper: %1$s</string>
+    <string name="blocks_note_phone">Phone: %1$s</string>
+    <string name="block_shade">Shade stone</string>
+    <string name="blocks_away">The other side</string>
+    <string name="blocks_away_arrived">You woke up somewhere with no day. Don’t run: hide behind walls, and listen.</string>
+    <string name="blocks_away_back">You are back. The mist let you go.</string>
 </resources>

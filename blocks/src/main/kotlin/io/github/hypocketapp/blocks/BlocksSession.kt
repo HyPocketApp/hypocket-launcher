@@ -51,6 +51,7 @@ class BlocksSession(context: Context) : AutoCloseable {
         }
         io.order(ByteOrder.LITTLE_ENDIAN)
         io.putInt(OFF_VERSION, 1)
+        io.putInt(OFF_VOLUME, 100)
         io.putInt(OFF_MAGIC, MAGIC)
     }
 
@@ -83,6 +84,31 @@ class BlocksSession(context: Context) : AutoCloseable {
     /** Places a block next to the one under the crosshair. */
     fun placeBlock() = synchronized(io) { io.putInt(OFF_PLACES, ++places) }
 
+    private var crafts = 0
+
+    /** Asks the game to make [recipe] once; it does if the player carries the inputs. */
+    fun craft(recipe: Recipe) = synchronized(io) {
+        for (k in 0 until 2) {
+            val input = recipe.inputs.getOrNull(k)
+            io.put(OFF_CRAFT + k * 2, (input?.first?.ordinal ?: NONE).toByte())
+            io.put(OFF_CRAFT + k * 2 + 1, (input?.second ?: 0).toByte())
+        }
+        io.put(OFF_CRAFT + 4, recipe.output.ordinal.toByte())
+        io.put(OFF_CRAFT + 5, recipe.count.toByte())
+        io.putInt(OFF_CRAFTS, ++crafts)
+    }
+
+    /** Holds the world still (the pause menu); it is still drawn, at 30 fps. */
+    fun setPaused(paused: Boolean) = synchronized(io) { io.putInt(OFF_PAUSED, if (paused) 1 else 0) }
+
+    /** Applies the in-game settings the game itself handles; they take effect on the next frame. */
+    fun applySettings(settings: BlocksSettings.Values) = synchronized(io) {
+        io.putInt(OFF_VIEW, settings.viewDistance)
+        io.putInt(OFF_VOLUME, settings.volumePercent)
+        io.putInt(OFF_FPS_SETTING, if (settings.fpsLimit == 0) -1 else settings.fpsLimit)
+        io.putInt(OFF_SCALE_MAX, settings.scalePercent)
+    }
+
     /** Chooses the block [placeBlock] places: an index into the game's building palette. */
     fun selectBlock(index: Int) = synchronized(io) { io.putInt(OFF_SELECTED, index) }
 
@@ -102,6 +128,29 @@ class BlocksSession(context: Context) : AutoCloseable {
                 scalePercent = io.getInt(OFF_SCALE),
                 creatures = io.getInt(OFF_CREATURES),
                 saves = io.getInt(OFF_SAVES),
+                clockMinutes = io.getInt(OFF_CLOCK),
+                day = io.getInt(OFF_DAY),
+                counts = List(COUNTS) { io.getShort(OFF_COUNTS + it * 2).toInt() },
+                finished = io.getInt(OFF_FINISHED) != 0,
+                healthTenths = io.getInt(OFF_HEALTH),
+                deaths = io.getInt(OFF_DEATHS),
+                hurts = io.getInt(OFF_HURTS),
+                nightNear = io.getInt(OFF_NIGHT_NEAR),
+                beacons = io.getInt(OFF_BEACONS),
+                beaconsLit = io.getInt(OFF_BEACONS + 4),
+                beaconAngle = io.getInt(OFF_BEACONS + 8),
+                beaconDistance = io.getInt(OFF_BEACONS + 12),
+                goalDone = io.getInt(OFF_BEACONS + 16) != 0,
+                playSeconds = io.getInt(OFF_BEACONS + 20),
+                doneSeconds = io.getInt(OFF_BEACONS + 24),
+                mistPercent = io.getInt(OFF_BEACONS + 28),
+                aimingBeacon = io.getInt(OFF_BEACONS + 32) != 0,
+                storyFlags = io.getInt(OFF_STORY),
+                grabPercent = io.getInt(OFF_STORY + 4),
+                notesOpened = io.getInt(OFF_STORY + 8),
+                noteId = io.getInt(OFF_STORY + 12),
+                notesFound = io.getInt(OFF_STORY + 16),
+                takes = io.getInt(OFF_STORY + 20),
             )
         }
 
@@ -124,6 +173,14 @@ class BlocksSession(context: Context) : AutoCloseable {
             if (options.dynamicResolution) put("HYPOCKET_BLOCKS_DYNAMIC", "1")
             if (options.heavy) put("HYPOCKET_BLOCKS_HEAVY", "1")
             if (options.benchmarkFrames > 0) put("HYPOCKET_BLOCKS_BENCH", "1")
+            if (options.creative) put("HYPOCKET_BLOCKS_CREATIVE", "1")
+            if (options.peaceful) put("HYPOCKET_BLOCKS_PEACEFUL", "1")
+            when (options.dayMode) {
+                DayMode.CYCLE -> {}
+                DayMode.FAST -> put("HYPOCKET_BLOCKS_DAY_SECONDS", DayMode.FAST_DAY_SECONDS.toString())
+                DayMode.ALWAYS_DAY -> put("HYPOCKET_BLOCKS_TIME_LOCK", "0.5")
+                DayMode.ALWAYS_NIGHT -> put("HYPOCKET_BLOCKS_TIME_LOCK", "0.0")
+            }
             options.world?.let { world ->
                 put("HYPOCKET_BLOCKS_SAVE", world.saveFile.absolutePath)
                 put("HYPOCKET_BLOCKS_CHUNKS", world.chunks.toString())
@@ -156,8 +213,13 @@ class BlocksSession(context: Context) : AutoCloseable {
         process = null
         val text = result.output
         return BlocksReport(
-            // The game says "blocks: ok" when it ran to the end.
-            status = if (result.status == DisplayStatus.PASSED && !text.contains("blocks: ok")) DisplayStatus.FAILED else result.status,
+            // The game marks the shared file (and says "blocks: ok") when it ran to the end.
+            // The output alone is not enough: the engine keeps only its start.
+            status = if (result.status == DisplayStatus.PASSED && !stats.finished && !text.contains("blocks: ok")) {
+                DisplayStatus.FAILED
+            } else {
+                result.status
+            },
             stats = stats,
             renderer = Regex("""blocks: GL_RENDERER (.*)""").find(text)?.groupValues?.get(1),
             exitCode = result.exitCode,
@@ -193,7 +255,7 @@ class BlocksSession(context: Context) : AutoCloseable {
         const val STOP_GRACE_MILLIS = 3000L
 
         // Must match SharedIo in blocks/game/blocks.c.
-        const val IO_SIZE = 128
+        const val IO_SIZE = 256
         const val MAGIC = 0x49425048
         const val OFF_MAGIC = 0
         const val OFF_VERSION = 4
@@ -208,6 +270,9 @@ class BlocksSession(context: Context) : AutoCloseable {
         const val OFF_LOOK_RATE_YAW = 40
         const val OFF_LOOK_RATE_PITCH = 44
         const val OFF_SELECTED = 48
+        const val OFF_CRAFTS = 52
+        const val OFF_CRAFT = 56
+        const val NONE = 255
         const val OFF_READY = 64
         const val OFF_FRAMES = 68
         const val OFF_FPS = 72
@@ -220,6 +285,22 @@ class BlocksSession(context: Context) : AutoCloseable {
         const val OFF_SCALE = 100
         const val OFF_CREATURES = 104
         const val OFF_SAVES = 108
+        const val OFF_CLOCK = 112
+        const val OFF_DAY = 116
+        const val OFF_FINISHED = 120
+        const val OFF_COUNTS = 128
+        const val COUNTS = 16
+        const val OFF_HEALTH = 160
+        const val OFF_DEATHS = 164
+        const val OFF_HURTS = 168
+        const val OFF_NIGHT_NEAR = 172
+        const val OFF_PAUSED = 176
+        const val OFF_VIEW = 180
+        const val OFF_VOLUME = 184
+        const val OFF_FPS_SETTING = 188
+        const val OFF_SCALE_MAX = 192
+        const val OFF_BEACONS = 196
+        const val OFF_STORY = 232
     }
 }
 
@@ -243,7 +324,65 @@ data class BlocksStats(
     val creatures: Int = 0,
     /** Times the game wrote the world to its save file. */
     val saves: Int = 0,
-)
+    /** Time of day in the game, in minutes after midnight. */
+    val clockMinutes: Int = 0,
+    /** Days passed in the world, from 1 (0 until the game reports it). */
+    val day: Int = 0,
+    /** Blocks the player carries, by index into the building palette. */
+    val counts: List<Int> = emptyList(),
+    /** The game saved and exited normally. */
+    val finished: Boolean = false,
+    /** The player's health in tenths of a point: 0 to [MAX_HEALTH_TENTHS]. */
+    val healthTenths: Int = MAX_HEALTH_TENTHS,
+    /** Times the player fainted and woke up at the start. */
+    val deaths: Int = 0,
+    /** Times the player was hurt (it goes up by one each time). */
+    val hurts: Int = 0,
+    /** Night creatures within 24 blocks. */
+    val nightNear: Int = 0,
+    /** Beacons in the world (the goal) and how many are lit. */
+    val beacons: Int = 0,
+    val beaconsLit: Int = 0,
+    /** Degrees from where the player looks to the nearest unlit beacon, right positive. */
+    val beaconAngle: Int = 0,
+    /** Blocks to the nearest unlit beacon. */
+    val beaconDistance: Int = 0,
+    /** Every beacon is lit. */
+    val goalDone: Boolean = false,
+    /** Time played in this world, and when the last beacon was lit. */
+    val playSeconds: Int = 0,
+    val doneSeconds: Int = 0,
+    /** How thick the mist is where the player stands. */
+    val mistPercent: Int = 0,
+    /** The crosshair is on an unlit beacon. */
+    val aimingBeacon: Boolean = false,
+    /** The story's state: [GRABBED], [SHELTERED], [AIMING_NOTE] and [AWAY] bits. */
+    val storyFlags: Int = 0,
+    /** While grabbed: how far the player has got free, 0 to 100. */
+    val grabPercent: Int = 0,
+    /** Goes up each time the player opens a note; [noteId] is the one opened last. */
+    val notesOpened: Int = 0,
+    val noteId: Int = 0,
+    /** One bit per note found (see StoryNotes). */
+    val notesFound: Int = 0,
+    /** Times the player was dragged away by a night creature. */
+    val takes: Int = 0,
+) {
+    val grabbed: Boolean get() = storyFlags and GRABBED != 0
+    val sheltered: Boolean get() = storyFlags and SHELTERED != 0
+    val aimingNote: Boolean get() = storyFlags and AIMING_NOTE != 0
+    val away: Boolean get() = storyFlags and AWAY != 0
+
+    companion object {
+        const val MAX_HEALTH_TENTHS = 100
+
+        // Must match STORY_* in blocks.c.
+        const val GRABBED = 1
+        const val SHELTERED = 2
+        const val AIMING_NOTE = 4
+        const val AWAY = 8
+    }
+}
 
 /** What the game does beyond the defaults. */
 data class BlocksOptions(
@@ -255,6 +394,12 @@ data class BlocksOptions(
     val benchmarkFrames: Int = 0,
     /** A saved world to load and save; without one, a fresh world nobody keeps. */
     val world: BlocksWorld? = null,
+    /** How time passes: the normal day, a fast one, or held at noon or midnight (for testing). */
+    val dayMode: DayMode = DayMode.CYCLE,
+    /** No night creatures (they never attack); falls still hurt. */
+    val peaceful: Boolean = false,
+    /** Unlimited blocks, nothing collected (quick games, and worlds made creative). */
+    val creative: Boolean = true,
     /** Wandering creatures outside heavy mode (heavy mode always has 300). */
     val creatures: Int = 0,
     /** More environment for the game (Mesa and Box64 options under test). */
@@ -262,6 +407,28 @@ data class BlocksOptions(
     /** More environment for the VirGL server (its options under test). */
     val serverEnv: Map<String, String> = emptyMap(),
 )
+
+/** How time passes in a game. Holding the time never changes the time kept in the world's save. */
+enum class DayMode {
+    /** A full day every 15 minutes. */
+    CYCLE,
+
+    /** A full day every [FAST_DAY_SECONDS] seconds, to see a day pass quickly. */
+    FAST,
+
+    /** Held at noon. */
+    ALWAYS_DAY,
+
+    /** Held at midnight, to test lamps and the night. */
+    ALWAYS_NIGHT,
+    ;
+
+    companion object {
+        const val FAST_DAY_SECONDS = 120
+
+        fun fromName(name: String?): DayMode = entries.firstOrNull { it.name == name } ?: CYCLE
+    }
+}
 
 data class BlocksReport(
     val status: DisplayStatus,
