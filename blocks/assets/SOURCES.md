@@ -12,4 +12,4 @@ no mesmo commit que o arquivo. Regras em [README.md](README.md).
 
 | Arquivo | Autor | Ferramenta | Como | Pedido | Data |
 |---|---|---|---|---|---|
-| `audio/sfx/campfire.ogg` | Autor do projeto | Adobe Firefly (áudio), variação 2 | Gerado; juntado em mono, emenda do loop suavizada (0,15 s), convertido para Ogg Vorbis. Content Credentials do original: https://cai-manifests.adobe.com/manifests/urn-c2pa-414c7353-717b-43f8-ad5c-8648b5faf4b2-adobe (também no comentário PROVENANCE do arquivo) | "O fogo crepitante emite estalos suaves e chiados s…" (início do pedido, do nome do arquivo) | 2026-11-10 |
+| `audio/sfx/campfire.ogg` | Autor do projeto | Adobe Firefly (áudio), variação 2 | Gerado; juntado em mono, emenda do loop suavizada (0,15 s), convertido para Ogg Vorbis. Content Credentials do original: https://cai-manifests.adobe.com/manifests/urn-c2pa-414c7353-717b-43f8-ad5c-8648b5faf4b2-adobe (também no comentário PROVENANCE do arquivo) | "O fogo crepitante emite estalos suaves e chiados suaves" | 2026-11-10 |
