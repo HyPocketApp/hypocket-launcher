@@ -213,6 +213,19 @@ static int lang_pt;
 static const char* T(int id) { return (lang_pt ? strings_pt : strings_en)[id]; }
 static const char* const* TA(int id) { return (lang_pt ? arrays_pt : arrays_en)[id]; }
 
+/* A thing in the palette: the base ones from generated.h, the mods' from mods.c. */
+static const char* thing_label(int p) {
+    if (p >= UI_THINGS) return mod_things[palette[p]].label[lang_pt];
+    return thing_label(p);
+}
+static int thing_kind(int p) { return p >= UI_THINGS ? mod_things[palette[p]].kind : ui_things[p].kind; }
+static uint32_t thing_color(int p) { return p >= UI_THINGS ? mod_things[palette[p]].color : ui_things[p].color; }
+static uint32_t thing_accent(int p) {
+    if (p < UI_THINGS) return ui_things[p].accent;
+    const ModThing* m = &mod_things[palette[p]];
+    return m->accent ? m->accent : m->color;
+}
+
 static void detect_language(void) {
     const char* forced = getenv("HYPOCKET_BLOCKS_LANG");
 #ifdef _WIN32
@@ -253,7 +266,7 @@ static void notice(uint32_t color, const char* text) {
 }
 
 static int thing_count(int p) { return creative ? 1 : inventory[palette[p]]; }
-static int thing_usable(int p) { return ui_things[p].kind == THING_BLOCK || ui_things[p].kind == THING_FOOD; }
+static int thing_usable(int p) { return thing_kind(p) == THING_BLOCK || thing_kind(p) == THING_FOOD; }
 
 static void save_hotbar(void) {
     if (!hotbar_path[0]) return;
@@ -274,11 +287,11 @@ static void save_settings(SharedIo* io) {
 }
 
 static void screens_start(SharedIo* io, const char* save_path) {
-    _Static_assert(UI_THINGS == PALETTE_SIZE, "BlocksPalette.kt and palette[] must list the same things");
+    _Static_assert(UI_THINGS == BASE_PALETTE, "BlocksPalette.kt and palette[] must list the same things");
     detect_language();
     ui_init();
     for (int i = 0, n = 0; i < PALETTE_SIZE && n < HOTBAR; i++)
-        if (thing_usable(i) && ui_things[i].kind == THING_BLOCK) hotbar[n++] = i;
+        if (thing_kind(i) == THING_BLOCK) hotbar[n++] = i;
     if (save_path) {
         snprintf(hotbar_path, sizeof hotbar_path, "%s.hotbar", save_path);
         FILE* f = fopen(hotbar_path, "r");
@@ -369,9 +382,8 @@ static int ui_button(float x, float y, float w, float h, const char* label, int 
 }
 
 static void ui_icon(float x, float y, float size, int p) {
-    const UiThing* t = &ui_things[p];
-    uint32_t c = t->color | 0xFF000000u, a = t->accent | 0xFF000000u;
-    if (t->kind == THING_BLOCK) {
+    uint32_t c = thing_color(p) | 0xFF000000u, a = thing_accent(p) | 0xFF000000u;
+    if (thing_kind(p) == THING_BLOCK) {
         ui_rect(x, y, size, size, c);
         ui_rect(x, y + size * 0.7f, size, size * 0.3f, a);
     } else { /* items: a smaller shape with its accent */
@@ -415,8 +427,8 @@ static void draw_hud(SharedIo* io, float dt) {
     }
     char line[200];
     int p = hotbar[hot_sel];
-    if (creative) snprintf(line, sizeof line, "%s", T(ui_things[p].label));
-    else snprintf(line, sizeof line, T(STR_blocks_block_count), T(ui_things[p].label), thing_count(p));
+    if (creative) snprintf(line, sizeof line, "%s", thing_label(p));
+    else snprintf(line, sizeof line, T(STR_blocks_block_count), thing_label(p), thing_count(p));
     ui_label_centered(ui_w / 2.0f, by - 11 * s, s, 0xFFFFFFFF, line);
 
     /* Health, food and warmth, above the hotbar. */
@@ -451,15 +463,15 @@ static void draw_hud(SharedIo* io, float dt) {
     /* Notices: what was picked up, a missing tool, fainting, being taken. */
     if (io->picks != seen_picks) {
         seen_picks = io->picks;
-        if (io->picked >= 0 && io->picked < UI_THINGS) {
-            snprintf(line, sizeof line, T(STR_blocks_picked), T(ui_things[io->picked].label));
+        if (io->picked >= 0 && io->picked < PALETTE_SIZE) {
+            snprintf(line, sizeof line, T(STR_blocks_picked), thing_label(io->picked));
             notice(0xFFB8F0B8, line);
         }
     }
     if (io->needs != seen_needs) {
         seen_needs = io->needs;
-        if (io->needed >= 0 && io->needed < UI_THINGS) {
-            snprintf(line, sizeof line, T(STR_blocks_needs_tool), T(ui_things[io->needed].label));
+        if (io->needed >= 0 && io->needed < PALETTE_SIZE) {
+            snprintf(line, sizeof line, T(STR_blocks_needs_tool), thing_label(io->needed));
             notice(0xFFFFE08A, line);
         }
     }
@@ -523,15 +535,15 @@ static void draw_inventory(SharedIo* io) {
         open_screen(SCR_NONE, io);
         return;
     }
-    int recipes = !creative;
-    float gx = px + 8 * s, gy = py + 22 * s, gw = recipes ? pw * 0.45f : pw - 16 * s, gh = ph - 30 * s;
+    int with_recipes = !creative;
+    float gx = px + 8 * s, gy = py + 22 * s, gw = with_recipes ? pw * 0.45f : pw - 16 * s, gh = ph - 30 * s;
     float cell = 18 * s;
     int cols = (int)(gw / cell);
     if (cols < 1) cols = 1;
     /* The things: click one to put it in the chosen hotbar place. */
-    int shown[PALETTE_SIZE], n = 0;
+    int shown[MAX_PALETTE], n = 0;
     for (int p = 0; p < PALETTE_SIZE; p++)
-        if (creative ? ui_things[p].kind == THING_BLOCK : thing_count(p) > 0) shown[n++] = p;
+        if (creative ? thing_kind(p) == THING_BLOCK : thing_count(p) > 0) shown[n++] = p;
     int rows = (n + cols - 1) / cols;
     float content = rows * cell;
     if (pointer_in(gx, gy, gw, gh) && in->wheel) things_scroll -= in->wheel * cell;
@@ -551,7 +563,7 @@ static void draw_inventory(SharedIo* io) {
         for (int h = 0; h < HOTBAR; h++)
             if (hotbar[h] == p) ui_frame_rect(x, y, cell - s, cell - s, s, h == hot_sel ? 0xFFFFFFFF : 0x80FFFFFF);
         if (hover) {
-            hovered = T(ui_things[p].label);
+            hovered = thing_label(p);
             if (in->clicks) assign_hotbar(p);
         }
     }
@@ -560,18 +572,18 @@ static void draw_inventory(SharedIo* io) {
     for (int k = 0; k < HOTBAR; k++)
         if (key_down(BLOCKS_KEY_HOTBAR_1 + k)) hot_sel = k;
 
-    if (!recipes) return;
+    if (!with_recipes) return;
     /* Recipes: inputs -> output, with the tool or workstation they need. */
     float rx = px + pw * 0.5f, ry = gy, rw = pw * 0.5f - 8 * s, row = 22 * s;
     ui_text(rx, py + 12 * s, 1, 0xFFB0B8C8, T(STR_blocks_recipes));
-    content = UI_RECIPES * row;
+    content = recipe_count * row;
     if (pointer_in(rx, ry, rw, gh) && in->wheel) recipes_scroll -= in->wheel * row;
     recipes_scroll = fmaxf(0, fminf(recipes_scroll, fmaxf(0, content - gh)));
     int stations = io->survival_flags & (SURVIVAL_NEAR_KILN | SURVIVAL_NEAR_STOVE | SURVIVAL_NEAR_CAMPFIRE);
-    for (int r = 0; r < UI_RECIPES; r++) {
+    for (int r = 0; r < recipe_count; r++) {
         float y = ry + r * row - recipes_scroll;
         if (y < ry - 1 || y + row > ry + gh + 1) continue;
-        const UiRecipe* rc = &ui_recipes[r];
+        const UiRecipe* rc = &recipes[r];
         int enough = 1;
         for (int k = 0; k < 2; k++)
             if (rc->input[k] >= 0 && thing_count(rc->input[k]) < rc->amount[k]) enough = 0;
@@ -594,15 +606,15 @@ static void draw_inventory(SharedIo* io) {
         x += ui_text(x, y + 4 * s, 1, 0xFFB0B8C8, T(STR_blocks_recipe_arrow)) + 4 * s;
         ui_icon(x, y + 2 * s, 10 * s, rc->output);
         x += 11 * s;
-        snprintf(text, sizeof text, "%d %s", rc->count, T(ui_things[rc->output].label));
+        snprintf(text, sizeof text, "%d %s", rc->count, thing_label(rc->output));
         ui_text(x, y + 4 * s, 1, can ? 0xFFFFFFFF : 0xFFA0A0A0, text);
         char need[120] = "";
         if (rc->tool >= 0) {
-            snprintf(text, sizeof text, T(STR_blocks_recipe_tool), T(ui_things[rc->tool].label));
+            snprintf(text, sizeof text, T(STR_blocks_recipe_tool), thing_label(rc->tool));
             snprintf(need, sizeof need, "%s", text);
         }
         if (rc->station >= 0) {
-            snprintf(text, sizeof text, T(STR_blocks_recipe_station), T(ui_things[rc->station].label));
+            snprintf(text, sizeof text, T(STR_blocks_recipe_station), thing_label(rc->station));
             size_t used = strlen(need);
             snprintf(need + used, sizeof need - used, "%s%s", used ? " · " : "", text);
         }

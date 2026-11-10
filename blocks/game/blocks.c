@@ -264,15 +264,18 @@ enum { STICK = ITEM_BASE, FLINT, KNIFE, SAW, AXE, PICK, BERRIES, RAW_MEAT, COOKE
 #define THING_TYPES 96 /* blocks and items: the size of the inventory */
 
 /* Blocks that give light (lamp light, see chunk_light). */
-static int gives_light(int b) { return b == LAMP || b == BEACON_ON || b == CAMPFIRE; }
+static int gives_light(int b);
 
 /* What the player carries and builds with, in the order the app shows it
  * (must match BlocksPalette.kt): blocks first, then items. */
-static const int palette[] = {PLANKS, STONE_BRICKS, BRICKS, GLASS, ROOF, PLASTER, LAMP,
-                              WOOD, STONE, DIRT, SAND, LEAVES, SHADE, KILN, STOVE, CAMPFIRE,
-                              STICK, FLINT, KNIFE, SAW, AXE, PICK, BERRIES, RAW_MEAT, COOKED_MEAT, FRIED_MEAT,
-                              FAT, HIDE, WOOL, COAT};
-#define PALETTE_SIZE ((int)(sizeof palette / sizeof palette[0]))
+/* Mods add their things after these (see mods.c), up to 48 in all. */
+#define BASE_PALETTE 30
+static int palette[48] = {PLANKS, STONE_BRICKS, BRICKS, GLASS, ROOF, PLASTER, LAMP,
+                          WOOD, STONE, DIRT, SAND, LEAVES, SHADE, KILN, STOVE, CAMPFIRE,
+                          STICK, FLINT, KNIFE, SAW, AXE, PICK, BERRIES, RAW_MEAT, COOKED_MEAT, FRIED_MEAT,
+                          FAT, HIDE, WOOL, COAT};
+static int palette_size = BASE_PALETTE;
+#define PALETTE_SIZE palette_size
 
 /* Where a block or item is in palette[], or -1. */
 static int palette_index(int thing) {
@@ -286,6 +289,11 @@ enum { T_GRASS_TOP, T_GRASS_SIDE, T_DIRT, T_STONE, T_SAND, T_WOOD_SIDE, T_WOOD_T
        T_STONE_BRICKS, T_BRICKS, T_GLASS, T_ROOF, T_PLASTER, T_LAMP, T_BEACON_OFF, T_BEACON_ON, T_SHADE,
        T_KILN, T_KILN_FRONT, T_STOVE_TOP, T_STOVE_SIDE, LAYERS };
 
+static int creative; /* unlimited blocks, nothing collected */
+
+/* Mods: things, recipes, textures and sounds from the world's mods folder. */
+#include "mods.c"
+
 static uint8_t world[MAX_W][WY][MAX_W];
 
 static int block_at(int x, int y, int z) {
@@ -295,13 +303,22 @@ static int block_at(int x, int y, int z) {
 }
 
 /* Blocks that hide the faces behind them. */
-static int is_opaque(int b) { return b != AIR && b != WATER && b != LEAVES && b != GLASS && b != CAMPFIRE; }
-static int is_solid(int b) { return b != AIR && b != WATER; }
+static int is_opaque(int b) {
+    if (is_mod_block(b)) return !mod_things[b].transparent;
+    return b != AIR && b != WATER && b != LEAVES && b != GLASS && b != CAMPFIRE;
+}
+static int is_solid(int b) { return is_mod_block(b) ? mod_things[b].solid : b != AIR && b != WATER; }
 /* Drawn after the opaque world, blended. */
-static int is_clear(int b) { return b == WATER || b == GLASS; }
+static int is_clear(int b) { return b == WATER || b == GLASS || (is_mod_block(b) && mod_things[b].transparent); }
+/* Blocks that give light (lamp light, see chunk_light). */
+static int gives_light(int b) { return b == LAMP || b == BEACON_ON || b == CAMPFIRE || (is_mod_block(b) && mod_things[b].light); }
 
 static int texture_for(int block, int face) {
     /* face: 0 +x, 1 -x, 2 +y (top), 3 -y, 4 +z, 5 -z */
+    if (is_mod_block(block)) {
+        int k = face == 2 ? 0 : face == 3 ? 2 : 1;
+        return mod_things[block].layer[k] >= 0 ? mod_things[block].layer[k] : T_STONE;
+    }
     switch (block) {
     case GRASS: return face == 2 ? T_GRASS_TOP : face == 3 ? T_DIRT : T_GRASS_SIDE;
     case DIRT: return T_DIRT;
@@ -606,7 +623,8 @@ static void mesh_chunk(int ci, int cj) {
 #define TEX 16
 
 static void make_textures(void) {
-    static uint8_t px[LAYERS][TEX][TEX][4];
+    static uint8_t px[LAYERS + MAX_MOD_LAYERS][TEX][TEX][4];
+    memcpy(px[LAYERS], mod_pixels, sizeof mod_pixels[0] * (size_t)mod_layers);
     for (int l = 0; l < LAYERS; l++)
         for (int y = 0; y < TEX; y++)
             for (int x = 0; x < TEX; x++) {
@@ -713,7 +731,7 @@ static void make_textures(void) {
     GLuint tex;
     p_glGenTextures(1, &tex);
     p_glBindTexture(GL_TEXTURE_2D_ARRAY, tex);
-    p_glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, TEX, TEX, LAYERS, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    p_glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, TEX, TEX, LAYERS + mod_layers, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
     p_glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
     p_glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
     p_glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -947,7 +965,6 @@ static int world_changed; /* since the last save */
 #define MAX_CARRIED 9999
 #define MAX_HEALTH 10.0f
 static uint16_t inventory[THING_TYPES]; /* blocks and items carried, by id */
-static int creative;                    /* unlimited blocks, nothing collected */
 
 /* Adds n of a block or item to what the player carries, up to MAX_CARRIED. */
 static void give(int thing, int n) {
@@ -1000,6 +1017,7 @@ static int craft(const uint8_t* c, int stations) {
 
 /* What breaking a block gives: the block itself, except grass gives dirt. */
 static int drop_for(int block) {
+    if (is_mod_block(block)) return mod_things[block].drops >= 0 ? mod_things[block].drops : AIR;
     if (block == GRASS) return DIRT;
     if (block == AIR || block == WATER) return AIR;
     return block;
@@ -1781,6 +1799,12 @@ static int pickup_on_ray(const float* o, const float* d, float max_t, float* t) 
 static int blows_for(int b, int* tool) {
     *tool = AIR;
     if (creative) return 1;
+    if (is_mod_block(b)) {
+        const ModThing* m = &mod_things[b];
+        if (m->tool > 0 && inventory[m->tool]) return m->tool_blows > 0 ? m->tool_blows : 1;
+        if (m->tool > 0) *tool = m->tool;
+        return m->blows;
+    }
     switch (b) {
     case STONE: case STONE_BRICKS: case BRICKS: case PLASTER: case ROOF: case KILN: case STOVE:
         *tool = PICK;
@@ -1807,6 +1831,7 @@ static void extra_drops(int block, int x, int y, int z) {
 /* How much eating something fills the player (0: not food). Cooked food
  * fills more, and meat fried in fat the most. */
 static float food_value(int item) {
+    if (is_mod_thing(item)) return mod_things[item].food;
     switch (item) {
     case BERRIES: return 1.0f;
     case RAW_MEAT: return 1.5f;
@@ -2243,6 +2268,13 @@ static void block_color(int block, float* out) {
         {0.86f, 0.84f, 0.78f}, {1.00f, 0.84f, 0.50f}, {0.36f, 0.38f, 0.46f}, {0.75f, 0.97f, 1.00f},
         {0.17f, 0.13f, 0.23f}, {0.56f, 0.47f, 0.40f}, {0.24f, 0.24f, 0.26f}, {1.00f, 0.55f, 0.15f},
     };
+    if (is_mod_thing(block)) {
+        uint32_t c = mod_things[block].color;
+        out[0] = ((c >> 16) & 255) / 255.0f;
+        out[1] = ((c >> 8) & 255) / 255.0f;
+        out[2] = (c & 255) / 255.0f;
+        return;
+    }
     memcpy(out, colors[block < BLOCK_TYPES ? block : PLANKS], sizeof(colors[0]));
 }
 
@@ -2871,10 +2903,13 @@ static void* audio_thread(void* unused) {
 static const char* media_dir;
 
 static int load_sound(const char* name, Sound* out) {
-    if (!media_dir || audio.rate <= 0) return 0;
-    char path[1024];
-    snprintf(path, sizeof path, "%s/%s", media_dir, name);
-    if (access(path, R_OK) != 0) return 0;
+    if (audio.rate <= 0) return 0;
+    char path[2200];
+    if (!mod_sound_path(name, path, sizeof path)) {
+        if (!media_dir) return 0;
+        snprintf(path, sizeof path, "%s/%s", media_dir, name);
+        if (access(path, R_OK) != 0) return 0;
+    }
     int channels = 0, rate = 0;
     short* pcm = NULL;
     int frames = stb_vorbis_decode_filename(path, &channels, &rate, &pcm);
@@ -3099,7 +3134,7 @@ int blocks_main(int argc, char** argv) {
                    "must match BlocksSession.kt");
     _Static_assert(__builtin_offsetof(SharedIo, all_counts) == 256 && __builtin_offsetof(SharedIo, food_tenths) == 352,
                    "must match BlocksSession.kt");
-    _Static_assert(PALETTE_SIZE <= 48 && BLOCK_TYPES <= ITEM_BASE && ITEM_END <= THING_TYPES, "room for every thing");
+    _Static_assert(BASE_PALETTE <= 48 && BLOCK_TYPES <= ITEM_BASE && ITEM_END <= THING_TYPES, "room for every thing");
     _Static_assert(__builtin_offsetof(SharedIo, crafts) == 52 && __builtin_offsetof(SharedIo, craft) == 56,
                    "must match BlocksSession.kt");
     int w = argc > 1 ? atoi(argv[1]) : 1200;
@@ -3215,6 +3250,7 @@ int blocks_main(int argc, char** argv) {
     p_glUniform1f(p_glGetUniformLocation(world_program, "glow_layer2"), (float)T_BEACON_ON);
     p_glUseProgram(hud_program);
     p_glUniform2f(p_glGetUniformLocation(hud_program, "pixel"), 2.0f / w * (h / 540.0f), 2.0f / h * (h / 540.0f));
+    load_mods(getenv("HYPOCKET_BLOCKS_SAVE"));
     make_textures();
 
     int heavy = getenv("HYPOCKET_BLOCKS_HEAVY") != NULL;

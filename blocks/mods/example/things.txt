@@ -1,0 +1,20 @@
+# New things. See blocks/game/mods.c for every key.
+
+[block glow_stone]
+name = Glowing stone
+name.pt = Pedra brilhante
+color = #E0C860
+accent = #8A6A20
+texture = textures/glow_stone.png
+light = 1
+blows = 0
+tool = pick
+tool_blows = 2
+
+[item roasted_berries]
+name = Roasted berries
+name.pt = Frutinhas assadas
+kind = food
+food = 2.5
+color = #8A2A3A
+accent = #E0A040

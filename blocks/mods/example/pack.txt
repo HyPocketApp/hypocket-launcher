@@ -1,0 +1,5 @@
+name = Example
+name.pt = Exemplo
+version = 1
+description = A small mod that shows each part of a mod: a new block, a new food, recipes and a script.
+description.pt = Um mod pequeno que mostra cada parte de um mod: um bloco novo, uma comida nova, receitas e um script.

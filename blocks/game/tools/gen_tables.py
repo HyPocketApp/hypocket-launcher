@@ -145,6 +145,9 @@ def generate():
     ]
     lines += [f"    {{STR_{label}, 0x{c:08X}u, 0x{a:08X}u, THING_{kind}}}, /* {n} */" for n, label, c, a, kind in rows]
     lines += ["};", ""]
+    lines.append("/* Their names in data packs and scripts (BuildBlock's, lower case). */")
+    lines.append("static const char* const ui_thing_names[UI_THINGS] = {" + ", ".join(c_string(n.lower()) for n in thing_names) + "};")
+    lines.append("")
     lines += [
         "typedef struct {",
         "    int8_t input[2], amount[2]; /* palette indices (-1: none) and how many */",

@@ -609,6 +609,9 @@ static const UiThing ui_things[UI_THINGS] = { /* in palette order */
     {STR_item_coat, 0xFF8C5E38u, 0xFFEDEDE6u, THING_CLOTHING}, /* COAT */
 };
 
+/* Their names in data packs and scripts (BuildBlock's, lower case). */
+static const char* const ui_thing_names[UI_THINGS] = {"planks", "stone_bricks", "bricks", "glass", "roof", "plaster", "lamp", "wood", "stone", "dirt", "sand", "leaves", "shade", "kiln", "stove", "campfire", "stick", "flint", "knife", "saw", "axe", "pick", "berries", "raw_meat", "cooked_meat", "fried_meat", "fat", "hide", "wool", "coat"};
+
 typedef struct {
     int8_t input[2], amount[2]; /* palette indices (-1: none) and how many */
     int8_t output, count;
