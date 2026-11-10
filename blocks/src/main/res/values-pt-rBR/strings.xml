@@ -30,6 +30,13 @@
     <string name="blocks_menu">Menu</string>
     <string name="blocks_heavy">Modo pesado: 300 criaturas andando e visão mais longa (e mundo quatro vezes maior no jogo rápido)</string>
     <string name="blocks_emulated">Rodar emulado: o jogo como programa de PC pelo motor do launcher (mais lento; testa o motor)</string>
+    <string name="blocks_profile">Perfil</string>
+    <string name="blocks_profile_name">Seu nome</string>
+    <string name="blocks_voice">Voz</string>
+    <string name="blocks_voice_female">Feminina</string>
+    <string name="blocks_voice_male">Masculina</string>
+    <string name="blocks_profile_hint">Seu nome e a voz da sua personagem, em todos os mundos (o nome é para o multiplayer, mais tarde).</string>
+    <string name="blocks_voice_next_time">A voz muda na próxima vez que você jogar.</string>
     <string name="blocks_hint">Esquerda: andar · Direita: arraste para olhar, toque para quebrar ou golpear · Embaixo: escolha o bloco</string>
     <string name="blocks_hint_controller">Analógico esquerdo: andar · Direito: olhar · A: pular · X/RT: quebrar ou golpear · B/LT: colocar · Y: próximo bloco · Select: inventário · Start: menu</string>
     <string name="blocks_hint_mouse">Mouse: mexa para olhar · Botão esquerdo: quebrar ou golpear · Direito: colocar · Roda ou 1-9: bloco · I: inventário · WASD: andar · Espaço: pular · Esc: menu</string>

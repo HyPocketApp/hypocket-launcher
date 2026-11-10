@@ -48,6 +48,7 @@ import io.github.hypocketapp.blocks.BlocksWorld
 import io.github.hypocketapp.blocks.BlocksWorlds
 import io.github.hypocketapp.blocks.R
 import io.github.hypocketapp.blocks.BlocksConfig
+import io.github.hypocketapp.blocks.BlocksProfile
 import io.github.hypocketapp.blocks.DayMode
 
 /**
@@ -83,6 +84,8 @@ fun BlocksHomeScreen(config: () -> BlocksConfig, modifier: Modifier = Modifier) 
     ) {
         Text(stringResource(R.string.blocks_title), style = MaterialTheme.typography.headlineSmall)
         Text(stringResource(R.string.blocks_description), style = MaterialTheme.typography.bodySmall)
+
+        ProfileCard()
 
         Text(stringResource(R.string.blocks_worlds), style = MaterialTheme.typography.titleSmall)
         if (worlds.isEmpty()) {
@@ -358,4 +361,44 @@ private fun sizeLabel(chunks: Int): Int = when (chunks) {
     8 -> R.string.blocks_size_small
     16 -> R.string.blocks_size_medium
     else -> R.string.blocks_size_large
+}
+
+/** The player's name and the protagonist's voice, kept for every world. */
+@Composable
+private fun ProfileCard() {
+    val context = LocalContext.current
+    val profile = remember { BlocksProfile(context) }
+    var name by rememberSaveable { mutableStateOf(profile.name) }
+    var voice by remember { mutableStateOf(profile.voice) }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(stringResource(R.string.blocks_profile), style = MaterialTheme.typography.titleSmall)
+            OutlinedTextField(
+                value = name,
+                onValueChange = {
+                    name = BlocksProfile.clean(it).let { kept -> if (it.endsWith(' ') && kept.isNotEmpty()) "$kept " else kept }
+                    profile.name = name
+                },
+                label = { Text(stringResource(R.string.blocks_profile_name)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(stringResource(R.string.blocks_voice), style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                BlocksProfile.Voice.entries.forEach { option ->
+                    FilterChip(
+                        selected = voice == option,
+                        onClick = {
+                            voice = option
+                            profile.voice = option
+                        },
+                        label = {
+                            Text(stringResource(if (option == BlocksProfile.Voice.MALE) R.string.blocks_voice_male else R.string.blocks_voice_female))
+                        },
+                    )
+                }
+            }
+            Text(stringResource(R.string.blocks_profile_hint), style = MaterialTheme.typography.bodySmall)
+        }
+    }
 }

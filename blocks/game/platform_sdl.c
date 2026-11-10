@@ -5,6 +5,7 @@
  *
  * Usage: blocks [--world <file>] [--seed <n>] [--chunks <8|16|24>]
  *               [--creative] [--peaceful] [--fps <limit>] [--size <w>x<h>]
+ *               [--name <player name>]
  * Without --world the game keeps one world in the user's data folder. Sound
  * files are read from a "media" folder next to the program, if there is one.
  *
@@ -217,6 +218,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(a, "--fps") && next) fps = atoi(argv[++i]);
         else if (!strcmp(a, "--size") && next) sscanf(argv[++i], "%dx%d", &w, &h);
         else if (!strcmp(a, "--frames") && next) frames = atoi(argv[++i]); /* for tests: walk on its own, then exit */
+        else if (!strcmp(a, "--name") && next) SDL_setenv("HYPOCKET_BLOCKS_PLAYER_NAME", argv[++i], 1);
         else {
             fprintf(stderr, "usage: %s [--world <file>] [--seed <n>] [--chunks <8|16|24>] [--creative] [--peaceful] "
                             "[--fps <limit>] [--size <w>x<h>]\n", argv[0]);
@@ -253,6 +255,15 @@ int main(int argc, char** argv) {
         char path[4096];
         snprintf(path, sizeof path, "%ssettings.txt", prefs);
         set_default("HYPOCKET_BLOCKS_SETTINGS", path);
+        /* The profile (voice and name) is kept with the settings (screens.c). */
+        FILE* f = fopen(getenv("HYPOCKET_BLOCKS_SETTINGS"), "r");
+        char line[128];
+        while (f && fgets(line, sizeof line, f)) {
+            line[strcspn(line, "\r\n")] = 0;
+            if (!strncmp(line, "voice ", 6)) set_default("HYPOCKET_BLOCKS_VOICE", line + 6);
+            else if (!strncmp(line, "name ", 5)) set_default("HYPOCKET_BLOCKS_PLAYER_NAME", line + 5);
+        }
+        if (f) fclose(f);
         SDL_free(prefs);
     }
 

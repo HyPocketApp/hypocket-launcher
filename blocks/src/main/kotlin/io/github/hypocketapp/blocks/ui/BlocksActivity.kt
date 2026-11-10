@@ -65,6 +65,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import io.github.hypocketapp.blocks.BlocksBenchmark
 import io.github.hypocketapp.blocks.BlocksConfig
 import io.github.hypocketapp.blocks.BlocksOptions
+import io.github.hypocketapp.blocks.BlocksProfile
 import io.github.hypocketapp.blocks.BlocksRecipes
 import io.github.hypocketapp.blocks.BlocksSettings
 import io.github.hypocketapp.blocks.BlocksReport
@@ -207,6 +208,10 @@ class BlocksActivity : ComponentActivity() {
                         dayMode = dayMode,
                         creatures = if (heavy) 0 else NORMAL_CREATURES,
                         native = native,
+                        extraEnv = BlocksProfile.environment(
+                            intent.getStringExtra(EXTRA_NAME).orEmpty(),
+                            intent.getStringExtra(EXTRA_VOICE).orEmpty(),
+                        ),
                     ),
                     onClose = { finish() },
                 )
@@ -292,6 +297,8 @@ class BlocksActivity : ComponentActivity() {
         private const val EXTRA_WORLD = "world"
         private const val EXTRA_BENCHMARK = "benchmark"
         private const val EXTRA_EMULATED = "emulated"
+        private const val EXTRA_NAME = "player_name"
+        private const val EXTRA_VOICE = "player_voice"
 
         /** Creatures outside heavy mode: some life without the heavy load. */
         private const val NORMAL_CREATURES = 40
@@ -308,8 +315,10 @@ class BlocksActivity : ComponentActivity() {
             dayMode: DayMode = DayMode.CYCLE,
             emulated: Boolean = false,
         ) {
+            val profile = BlocksProfile(context)
             val intent = Intent(context, BlocksActivity::class.java).putExtra(EXTRA_HEAVY, heavy).putExtra(EXTRA_WORLD, world?.id)
                 .putExtra(EXTRA_DAY_MODE, dayMode.name).putExtra(EXTRA_EMULATED, emulated)
+                .putExtra(EXTRA_NAME, profile.name).putExtra(EXTRA_VOICE, profile.voice.code)
             context.startActivity(config.putInto(intent))
         }
 

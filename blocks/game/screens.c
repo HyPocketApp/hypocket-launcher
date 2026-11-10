@@ -216,7 +216,7 @@ static const char* const* TA(int id) { return (lang_pt ? arrays_pt : arrays_en)[
 /* A thing in the palette: the base ones from generated.h, the mods' from mods.c. */
 static const char* thing_label(int p) {
     if (p >= UI_THINGS) return mod_things[palette[p]].label[lang_pt];
-    return thing_label(p);
+    return T(ui_things[p].label);
 }
 static int thing_kind(int p) { return p >= UI_THINGS ? mod_things[palette[p]].kind : ui_things[p].kind; }
 static uint32_t thing_color(int p) { return p >= UI_THINGS ? mod_things[palette[p]].color : ui_things[p].color; }
@@ -249,6 +249,8 @@ static int screen = SCR_NONE, screen_note = -1, note_from_list, screen_opened; /
 static int hotbar[HOTBAR], hot_sel;
 static int focus, focus_count, confirm_pressed; /* keyboard focus on the screens' buttons */
 static int show_stats, sensitivity_percent = 100, captured_now = -1;
+static char voice = 'f', voice_started = 'f'; /* the profile's voice, and the one this game plays */
+static char player_name[32];
 static float recipes_scroll, things_scroll;
 static char hotbar_path[4200], settings_path[4200];
 
@@ -284,8 +286,9 @@ static void save_settings(SharedIo* io) {
     if (!settings_path[0]) return;
     FILE* f = fopen(settings_path, "w");
     if (!f) return;
-    fprintf(f, "volume %d\nview %d\nfps %d\nsensitivity %d\nstats %d\n", io->volume_percent, io->view_distance,
-            io->fps_setting, sensitivity_percent, show_stats);
+    fprintf(f, "volume %d\nview %d\nfps %d\nsensitivity %d\nstats %d\nvoice %c\n", io->volume_percent,
+            io->view_distance, io->fps_setting, sensitivity_percent, show_stats, voice);
+    if (player_name[0]) fprintf(f, "name %s\n", player_name);
     fclose(f);
 }
 
@@ -313,10 +316,16 @@ static void screens_start(SharedIo* io, const char* save_path) {
     if (settings) {
         snprintf(settings_path, sizeof settings_path, "%s", settings);
         FILE* f = fopen(settings_path, "r");
-        char key[32];
+        char line[128], key[32];
         int value;
-        while (f && fscanf(f, "%31s %d", key, &value) == 2) {
-            if (!strcmp(key, "volume")) io->volume_percent = value;
+        while (f && fgets(line, sizeof line, f)) {
+            if (sscanf(line, "%31s", key) != 1) continue;
+            const char* rest = line + strlen(key);
+            while (*rest == ' ') rest++;
+            value = atoi(rest);
+            if (!strcmp(key, "voice")) voice = *rest == 'm' ? 'm' : 'f';
+            else if (!strcmp(key, "name")) snprintf(player_name, sizeof player_name, "%.*s", (int)strcspn(rest, "\r\n"), rest);
+            else if (!strcmp(key, "volume")) io->volume_percent = value;
             else if (!strcmp(key, "view")) io->view_distance = value;
             else if (!strcmp(key, "fps")) io->fps_setting = value;
             else if (!strcmp(key, "sensitivity")) sensitivity_percent = value;
@@ -324,6 +333,11 @@ static void screens_start(SharedIo* io, const char* save_path) {
         }
         if (f) fclose(f);
     }
+    const char* v = getenv("HYPOCKET_BLOCKS_VOICE");
+    if (v) voice = v[0] == 'm' ? 'm' : 'f';
+    voice_started = voice;
+    const char* n = getenv("HYPOCKET_BLOCKS_PLAYER_NAME");
+    if (n && *n) snprintf(player_name, sizeof player_name, "%s", n);
     seen_picks = io->picks;
     seen_needs = io->needs;
     seen_deaths = io->deaths;
@@ -675,7 +689,7 @@ static int setting_row(float x, float y, float w, const char* name, const char* 
 
 static void draw_settings(SharedIo* io) {
     int s = ui_s;
-    float pw = fminf(ui_w - 20.0f * s, 360.0f * s), ph = 140 * s, px = (ui_w - pw) / 2, py = (ui_h - ph) / 2;
+    float pw = fminf(ui_w - 20.0f * s, 360.0f * s), ph = 168 * s, px = (ui_w - pw) / 2, py = (ui_h - ph) / 2;
     float x = px + 10 * s, w = pw - 20 * s, y = py + 24 * s, step = 19 * s;
     ui_rect(0, 0, ui_w, ui_h, 0x99000000);
     ui_panel(px, py, pw, ph);
@@ -721,6 +735,13 @@ static void draw_settings(SharedIo* io) {
         show_stats = !show_stats;
         changed = 1;
     }
+    y += step;
+    snprintf(v, sizeof v, "%s", T(voice == 'm' ? STR_blocks_voice_male : STR_blocks_voice_female));
+    if (setting_row(x, y, w, T(STR_blocks_voice), v)) {
+        voice = voice == 'm' ? 'f' : 'm';
+        changed = 1;
+    }
+    if (voice != voice_started) ui_text(x, y + 16 * s, 1, 0xFFB0B8C8, T(STR_blocks_voice_next_time));
     if (changed) save_settings(io);
     float bw = ui_text_width(T(STR_blocks_back), s) + 16 * s;
     if (ui_button(px + pw - bw - 10 * s, py + ph - 20 * s, bw, 14 * s, T(STR_blocks_back), 1) || (!screen_opened && key_down(BLOCKS_KEY_MENU)))

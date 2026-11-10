@@ -298,6 +298,10 @@ static int creative; /* unlimited blocks, nothing collected */
 /* Mods: things, recipes, textures and sounds from the world's mods folder. */
 #include "mods.c"
 
+/* The protagonist's sounds (see Audio), played from anywhere. */
+enum { PS_GRAB, PS_STRUGGLE, PS_FREE, PS_TAKEN, PS_WAKE_OTHER, PS_BACK, PS_HURT, PS_FAINT, PS_EAT, PLAYER_SOUNDS };
+static void play_player(int which, float gain);
+
 static uint8_t world[MAX_W][WY][MAX_W];
 
 static int block_at(int x, int y, int z) {
@@ -2212,6 +2216,7 @@ static int update_night(float dt, uint32_t tick, int is_night, float px, float p
             grab_grace <= 0 && !sheltered) {
             grab_by = i;
             grab_time = grab_escape = 0;
+            play_player(PS_GRAB, 0.9f);
             /* Off towards the nearest mist, or simply away the way it came. */
             float bd;
             int k = nearest_unlit(c->x, c->z, &bd);
@@ -2618,6 +2623,7 @@ static void enter_other_side(Player* p, int visit) {
  * at the start (caught again). */
 static void leave_other_side(Player* p, int to_start, float spawn_x, float spawn_y, float spawn_z) {
     if (!away) return;
+    if (!to_start) play_player(PS_BACK, 0.9f);
     world_chunks = home_chunks;
     size_t done = 0, cells = (size_t)WX * WY * WZ, k = 0;
     for (size_t i = 0; i + 1 < home_size && done < cells; i += 2) {
@@ -2803,8 +2809,8 @@ static Sound make_sound(float seconds, int kind) {
 }
 
 /* Starts a sound; pan -1 (left) to 1 (right). Callable from the game loop. */
-static void play_sound(int id, float gain, float pan, float pitch) {
-    if (!audio.ring) return;
+static void play_sound_data(const Sound* sound, float gain, float pan, float pitch) {
+    if (!audio.ring || !sound->data) return;
     pthread_mutex_lock(&audio.lock);
     Voice* v = NULL;
     for (int i = 0; i < VOICES && !v; i++)
@@ -2812,13 +2818,50 @@ static void play_sound(int id, float gain, float pan, float pitch) {
     if (!v) v = &audio.voices[0]; /* all busy: steal the first */
     if (pan < -1) pan = -1;
     if (pan > 1) pan = 1;
-    v->sound = &audio.sounds[id];
+    v->sound = sound;
     v->pos = 0;
     v->frac = 0;
     v->pitch = pitch;
     v->left = gain * sqrtf(0.5f * (1 - pan));
     v->right = gain * sqrtf(0.5f * (1 + pan));
     pthread_mutex_unlock(&audio.lock);
+}
+
+static void play_sound(int id, float gain, float pan, float pitch) { play_sound_data(&audio.sounds[id], gain, pan, pitch); }
+
+/* The protagonist's voice (story.md, "Décima rodada"): from the sound
+ * files' player/f/ or player/m/, as the player's profile chose
+ * (HYPOCKET_BLOCKS_VOICE), each with up to four takes (<name>_1.ogg...) that
+ * take turns. Without the files, the protagonist is silent. */
+static const char* const player_sound_names[PLAYER_SOUNDS] = {"grab", "struggle", "free", "taken", "wake_other",
+                                                              "back", "hurt", "faint", "eat"};
+#define TAKES 4
+static Sound player_sounds[PLAYER_SOUNDS][TAKES];
+static int player_takes[PLAYER_SOUNDS], player_next[PLAYER_SOUNDS];
+
+static int load_sound(const char* name, Sound* out);
+
+static void load_player_voice(void) {
+    const char* v = getenv("HYPOCKET_BLOCKS_VOICE");
+    char voice = v && v[0] == 'm' ? 'm' : 'f';
+    for (int i = 0; i < PLAYER_SOUNDS; i++) {
+        char name[96];
+        snprintf(name, sizeof name, "player/%c/%s.ogg", voice, player_sound_names[i]);
+        if (load_sound(name, &player_sounds[i][0])) {
+            player_takes[i] = 1;
+            continue;
+        }
+        for (int k = 0; k < TAKES; k++) {
+            snprintf(name, sizeof name, "player/%c/%s_%d.ogg", voice, player_sound_names[i], k + 1);
+            if (load_sound(name, &player_sounds[i][player_takes[i]])) player_takes[i]++;
+        }
+    }
+}
+
+static void play_player(int which, float gain) {
+    if (!player_takes[which]) return;
+    int k = player_next[which]++ % player_takes[which];
+    play_sound_data(&player_sounds[which][k], gain, 0, 1.0f);
 }
 
 /* Mixes frames into the ring: the active voices plus wind and birds. */
@@ -2989,6 +3032,7 @@ static void start_audio_ring(AudioRing* ring) {
     for (int i = 0; i < LOOPS; i++) load_sound(loop_files[i], &audio.loops[i].sound);
     if (!audio.loops[LOOP_CAMPFIRE].sound.data) audio.loops[LOOP_CAMPFIRE].sound = make_sound(4.0f, SOUNDS);
     audio.loops[LOOP_WIND].target = 0.5f;
+    load_player_voice();
     audio.samples = (int16_t*)((char*)ring + 64);
     audio.ring = ring;
     audio.running = 1;
@@ -3532,7 +3576,10 @@ int blocks_main(int argc, char** argv) {
         if (grab_by >= 0) {
             mx = my = 0;
             jump_held = 0;
-            if (jump_pressed && !paused) grab_escape += 0.13f;
+            if (jump_pressed && !paused) {
+                grab_escape += 0.13f;
+                play_player(PS_STRUGGLE, 0.8f);
+            }
         }
         float len = sqrtf(mx * mx + my * my);
         if (len > 1) { mx /= len; my /= len; }
@@ -3654,6 +3701,7 @@ int blocks_main(int argc, char** argv) {
                         inventory[thing]--;
                         food = fminf(MAX_FOOD, food + food_value(thing));
                         io->eats++;
+                        play_player(PS_EAT, 0.6f);
                         scripts_thing("on_eat", thing, 1);
                         world_changed = 1;
                         play_sound(SND_STEP2, 0.5f, 0, 1.7f);
@@ -3896,6 +3944,7 @@ int blocks_main(int argc, char** argv) {
                 grab_by = -1;
                 grab_grace = 2.5f;
                 play_sound(SND_JUMP, 0.6f, 0, 0.7f);
+                play_player(PS_FREE, 0.8f);
                 printf("blocks: got free\n");
             } else if (grab_time >= (away ? GRAB_SECONDS * 0.66f : GRAB_SECONDS)) {
                 taken = 1;
@@ -3904,6 +3953,8 @@ int blocks_main(int argc, char** argv) {
         if (taken && !away) { /* dragged through the mist, to the other side */
             io->takes++;
             health = MAX_HEALTH;
+            play_player(PS_TAKEN, 1.0f);
+            play_player(PS_WAKE_OTHER, 0.9f);
             printf("blocks: the player was taken\n");
             enter_other_side(&player, io->takes);
             world_changed = 1;
@@ -3970,12 +4021,14 @@ int blocks_main(int argc, char** argv) {
                 calm = 6;
                 io->hurts++;
                 play_sound(SND_STEP, 0.9f, 0, 0.55f);
+                if (health > 0) play_player(PS_HURT, 0.8f);
             }
             if (health <= 0) { /* fainted: wake up at the starting point */
                 food = fmaxf(food, 4.0f); /* a little strength comes back */
                 warmth = fmaxf(warmth, 6.0f);
                 io->deaths++;
                 health = MAX_HEALTH;
+                play_player(PS_FAINT, 0.9f);
                 player.x = spawn_x;
                 player.y = spawn_y;
                 player.z = spawn_z;
