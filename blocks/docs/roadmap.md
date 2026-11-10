@@ -117,11 +117,14 @@ do motor do launcher.
 
 Como os mods funcionam (decidido com o autor):
 
-- **Sem limite dentro do jogo.** O próprio jogo oficial vira o "mod base",
-  feito com os mesmos pacotes e Lua que qualquer um usa. Então um mod pode
-  trocar, tirar ou refazer qualquer coisa, até virar outro jogo. O C fica só
-  com o que precisa ser rápido (desenhar, montar os blocos, física), sempre
-  exposto para o Lua.
+- **Sem limite dentro do jogo, sem pesar na batata.** O jogo oficial
+  continua em C, rápido, mas cada sistema dele (fome, frio, criaturas,
+  receitas, geração do mundo, telas) pode ser trocado por um mod. Se nenhum
+  mod troca, roda o C puro, sem custo de Lua; o conteúdo (blocos, itens,
+  receitas, sons) já sai dos mesmos pacotes de dados que os mods usam, lidos
+  uma vez ao abrir. Um mod pode tirar ou refazer qualquer coisa, até virar
+  outro jogo, e só paga desempenho pelo que ele mesmo põe em Lua. Cada passo
+  é medido no M12.
 - **O limite é só fora do jogo:** um mod não lê nem apaga arquivos fora da
   pasta dele e do mundo, não acessa a internet sozinho e não roda programas.
   É isso que protege o celular de quem entra num mundo com mods.
@@ -129,6 +132,12 @@ Como os mods funcionam (decidido com o autor):
   mundo (ou servidor) baixa os mods sozinho e joga, sem instalar nada antes.
   Isso só é seguro e portável porque os mods são dados e Lua, e não código
   compilado: o mesmo mod roda no PC e no celular.
+- **Servidores grandes:** o autor mira 1000 a 3000 jogadores num servidor
+  oficial de mod (mapa fixo, com menos sistemas). Isso pede servidor
+  dedicado (PC ou nuvem, não celular), servidor que decide tudo e manda a
+  cada jogador só o que está perto dele, e, acima de algumas centenas,
+  dividir o mapa entre vários processos. Fica para o épico do multiplayer,
+  mas a rede e o formato dos mods já nascem pensando nisso.
 
 ### 6. Desempenho no M12
 
