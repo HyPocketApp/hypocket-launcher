@@ -23,7 +23,8 @@ mouse): o retorno foi positivo, e os bugs que ele achou (menu com o mouse,
 sair da água, buraco na água) foram corrigidos. Planejamento em épicos no
 Jira (`HPK`, rótulo `blocks`), na ordem combinada em "Sexta rodada":
 HPK-22 sobrevivência, HPK-23 sobreviventes, HPK-24 cientista e finais,
-HPK-25 vozes, HPK-26 acabamento, HPK-27 desempenho no M12.
+HPK-25 vozes, HPK-26 acabamento, HPK-27 desempenho no M12. O mesmo plano,
+para quem trabalha sem o Jira, está em [roadmap.md](roadmap.md).
 Próxima rodada: a sobrevivência (épico 1).
 
 ## A história, como foi contada
@@ -398,6 +399,20 @@ Chamar de "monstro" é demais: eles são um povo. Apelido de trabalho: **Nocs**.
   **solução química** específica acorda o petrificado; voltar ao escuro não
   basta. Essa solução pode estar no próprio laboratório do cientista.
 
+## Sétima rodada: depois do chefe
+
+- **A solução química é loot do covil.** O experimento estava nas anotações
+  do cientista: a curiosidade o levava a testar os limites da sanidade e do
+  que ele podia fazer.
+- **De laboratório a museu:** o covil vira uma atração turística, escurecido
+  com uma luz que não afeta os Nocs.
+- **Vidros especiais**, inventados pelo cientista ao estudar os Nocs e a
+  dimensão deles: não quebram. Por isso a luta contra o chefe não se repete,
+  e o jogo entra em **modo livre**.
+- **O que fica na sala do chefe:** uma ou algumas coisas foram mantidas. Uma
+  delas é a produção da substância de despetrificação, que o jogador pode
+  coletar e usar nos Nocs petrificados.
+
 ## O que entra (primeira rodada)
 
 | Parte | Já existe no jogo? | Observação |
@@ -428,7 +443,8 @@ Chamar de "monstro" é demais: eles são um povo. Apelido de trabalho: **Nocs**.
   levados, que o Lucas viu: fica lá ou do outro lado?
 - Qual dos dois finais é o "verdadeiro", ou se os dois valem.
 - O laboratório: um jogador só, ou até uns 10 com o cientista se adaptando?
-- Quem usa a solução química que acorda os petrificados, e quando?
+- Despetrificar um Noc no modo livre: o que acontece com ele depois (fica
+  grato, vai embora, volta para casa)? E o cientista: pode ser acordado?
 - A revelação de que a névoa e os Nocturnes são coisas diferentes: em qual
   relato, ou num relato novo do outro lado?
 - Nome oficial dos Nocturnes; o apelido de trabalho é "Nocs". No jogo eles

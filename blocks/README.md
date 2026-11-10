@@ -32,7 +32,7 @@ phone's GPU, and the direct display.
 | `src/main/kotlin/.../ui/` | The home screen (worlds), the game screen with its inventory and pause menu, touch, controller and mouse input, and the benchmark screen. |
 | `src/main/kotlin/.../BlocksRecipes.kt` | The recipes, one table. |
 | `src/main/kotlin/.../StoryNotes.kt` | The story's notes and phones (their words are in the string resources). |
-| `docs/` | The story ([story.md](docs/story.md)), the player's open past and the goal ideas it grew from. |
+| `docs/` | The story ([story.md](docs/story.md)), the work plan ([roadmap.md](docs/roadmap.md)), voice scripts, the player's open past and the goal ideas it grew from. |
 | `src/main/kotlin/.../BlocksSettings.kt` | The settings changed in the game's own settings screen. |
 
 ## Boundaries
