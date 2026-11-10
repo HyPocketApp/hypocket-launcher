@@ -31,7 +31,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
@@ -106,9 +105,7 @@ fun PausePanel(
 ) {
     // Covers the game: touches here never reach the touch controls.
     Box(
-        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)).pointerInput(Unit) {
-            awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } }
-        },
+        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)).coverGame(),
         contentAlignment = Alignment.Center,
     ) {
         Column(

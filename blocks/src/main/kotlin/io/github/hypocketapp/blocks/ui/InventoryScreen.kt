@@ -25,7 +25,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -116,9 +115,7 @@ fun InventoryPanel(
 ) {
     // Covers the game: touches here never turn the camera or break blocks.
     Box(
-        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)).pointerInput(Unit) {
-            awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } }
-        },
+        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)).coverGame(),
         contentAlignment = Alignment.Center,
     ) {
         Column(
