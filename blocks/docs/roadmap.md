@@ -29,7 +29,7 @@ A história e as decisões estão em [story.md](story.md); os roteiros de voz em
 | 4 | Vozes | HPK-25 | Jogo já toca arquivos; sons sendo gerados |
 | 5 | Acabamento | HPK-26 | A fazer |
 | 6 | Desempenho no M12 | HPK-27 | Contínuo |
-| 7 | Base nativa (celular e PC) e mods | ainda sem tarefa | A fazer |
+| 7 | Base nativa (celular e PC) e mods | ainda sem tarefa | Primeira versão no jogo; falta testar no celular e no Windows |
 
 **Ordem de agora:** terminar o áudio do épico 4 (o jogo tocar os sons
 gerados), depois o **7**, depois o 2, o 3 e o resto. O 7 vem antes dos
@@ -101,32 +101,44 @@ Android nativo e um programa de PC (Windows e Linux). A versão emulada
 (x86-64 rodando pelo Box64) continua existindo, para não quebrar os testes
 do motor do launcher.
 
-- [ ] **Gráficos para os dois:** o jogo funcionando com OpenGL ES 3 (celular)
-  e OpenGL de PC, com as mesmas telas.
-- [ ] **App Android nativo,** sem Box64 nem VirGL: o ganho maior de
-  desempenho no M12.
-- [ ] **Versão de PC** com SDL2 (janela, teclado, mouse, controle e som
-  iguais em todo lugar).
-- [ ] **Telas dentro do jogo:** inventário, menu, barra de itens, fome e
-  frio desenhados pelo próprio jogo, para ficarem iguais no celular e no PC
-  (hoje são do app Android). É a maior parte do trabalho.
-- [ ] **Mods, pacotes de dados:** blocos, itens, receitas, sons, texturas e
-  modelos do Blockbench descritos em arquivos.
-- [ ] **Mods, scripts em Lua:** lógica nova (criaturas, eventos, mecânicas,
-  telas, geração do mundo).
-- [ ] **Mods em qualquer linguagem (WebAssembly):** quem quiser escreve em
-  C, C++, Rust, Zig ou outra que gere WebAssembly; o arquivo `.wasm` roda
-  igual no PC e no celular, protegido como o Lua e bem mais rápido que ele.
-  Lua fica para o que é simples; Wasm para o que é pesado.
+- [x] **Gráficos para os dois:** o jogo roda em OpenGL ES 3 (celular) e
+  OpenGL 3.3 (PC), pelo mesmo código (`platform.h`).
+- [x] **App Android nativo,** sem Box64 nem VirGL (`platform_android.c`,
+  `libblocks.so`). É o padrão; "Rodar emulado" nas opções de teste usa o
+  programa x86-64 pelo motor, e o benchmark continua emulado.
+- [x] **Versão de PC** com SDL2, Linux e Windows (`platform_sdl.c`,
+  `build-pc.sh`): teclado, mouse, controle, som, janela que muda de tamanho
+  e tela cheia (F11).
+- [x] **Telas dentro do jogo** (`screens.c`): barra de itens, vida, fome e
+  calor, avisos, inventário com receitas, menu, ajustes e relatos, em
+  português e inglês, e controles de toque. Os textos, as coisas e as
+  receitas vêm do lado Android por um gerador (`tools/gen_tables.py`), para
+  não haver duas cópias.
+- [x] **Mods, pacotes de dados** (`mods.c`): blocos e itens novos, receitas,
+  texturas PNG e sons. Guia em [mods.md](mods.md).
+- [x] **Mods, scripts em Lua** (`scripts.c`): eventos e chamadas para o
+  mundo, o inventário, vida, fome, calor e hora; afinar e trocar a fome e o
+  frio do jogo.
+- [x] **Mods em qualquer linguagem (WebAssembly)** (`scripts_wasm.c`, com
+  wasm3): as mesmas chamadas do Lua.
+- [x] **Perfil do jogador:** nome e voz (feminina ou masculina); o jogo toca
+  os sons da protagonista da pasta da voz escolhida.
+- [ ] Testar no Galaxy M12 (nativo) e numa máquina Windows.
+- [ ] Modelos do Blockbench nos pacotes de dados (épico 5, com os modelos).
+- [ ] Trocar pelos mods mais sistemas do jogo (criaturas, geração do mundo,
+  telas) e dar limite de tempo ao WebAssembly.
+- [ ] No celular, as telas do jogo como padrão em todo mundo (hoje só nos
+  mundos com mods ou com a opção de teste), e as configurações delas salvas.
+- [ ] Na versão de PC, uma tela de mundos (hoje um mundo só, ou `--world`).
 
 Como os mods funcionam (decidido com o autor):
 
 - **Sem limite dentro do jogo, sem pesar na batata.** O jogo oficial
   continua em C, rápido, mas cada sistema dele (fome, frio, criaturas,
   receitas, geração do mundo, telas) pode ser trocado por um mod. Se nenhum
-  mod troca, roda o C puro, sem custo de Lua; o conteúdo (blocos, itens,
-  receitas, sons) já sai dos mesmos pacotes de dados que os mods usam, lidos
-  uma vez ao abrir. Um mod pode tirar ou refazer qualquer coisa, até virar
+  mod troca, roda o C puro, sem custo de Lua. O conteúdo base (blocos,
+  itens, receitas) continua no código, e os pacotes dos mods somam a ele e
+  tiram partes dele. Um mod pode tirar ou refazer qualquer coisa, até virar
   outro jogo, e só paga desempenho pelo que ele mesmo põe em Lua. Cada passo
   é medido no M12.
 - **O limite é só fora do jogo:** um mod não lê nem apaga arquivos fora da
