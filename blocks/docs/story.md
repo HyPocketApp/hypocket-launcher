@@ -25,7 +25,8 @@ Jira (`HPK`, rótulo `blocks`), na ordem combinada em "Sexta rodada":
 HPK-22 sobrevivência, HPK-23 sobreviventes, HPK-24 cientista e finais,
 HPK-25 vozes, HPK-26 acabamento, HPK-27 desempenho no M12. O mesmo plano,
 para quem trabalha sem o Jira, está em [roadmap.md](roadmap.md).
-Próxima rodada: a sobrevivência (épico 1).
+A oitava rodada decidiu a sobrevivência (épico 1): fome, frio, ferramentas,
+bancadas e caça, no jogo desde então.
 
 ## A história, como foi contada
 
@@ -219,9 +220,17 @@ para quem quiser entrar na dimensão.
 | Santuário do farol | Até 40 blocos de um farol aceso: sem névoa, iluminado à noite, e as criaturas param na borda sem entrar. Um feixe de luz sobe do farol. |
 | Portal | Entre dois faróis, um rasgo alto e irregular no ar, sem moldura, com pedras girando em volta, por onde eles vieram. Nenhum farol fecha. Entrar nele leva ao outro lado de propósito. |
 | O outro lado | Mundo pequeno (6x6 chunks) de pedra-sombra, sempre noite e com névoa fechada, com pedaços do nosso mundo largados. Lá os Nocturnes são mais (12), mais rápidos (4,9), procuram o jogador e luz não os afasta: só abrigo. A volta é uma luz branca que zumbe em algum lugar da névoa. Pego de novo lá, o jogador acorda no começo do seu mundo. É refeito a cada visita. |
-| Save | HPBW versão 5: o mesmo formato, com bits novos para as ruínas, para "salvo no outro lado" e para os relatos encontrados. |
+| Save | HPBW versão 6: o mesmo formato, com bits novos para as ruínas, para "salvo no outro lado" e para os relatos encontrados (versão 5), e depois do inventário a fome, o calor, a vida e o que foi pego do chão (versão 6). |
 | Pedra-sombra | Bloco novo, de lá. Pode ser quebrado e usado para construir (um abrigo, por exemplo). |
 | Inventário | Fica com o jogador quando é arrastado. |
+| Itens | Além dos blocos: graveto, pedra lascada, faca, serra, machado, picareta, frutinhas, carne crua, assada e frita, banha, couro, lã e agasalho. Ficam no inventário (bolinhas, não quadrados); só blocos e comida vão ao hotbar. |
+| Ferramentas | Servem carregadas, sem gastar. Sem picareta, pedra e o que é feito dela não saem (o app diz "Precisa de: Picareta"); com ela, dois golpes. A pedra-sombra cede à mão, devagar (6 golpes), para que um abrigo do outro lado seja sempre possível. Madeira leva 5 golpes à mão e 1 com machado. Uma barrinha sob a mira mostra o quanto falta. |
+| Chão | Por dia, de 24 a 64 gravetos (perto das árvores) e pedras lascadas, em lugares novos a cada dia; 3 gravetos e 3 pedras sempre perto do começo. A faca e a serra ficam no chão de duas casas, uma vez só. Folhas soltam às vezes graveto (35%) ou frutinhas (17%); pedra, pedra lascada (25%). |
+| Bancadas | Forno, fogão e fogueira: a receita confere se há uma a até 3 blocos. A fogueira ilumina (e espanta os Nocturnes fora da névoa, como a lâmpada). Mais da metade das casas em ruína tem um fogão. |
+| Caça | 3 golpes (2 com faca ou machado): 2 carnes cruas; com faca, também banha e couro ou lã, conforme a criatura. Ela volta de dia. |
+| Fome | Cheia, dura 18 minutos (pouco mais que um dia); com frio, esvazia mais rápido. Vazia, tira 1 de vida a cada 8 s. A vida só volta com a barriga pelo menos meio cheia. Frutinha +1, carne crua +1,5, assada +4, frita +6 (de 10). |
+| Frio | De noite fora de abrigo (e mais na névoa) esfria; na água e do outro lado também. De dia, no abrigo, no santuário à noite ou perto de uma bancada (fogo) esquenta. Gelado, tira 1 de vida a cada 10 s. O agasalho segura 65% da perda. |
+| Desmaio | Por fome ou frio, como por queda: acorda no começo, com um pouco de comida e calor. |
 
 ## Terceira rodada, como foi contada
 
@@ -413,6 +422,56 @@ Chamar de "monstro" é demais: eles são um povo. Apelido de trabalho: **Nocs**.
   delas é a produção da substância de despetrificação, que o jogador pode
   coletar e usar nos Nocs petrificados.
 
+## Oitava rodada, como foi contada
+
+> Boas decisões, pras perguntas, sim fome entra, se não seria em vão a
+> comida. Sim frio entra, calor tbm entraria, mas não faz muito sentido pq não
+> tem nada pro calor. Ferramentas não só agilizam, elas vão ser oq torna
+> possível certas coisas, achou uma faca ou criou uma improvisada, nesse caso
+> da pra descascar a madeira. Serra encontrada, dá pra dividir em 2 tábuas
+> menores ou mais dependendo se a tábua for um ingrediente pra craft, pode ser
+> até uns 8 ou 10 nesse caso. E existem várias outras coisas, a sobrevivência
+> tem que ficar dinâmica e legal.
+
+## Oitava rodada: decisões (a sobrevivência, épico 1)
+
+- **Fome entra.** Sem ela a comida não teria sentido. A barriga esvazia aos
+  poucos (cheia dura um pouco mais que um dia do jogo); vazia, a vida cai
+  devagar até o desmaio. A vida só volta com a barriga pelo menos meio cheia.
+- **Frio entra; calor não**, porque não há nada que esquente demais. À noite,
+  na água, na névoa e do outro lado o corpo esfria; de dia, num abrigo ou
+  perto de fogo, esquenta. Gelado, a vida cai e a fome aperta. Um agasalho de
+  couro e lã segura o calor.
+- **Ferramentas tornam coisas possíveis**, não só aceleram:
+  - **Faca** (achada numa casa ou improvisada com graveto e pedra lascada):
+    descasca a madeira (1 madeira, 1 tábua) e tira couro, lã e banha da caça.
+  - **Serra** (só achada, nas ruínas): corta 1 madeira em 2 tábuas e 1 tábua
+    em 8 gravetos, quando a tábua vira ingrediente.
+  - **Picareta improvisada:** sem ela a pedra não sai. Com ela também se
+    lavra a pedra em pedra lavrada.
+  - **Machado improvisado:** derruba madeira com um golpe; sem ele, a mão
+    leva vários.
+- **Gravetos e pedras lascadas** ficam pelo chão (gravetos perto das árvores)
+  e mudam de lugar a cada dia. As folhas às vezes soltam gravetos e frutinhas.
+  Quebrar pedra com a picareta às vezes solta uma pedra lascada.
+- **Bancadas que dependem do lugar:** a fabricação confere o que está perto
+  (até 3 blocos).
+  - **Forno:** areia vira vidro, terra e areia viram tijolo, areia e pedra
+    viram reboco. O vidro deixa de sair do inventário.
+  - **Fogueira:** assa a carne, ilumina e aquece.
+  - **Fogão:** frita a carne na banha. Algumas casas em ruína ainda têm um.
+- **Criaturas do amanhecer:** dá para caçá-las (alguns golpes). Dão carne;
+  com uma faca, também banha e couro ou lã, conforme a criatura. Voltam de dia,
+  como já faziam depois de levadas. Criar (farm) fica para depois.
+- **Comida:** frutinhas e carne crua matam pouco a fome; carne assada mata
+  mais, e a frita na banha mais ainda. Come-se com Colocar, com a comida
+  escolhida no hotbar.
+- **O começo:** perto do início sempre há gravetos e pedras lascadas, para a
+  primeira faca e a primeira picareta.
+- **Save:** HPBW versão 6, com fome, calor, vida, as ferramentas já achadas e
+  os gravetos e pedras pegos no dia. Mundos antigos abrem de barriga cheia e
+  aquecidos.
+
 ## O que entra (primeira rodada)
 
 | Parte | Já existe no jogo? | Observação |
@@ -449,9 +508,8 @@ Chamar de "monstro" é demais: eles são um povo. Apelido de trabalho: **Nocs**.
   relato, ou num relato novo do outro lado?
 - Nome oficial dos Nocturnes; o apelido de trabalho é "Nocs". No jogo eles
   seguem sem nome.
-- Criaturas do amanhecer: couro, lã, carne e banha para agasalhos, roupas,
-  utensílios e comida frita. Antes disso: o jogo terá fome? E frio (à noite,
-  do outro lado)?
+- Criar as criaturas do amanhecer (farm): cercado, filhotes, ração.
+- Mais roupas e utensílios além do agasalho (cantil, mochila, tocha...).
 - Nome do jogador, quando houver multiplayer.
 - Animações e modelos (outra conta, com IA): hoje tudo é caixa; os pontos de
   troca são os Nocturnes, as criaturas, os relatos, as fendas e o portal.
