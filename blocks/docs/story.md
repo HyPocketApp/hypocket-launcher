@@ -503,6 +503,18 @@ texto, não parecer de advogado):
 
 Regras, pastas e formatos em [../assets/README.md](../assets/README.md).
 
+## Décima rodada: a voz do jogador
+
+- **Duas vozes de padrão, feminina e masculina,** e quem joga escolhe. Tudo
+  que sai da boca do protagonista (susto, esforço, um "huff", um "ah") tem
+  as duas versões. O que não sai dele (barriga roncando, coração) tem uma só.
+- **Falas curtas de dica:** o protagonista pode comentar o que sente e vê
+  ("tá esfriando", "preciso comer", "tem alguma coisa ali"), sem explicar a
+  história. As falas evitam palavra com gênero ("cansado/cansada"), para o
+  mesmo texto servir às duas vozes.
+- **Falar com os outros:** o jogador vai poder falar com outros. Por agora
+  ficam as duas vozes de padrão; como será essa conversa está em aberto.
+
 ## O que entra (primeira rodada)
 
 | Parte | Já existe no jogo? | Observação |
@@ -529,6 +541,10 @@ Regras, pastas e formatos em [../assets/README.md](../assets/README.md).
 
 ## Em aberto
 
+- Falar com os outros (décima rodada): chat de voz entre jogadores no
+  multiplayer, conversa com os sobreviventes do santuário, ou as duas?
+- Onde se escolhe a voz do jogador: ao criar o mundo, ou num perfil do
+  jogador (que serviria também para o nome, no multiplayer)?
 - O covil é a dimensão portátil do cientista (sexta rodada). E a "fila" dos
   levados, que o Lucas viu: fica lá ou do outro lado?
 - Qual dos dois finais é o "verdadeiro", ou se os dois valem.

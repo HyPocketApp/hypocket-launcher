@@ -52,28 +52,35 @@ teste), sem gastar crédito testando pedido. Regras em
 ## Protagonista (efeitos, não fala)
 
 Gerados como efeito, não como voz: um gerador de fala faz mal susto, esforço
-e respiração. Todos da mesma pessoa; a voz (homem, mulher ou as duas, para
-quem joga escolher) ainda está em aberto, então troque "[pessoa]" no pedido
-pelo que for decidido. Várias versões de cada um, para o jogo variar.
+e respiração. **Duas vozes:** tudo o que sai da boca do protagonista é gerado
+duas vezes, trocando "[pessoa]" por "Uma mulher" e por "Um homem"; os
+arquivos vão para `player/f/` e `player/m/` (por exemplo `player/f/grab_1`).
+O que não sai da boca (barriga, coração) tem uma versão só, em `player/`.
+Cada voz sempre com a mesma pessoa. Várias versões de cada um, para o jogo
+variar.
+
+As falas curtas de dica ("tá esfriando", "preciso comer") são fala, não
+efeito: estão em [voice-scripts.md](voice-scripts.md), "Falas curtas de
+dica", também nas duas vozes.
 
 | Arquivo | Quando | Pedido | Duração |
 |---|---|---|---|
-| `player/grab_1..3` | Agarrado por um Nocturne | [pessoa] adulta solta um susto curto e cortado, um puxão de ar de medo, sem palavras | 1 s |
-| `player/struggle_1..4` | Cada vez que aperta Pular preso | [pessoa] adulta fazendo força com os dentes cerrados, se debatendo, sem palavras | 1 s |
-| `player/free_1..2` | Se soltou | [pessoa] adulta ofegante de alívio e pânico depois de se soltar, respiração rápida | 2 s |
-| `player/taken` | Levado | Grito abafado de [pessoa] adulta se afastando e sumindo | 3 s |
-| `player/wake_other` | Acorda do outro lado | [pessoa] adulta puxando o ar de uma vez, como quem sai da água, respiração tremendo | 4 s |
-| `player/back` | Volta pela luz | Suspiro longo de alívio de [pessoa] adulta, quase chorando | 3 s |
-| `player/run_breath` | Correndo à noite com eles perto (loop) | Respiração ofegante e ritmada de [pessoa] adulta correndo, sem passos | 6 s |
-| `player/shelter` | Entra num abrigo | Respiração de [pessoa] adulta desacelerando até ficar calma | 4 s |
-| `player/hurt_1..3` | Perde vida | [pessoa] adulta solta um gemido curto de dor, sem palavras | 1 s |
-| `player/faint` | Desmaia | [pessoa] adulta perdendo as forças, um suspiro fraco que some | 2 s |
-| `player/wake` | Acorda depois de desmaiar | [pessoa] adulta acordando devagar, um gemido baixo e uma tosse | 3 s |
-| `player/hungry` | Barriga vazia | Barriga roncando alto e longo, sem voz | 2 s |
-| `player/cold_1..2` | Com frio | [pessoa] adulta tremendo de frio, dentes batendo e respiração tremida | 2 s |
-| `player/warm` | Esquenta perto do fogo | [pessoa] adulta suspirando de alívio ao se aquecer, esfregando as mãos | 2 s |
-| `player/eat_1..2` | Come | Mordida e mastigação curta de [pessoa] adulta com fome, sem palavras | 1 s |
-| `player/low_health` | Vida baixa (loop) | Batimento cardíaco lento e forte, abafado, sem outros sons | 4 s |
+| `player/grab_1..3` | Agarrado por um Nocturne | [pessoa] solta um susto curto e cortado, um puxão de ar de medo, sem palavras | 1 s |
+| `player/struggle_1..4` | Cada vez que aperta Pular preso | [pessoa] fazendo força com os dentes cerrados, se debatendo, sem palavras | 1 s |
+| `player/free_1..2` | Se soltou | [pessoa] ofegante de alívio e pânico depois de se soltar, respiração rápida | 2 s |
+| `player/taken` | Levado | Grito abafado de [pessoa] se afastando e sumindo | 3 s |
+| `player/wake_other` | Acorda do outro lado | [pessoa] puxando o ar de uma vez, como quem sai da água, respiração tremendo | 4 s |
+| `player/back` | Volta pela luz | Suspiro longo de alívio de [pessoa], quase chorando | 3 s |
+| `player/run_breath` | Correndo à noite com eles perto (loop) | Respiração ofegante e ritmada de [pessoa] correndo, sem passos | 6 s |
+| `player/shelter` | Entra num abrigo | Respiração de [pessoa] desacelerando até ficar calma | 4 s |
+| `player/hurt_1..3` | Perde vida | [pessoa] solta um gemido curto de dor, sem palavras | 1 s |
+| `player/faint` | Desmaia | [pessoa] perdendo as forças, um suspiro fraco que some | 2 s |
+| `player/wake` | Acorda depois de desmaiar | [pessoa] acordando devagar, um gemido baixo e uma tosse | 3 s |
+| `player/hungry` (uma só) | Barriga vazia | Barriga roncando alto e longo, sem voz | 2 s |
+| `player/cold_1..2` | Com frio | [pessoa] tremendo de frio, dentes batendo e respiração tremida | 2 s |
+| `player/warm` | Esquenta perto do fogo | [pessoa] suspirando de alívio ao se aquecer, esfregando as mãos | 2 s |
+| `player/eat_1..2` | Come | Mordida e mastigação curta de [pessoa] com fome, sem palavras | 1 s |
+| `player/low_health` (uma só) | Vida baixa (loop) | Batimento cardíaco lento e forte, abafado, sem outros sons | 4 s |
 
 ## Prioridade 3: sobrevivência
 
@@ -147,5 +154,6 @@ arquivo e a direção. Para gerar fala:
      fugiu (`note8_voz`, sussurro) e o autor do relato 0 (`note0_voz`, o
      texto mais longo). O texto a ler é o do papel no jogo; eu te passo
      cada um quando chegar a vez.
-- **Protagonista:** as reações dele são efeitos (seção "Protagonista"),
-  não voz. Se um dia ele falar frases, isso entra aqui.
+- **Protagonista:** as reações são efeitos (seção "Protagonista"). As
+  falas curtas de dica são voz, nas duas vozes (feminina e masculina), e
+  vêm depois do Lucas na ordem acima.

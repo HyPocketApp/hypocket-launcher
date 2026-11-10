@@ -78,8 +78,14 @@ Ao abrir um papel, uma voz pode ler enquanto o texto aparece.
 
 ## Protagonista
 
-Sem nome e sem passado. Só reações, nada de frases explicando a história.
-Várias versões de cada uma, para o jogo variar.
+Sem nome e sem passado. Reações e falas curtas de dica, nada de frases
+explicando a história. Várias versões de cada uma, para o jogo variar.
+
+**Duas vozes, feminina e masculina** (story.md, "Décima rodada"): tudo o que
+sai da boca do protagonista é gravado ou gerado duas vezes, uma por voz, em
+`player/f/` e `player/m/` (por exemplo `player/f/grab_1.ogg`). As reações
+também podem ser geradas como efeito, sem voz; os pedidos prontos estão em
+[sound-list.md](sound-list.md).
 
 | Arquivo | Quando | O que gravar | Direção |
 |---|---|---|---|
@@ -92,6 +98,30 @@ Várias versões de cada uma, para o jogo variar.
 | `player_run_breath` | Correndo à noite com eles perto | Respiração de corrida, em loop de uns 6 s | Grave depois de correr de verdade. |
 | `player_shelter` | Entra num abrigo | Respiração desacelerando | Uns 4 s, termina calma. |
 | `player_note` | Acha um relato (às vezes) | "…", um "meu Deus", um suspiro | Bem baixo. Nem toda vez. |
+
+### Falas curtas de dica
+
+Ditas de vez em quando, nunca seguidas, quando o jogo nota a situação. Sem
+palavra com gênero, para o mesmo texto servir às duas vozes. Fala, então
+vai pelo gerador de voz (ou gravada), nas duas vozes.
+
+| Arquivo | Quando | Fala | Direção |
+|---|---|---|---|
+| `hint_cold_1` | O calor começa a cair | "Tá esfriando…" | Para si, baixo, esfregando os braços. |
+| `hint_cold_2` | Calor baixo | "Preciso me esquentar." | Um pouco tremido. |
+| `hint_freezing` | Congelando | "Não sinto mais os dedos." | Dentes batendo. |
+| `hint_hungry` | Barriga pela metade | "Preciso comer alguma coisa." | Normal, uma constatação. |
+| `hint_starving` | Barriga vazia | "Tô sem força… preciso comer." | Fraco, devagar. |
+| `hint_dusk` | Começa a escurecer | "Vai escurecer. Melhor achar abrigo." | Olhando o céu, atento. |
+| `hint_mist` | A névoa se aproxima | "A névoa tá vindo." | Baixo, com medo. |
+| `hint_noc` | Um Nocturne nota o jogador | "Tem alguma coisa ali…" | Sussurro, prendendo o ar. |
+| `hint_shelter` | Entra num abrigo | "Aqui dentro dá pra respirar." | Alívio, ainda ofegante. |
+| `hint_warm` | Esquenta perto do fogo | "Bem melhor." | Suspiro, relaxando. |
+| `hint_tool` | Bloco duro sem ferramenta | "Assim não vai. Preciso de uma ferramenta." | Frustração leve. |
+| `hint_note` | Acha um relato | "Alguém deixou isso…" | Curioso, baixo. |
+| `hint_beacon` | Acende um farol | "A névoa recuou." | Espanto e alívio. |
+| `hint_other_side` | Acorda do outro lado | "Onde… onde é isso?" | Desorientado, voz tremendo. |
+| `hint_hum` | Ouve o zumbido da volta | "Esse zumbido… vem dali." | Sussurro, com esperança. |
 
 ## Santuário: reencontros (para quando houver sobreviventes)
 
