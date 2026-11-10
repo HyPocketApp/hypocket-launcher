@@ -67,6 +67,9 @@ Arquivo que falta não quebra nada: o jogo usa o som feito no código, ou
 fica sem aquele som. Os outros nomes do roteiro (celulares, protagonista)
 ainda não tocam.
 
+A lista do que gerar, com os pedidos prontos, está em
+[../docs/sound-list.md](../docs/sound-list.md).
+
 ## Como mandar
 
 Pelo celular, dá de dois jeitos:
