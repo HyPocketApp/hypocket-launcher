@@ -13,6 +13,8 @@
 #define MENU_DELAY 0.4f      // ignore presses right after a screen appears
 #define PAGE_DELAY 0.15f     // between pages of a story scene
 #define FLEE_CHANCE 65       // percent
+#define FOLLOW_GAP 14        // how many steps behind him the goddess walks
+#define ALLY_HIT_CHANCE 35   // percent of monster attacks aimed at the goddess
 
 // --- Tables -------------------------------------------------------------------
 
@@ -42,7 +44,7 @@ int encounter_party(Encounter e, Species out[MAX_BATTLE_ENEMIES])
 
 int scene_page_count(Scene s)
 {
-    static const int pages[SCENE_COUNT] = { [SCENE_INTRO] = 3, [SCENE_GODDESS] = 4, [SCENE_GODDESS_TALK] = 1 };
+    static const int pages[SCENE_COUNT] = { [SCENE_INTRO] = 2, [SCENE_WOODS] = 1, [SCENE_GODDESS] = 5 };
     return (s >= 0 && s < SCENE_COUNT) ? pages[s] : 0;
 }
 
@@ -52,6 +54,8 @@ static bool encounter_stays(Encounter e) { return e == ENCOUNTER_BOSS || e == EN
 int xp_to_next_level(int level) { return level * 15; }
 
 int skill_cost(SkillItem s) { return s == SKILL_SPLIT ? SKILL_SPLIT_COST : s == SKILL_SPIN ? SKILL_SPIN_COST : 0; }
+
+int spell_cost(SpellItem s) { return s == SPELL_BEAM ? SPELL_BEAM_COST : s == SPELL_LIGHT ? SPELL_LIGHT_COST : 0; }
 
 // --- Helpers ------------------------------------------------------------------
 
@@ -64,7 +68,8 @@ TileType game_tile_at(const Game *g, int tx, int ty)
 bool game_tile_blocks(TileType t)
 {
     return t == TILE_WALL || t == TILE_TREE || t == TILE_ROCK || t == TILE_WATER || t == TILE_CHEST ||
-           t == TILE_CHEST_AXE || t == TILE_CHEST_OPEN || t == TILE_FIRE || t == TILE_GODDESS;
+           t == TILE_CHEST_AXE || t == TILE_CHEST_OPEN || t == TILE_FIRE || t == TILE_GODDESS || t == TILE_HOUSE ||
+           t == TILE_DOOR || t == TILE_WOODPILE;
 }
 
 static bool foe_blocked_by(TileType t) { return game_tile_blocks(t) || t == TILE_EXIT || t == TILE_BRIDGE; }
@@ -131,15 +136,17 @@ static void show_toast(Game *g, Toast t, int amount)
 
 // --- Loading ------------------------------------------------------------------
 
-bool level_load_rows(Game *g, const char *const *rows, int row_count)
+bool area_load_rows(Game *g, const char *const *rows, int row_count)
 {
     if (row_count <= 0 || row_count > MAX_MAP_H) return false;
 
     memset(g->tiles, 0, sizeof g->tiles);
+    memset(g->links, 0, sizeof g->links);
+    g->start_x = g->start_y = -1;
     g->h = row_count;
     g->w = 0;
     g->foe_count = 0;
-    bool has_start = false, has_end = false;
+    bool has_end = false;
 
     for (int ty = 0; ty < row_count; ty++) {
         int len = (int)strlen(rows[ty]);
@@ -161,12 +168,19 @@ bool level_load_rows(Game *g, const char *const *rows, int row_count)
             case 'c': t = TILE_CHEST; break;
             case 'A': t = TILE_CHEST_AXE; break;
             case 'f': t = TILE_FIRE; break;
-            case 'X': t = TILE_EXIT; has_end = true; break;
+            case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': case '9':
+                t = TILE_EXIT;
+                g->links[ty][tx] = (unsigned char)(c - '0');
+                has_end = true;
+                break;
             case 'M': t = TILE_GODDESS; break;
+            case 'H': t = TILE_HOUSE; break;
+            case 'D': t = TILE_DOOR; break;
+            case ':': t = TILE_PATH; break;
+            case 'W': t = TILE_WOODPILE; break;
             case 'P':
                 g->start_x = tx * TILE + (TILE - WALKER_SIZE) / 2.0f;
                 g->start_y = ty * TILE + (TILE - WALKER_SIZE) / 2.0f;
-                has_start = true;
                 break;
             case 's': encounter = ENCOUNTER_SLIME; break;
             case 'g': encounter = ENCOUNTER_SLIMES; break;
@@ -188,7 +202,7 @@ bool level_load_rows(Game *g, const char *const *rows, int row_count)
             g->tiles[ty][tx] = t;
         }
     }
-    return has_start && has_end;
+    return has_end;
 }
 
 // --- Map ------------------------------------------------------------------------
@@ -210,6 +224,66 @@ static void update_camera(Game *g)
     float max_x = (float)(g->w * TILE - VIEW_W), max_y = (float)(g->h * TILE - VIEW_H);
     g->camera_x = max_x <= 0 ? max_x / 2.0f : fmaxf(0.0f, fminf(cx, max_x));
     g->camera_y = max_y <= 0 ? max_y / 2.0f : fmaxf(0.0f, fminf(cy, max_y));
+}
+
+// Heals both of them; he will wake up here after losing a battle.
+static void rest(Game *g, Toast toast)
+{
+    g->stats.hp = g->stats.max_hp;
+    g->stats.sp = g->stats.max_sp;
+    g->goddess.hp = g->goddess.max_hp;
+    g->goddess.mp = g->goddess.max_mp;
+    g->respawn_area = g->area;
+    g->respawn_x = g->walker.x;
+    g->respawn_y = g->walker.y;
+    g->events |= EVENT_REST;
+    show_toast(g, toast, 0);
+}
+
+// The goddess walks toward where the lumberjack was a few steps ago.
+static void update_follower(Game *g, float dt)
+{
+    Walker *f = &g->follower;
+    int i = (g->trail_head - FOLLOW_GAP + TRAIL_LEN) % TRAIL_LEN;
+    float dx = g->trail_x[i] - f->x, dy = g->trail_y[i] - f->y;
+    float dist = sqrtf(dx * dx + dy * dy);
+    if (dist > 0.5f) {
+        float step = fminf(dist, WALK_SPEED * 1.25f * dt);
+        f->x += dx / dist * step;
+        f->y += dy / dist * step;
+        if (fabsf(dx) > fabsf(dy)) { f->face_x = dx > 0 ? 1 : -1; f->face_y = 0; }
+        else { f->face_x = 0; f->face_y = dy > 0 ? 1 : -1; }
+        f->walk_anim += step;
+    } else {
+        f->walk_anim = 0;
+    }
+}
+
+static void reset_trail(Game *g)
+{
+    for (int i = 0; i < TRAIL_LEN; i++) {
+        g->trail_x[i] = g->walker.x;
+        g->trail_y[i] = g->walker.y;
+    }
+    g->trail_head = 0;
+    g->follower.x = g->walker.x;
+    g->follower.y = g->walker.y;
+    g->follower.face_x = g->walker.face_x;
+    g->follower.face_y = g->walker.face_y;
+}
+
+// The other area with an exit marked `link`, or -1.
+static int linked_area(int from, int link)
+{
+    char c = (char)('0' + link);
+    for (int a = 0; a < area_count(); a++) {
+        if (a == from) continue;
+        int count = 0;
+        const char *const *rows = area_rows(a, &count);
+        for (int r = 0; r < count; r++)
+            if (strchr(rows[r], c)) return a;
+    }
+    return -1;
 }
 
 // Uses the axe (or hands) on the tile in front of the lumberjack.
@@ -240,16 +314,11 @@ static void map_action(Game *g)
         g->events |= EVENT_CHEST;
         show_toast(g, TOAST_AXE, AXE_UPGRADE_ATK);
         break;
-    case TILE_GODDESS:
-        if (g->goddess_saved) start_scene(g, SCENE_GODDESS_TALK, STATE_MAP);
-        break;
     case TILE_FIRE:
-        g->stats.hp = g->stats.max_hp;
-        g->stats.sp = g->stats.max_sp;
-        g->respawn_x = w->x;
-        g->respawn_y = w->y;
-        g->events |= EVENT_REST;
-        show_toast(g, TOAST_REST, 0);
+        rest(g, TOAST_REST);
+        break;
+    case TILE_DOOR:
+        rest(g, TOAST_HOME);
         break;
     default:
         break;
@@ -269,14 +338,25 @@ static void update_walker(Game *g, const GameInput *in, float dt)
         w->walk_anim = 0;
     }
     if (w->safe_timer > 0) w->safe_timer -= dt;
+    float old_x = w->x, old_y = w->y;
     move_box(g, &w->x, &w->y, mx * WALK_SPEED * dt, my * WALK_SPEED * dt, game_tile_blocks);
+    if (w->x != old_x || w->y != old_y) {
+        g->trail_head = (g->trail_head + 1) % TRAIL_LEN;
+        g->trail_x[g->trail_head] = w->x;
+        g->trail_y[g->trail_head] = w->y;
+    }
+    update_follower(g, dt);
 
     if (in->confirm_pressed) map_action(g);
 
     int cx = tile_floor(w->x + WALKER_SIZE / 2.0f), cy = tile_floor(w->y + WALKER_SIZE / 2.0f);
     if (game_tile_at(g, cx, cy) == TILE_EXIT) {
-        g->events |= EVENT_EXIT;
-        game_enter_level(g, g->level + 1 < level_count() ? g->level + 1 : g->level);
+        int link = g->links[cy][cx];
+        int to = linked_area(g->area, link);
+        if (to >= 0) {
+            g->events |= EVENT_EXIT;
+            game_enter_area(g, to, link);
+        }
     }
 }
 
@@ -310,7 +390,7 @@ static void update_foes(Game *g, float dt)
 
 // --- Battle: resolving a turn -------------------------------------------------
 
-static void push_msg(Game *g, MsgType type, int actor, int target, int amount, bool crit)
+static void push_msg_ex(Game *g, MsgType type, int actor, int target, int amount, bool crit, bool on_ally)
 {
     Battle *b = &g->battle;
     if (b->msg_count >= MAX_BATTLE_MSGS) return;
@@ -320,9 +400,17 @@ static void push_msg(Game *g, MsgType type, int actor, int target, int amount, b
     m->target = target;
     m->amount = amount;
     m->crit = crit;
+    m->on_ally = on_ally;
     m->enemy_hp_after = (target >= 0 && target < b->enemy_count) ? b->enemies[target].hp : 0;
     m->player_hp_after = g->stats.hp;
     m->player_sp_after = g->stats.sp;
+    m->ally_hp_after = g->goddess.hp;
+    m->ally_mp_after = g->goddess.mp;
+}
+
+static void push_msg(Game *g, MsgType type, int actor, int target, int amount, bool crit)
+{
+    push_msg_ex(g, type, actor, target, amount, crit, false);
 }
 
 static int roll_damage(Game *g, int atk, int def, float mult, bool *crit)
@@ -347,6 +435,25 @@ static int first_alive(const Battle *b)
     for (int i = 0; i < b->enemy_count; i++)
         if (b->enemies[i].hp > 0) return i;
     return 0;
+}
+
+static int min_int(int a, int b) { return a < b ? a : b; }
+
+// The goddess's strength follows the lumberjack's level.
+static void goddess_scale(Game *g, bool refill)
+{
+    Ally *a = &g->goddess;
+    int l = g->stats.level;
+    a->max_hp = 24 + 5 * l;
+    a->max_mp = 8 + 2 * l;
+    a->mag = 8 + 2 * l;
+    a->def = 2 + l / 2;
+    if (refill) {
+        a->hp = a->max_hp;
+        a->mp = a->max_mp;
+    }
+    a->hp = min_int(a->hp, a->max_hp);
+    a->mp = min_int(a->mp, a->max_mp);
 }
 
 // The lumberjack hits one monster and tells what happened.
@@ -388,19 +495,58 @@ static void finish_victory(Game *g)
         s->def += 1;
         s->hp = s->max_hp;
         s->sp = s->max_sp;
+        if (g->goddess.joined) goddess_scale(g, true);
         push_msg(g, MSG_LEVEL_UP, -1, -1, s->level, false);
     }
     b->outcome = OUTCOME_WON;
+}
+
+// The goddess's turn: the spell chosen for this round.
+static void ally_act(Game *g)
+{
+    Battle *b = &g->battle;
+    Ally *a = &g->goddess;
+    Stats *s = &g->stats;
+    switch (b->ally_spell) {
+    case SPELL_BEAM: {
+        a->mp -= SPELL_BEAM_COST;
+        int t = b->enemies[b->ally_target].hp > 0 ? b->ally_target : first_alive(b);
+        Combatant *e = &b->enemies[t];
+        // Moonlight passes through armor: only half the defense counts.
+        int dmg = roll_damage(g, a->mag, species_info(e->species)->def / 2, 1.1f, NULL);
+        e->hp = e->hp > dmg ? e->hp - dmg : 0;
+        push_msg(g, MSG_BEAM, -1, t, dmg, false);
+        if (e->hp == 0) push_msg(g, MSG_ENEMY_DOWN, -1, t, 0, false);
+        break;
+    }
+    case SPELL_LIGHT: {
+        a->mp -= SPELL_LIGHT_COST;
+        int heal = 14 + 3 * s->level;
+        s->hp = min_int(s->max_hp, s->hp + heal);
+        a->hp = min_int(a->max_hp, a->hp + heal);
+        push_msg(g, MSG_LIGHT, -1, -1, heal, false);
+        break;
+    }
+    case SPELL_DEFEND:
+        b->ally_defending = true;
+        a->mp = min_int(a->max_mp, a->mp + 2);
+        push_msg(g, MSG_ALLY_DEFEND, -1, -1, 0, false);
+        break;
+    default:
+        break;
+    }
 }
 
 static void enemies_turn(Game *g)
 {
     Battle *b = &g->battle;
     Stats *s = &g->stats;
+    Ally *a = &g->goddess;
     for (int i = 0; i < b->enemy_count && s->hp > 0; i++) {
         Combatant *e = &b->enemies[i];
         if (e->hp <= 0) continue;
         const SpeciesInfo *info = species_info(e->species);
+        bool at_ally = b->ally_in && a->hp > 0 && chance(g, ALLY_HIT_CHANCE);
         float mult = 1.0f;
         MsgType type = MSG_ENEMY_ATTACK;
         if (e->species == SPECIES_WOLF && chance(g, 30)) {
@@ -410,10 +556,16 @@ static void enemies_turn(Game *g)
             mult = 1.7f;  // grasping roots, every third turn
             type = MSG_ENEMY_SPECIAL;
         }
-        int dmg = roll_damage(g, info->atk, s->def, mult, NULL);
-        if (b->defending) dmg = (dmg + 1) / 2;
-        s->hp = s->hp > dmg ? s->hp - dmg : 0;
-        push_msg(g, type, i, -1, dmg, false);
+        int dmg = roll_damage(g, info->atk, at_ally ? a->def : s->def, mult, NULL);
+        if (at_ally ? b->ally_defending : b->defending) dmg = (dmg + 1) / 2;
+        if (at_ally) {
+            a->hp = a->hp > dmg ? a->hp - dmg : 0;
+            push_msg_ex(g, type, i, -1, dmg, false, true);
+            if (a->hp == 0) push_msg(g, MSG_ALLY_DOWN, -1, -1, 0, false);
+        } else {
+            s->hp = s->hp > dmg ? s->hp - dmg : 0;
+            push_msg(g, type, i, -1, dmg, false);
+        }
     }
     if (s->hp == 0) {
         push_msg(g, MSG_PLAYER_DOWN, -1, -1, 0, false);
@@ -421,22 +573,26 @@ static void enemies_turn(Game *g)
     }
 }
 
-// Plays one whole round: the lumberjack's action, then the monsters'.
-static void resolve_round(Game *g, int action, int skill, int target)
+// Plays one whole round with the choices made: the lumberjack's action, the
+// goddess's spell, then the monsters'.
+static void resolve_round(Game *g)
 {
     Battle *b = &g->battle;
     Stats *s = &g->stats;
+    Ally *a = &g->goddess;
     b->msg_count = b->msg_index = 0;
-    b->defending = false;
+    b->defending = b->ally_defending = false;
+    b->choosing = 0;
     bool enemies_act = true;
+    int target = b->hero_target;
 
-    switch (action) {
+    switch (b->hero_action) {
     case MENU_ATTACK:
         axe_hit(g, MSG_ATTACK, target, 1.0f);
         break;
     case MENU_SKILLS:
-        s->sp -= skill_cost((SkillItem)skill);
-        if (skill == SKILL_SPLIT) {
+        s->sp -= skill_cost((SkillItem)b->hero_skill);
+        if (b->hero_skill == SKILL_SPLIT) {
             axe_hit(g, MSG_SPLIT, target, 1.5f);
         } else {
             push_msg(g, MSG_SPIN, -1, -1, 0, false);
@@ -446,14 +602,14 @@ static void resolve_round(Game *g, int action, int skill, int target)
         break;
     case MENU_HERB: {
         s->herbs--;
-        int heal = s->max_hp - s->hp < HERB_HEAL ? s->max_hp - s->hp : HERB_HEAL;
+        int heal = min_int(s->max_hp - s->hp, HERB_HEAL);
         s->hp += heal;
         push_msg(g, MSG_HERB, -1, -1, heal, false);
         break;
     }
     case MENU_DEFEND:
         b->defending = true;
-        s->sp = s->sp + 2 < s->max_sp ? s->sp + 2 : s->max_sp;
+        s->sp = min_int(s->max_sp, s->sp + 2);
         push_msg(g, MSG_DEFEND, -1, -1, 0, false);
         break;
     case MENU_FLEE:
@@ -469,11 +625,14 @@ static void resolve_round(Game *g, int action, int skill, int target)
         break;
     }
 
+    if (enemies_act && alive_enemies(b) > 0 && b->ally_in && a->hp > 0) ally_act(g);
+
     if (alive_enemies(b) == 0) {
         finish_victory(g);
     } else if (enemies_act) {
         enemies_turn(g);
         if (s->sp < s->max_sp) s->sp++;  // catches his breath between rounds
+        if (b->ally_in && a->hp > 0 && a->mp < a->max_mp) a->mp++;
     }
     b->turn++;
     b->phase = PHASE_MESSAGES;
@@ -492,6 +651,11 @@ bool battle_menu_enabled(const Game *g, MenuItem item)
 bool battle_skill_enabled(const Game *g, SkillItem item)
 {
     return item == SKILL_BACK || g->stats.sp >= skill_cost(item);
+}
+
+bool battle_spell_enabled(const Game *g, SpellItem item)
+{
+    return g->goddess.mp >= spell_cost(item);
 }
 
 const BattleMsg *battle_current_msg(const Game *g)
@@ -513,8 +677,12 @@ void game_start_battle(Game *g, int foe)
         b->enemies[i].hp = b->enemies[i].shown_hp = species_info(party[i])->max_hp;
         b->enemies[i].shown_alive = true;
     }
+    b->ally_in = g->goddess.joined && g->goddess.hp > 0;
+    b->ally_spell = -1;
     b->shown_hp = g->stats.hp;
     b->shown_sp = g->stats.sp;
+    b->ally_shown_hp = g->goddess.hp;
+    b->ally_shown_mp = g->goddess.mp;
     push_msg(g, MSG_START, -1, -1, g->foes[foe].kind, false);
     if (g->foes[foe].kind == ENCOUNTER_EMBERS) push_msg(g, MSG_EMBERS_TAUNT, 0, -1, 0, false);
     b->phase = PHASE_MESSAGES;
@@ -528,8 +696,12 @@ static void play_msg(Game *g, const BattleMsg *m)
     Battle *b = &g->battle;
     if (m->player_hp_after < b->shown_hp) { g->events |= EVENT_HURT; b->player_flash = 0.4f; }
     if (m->player_hp_after > b->shown_hp) g->events |= EVENT_HEAL;
+    if (m->ally_hp_after < b->ally_shown_hp) { g->events |= EVENT_HURT; b->ally_flash = 0.4f; }
+    if (m->ally_hp_after > b->ally_shown_hp) g->events |= EVENT_HEAL;
     b->shown_hp = m->player_hp_after;
     b->shown_sp = m->player_sp_after;
+    b->ally_shown_hp = m->ally_hp_after;
+    b->ally_shown_mp = m->ally_mp_after;
     if (m->target >= 0 && m->target < b->enemy_count) {
         Combatant *e = &b->enemies[m->target];
         if (m->enemy_hp_after < e->shown_hp) { g->events |= EVENT_HIT; e->flash = 0.4f; }
@@ -542,9 +714,26 @@ static void play_msg(Game *g, const BattleMsg *m)
     if (m->type == MSG_PLAYER_DOWN) g->events |= EVENT_PLAYER_DOWN;
 }
 
+// She joins: the waiting goddess on the map becomes the one following him.
+static void goddess_joins(Game *g)
+{
+    g->goddess_saved = true;
+    g->goddess.joined = true;
+    goddess_scale(g, true);
+    reset_trail(g);
+    for (int y = 0; y < g->h; y++)
+        for (int x = 0; x < g->w; x++)
+            if (g->tiles[y][x] == TILE_GODDESS) {
+                g->tiles[y][x] = TILE_FLOOR;
+                g->follower.x = x * TILE + (TILE - WALKER_SIZE) / 2.0f;
+                g->follower.y = y * TILE + (TILE - WALKER_SIZE) / 2.0f;
+            }
+}
+
 static void end_battle(Game *g)
 {
     Battle *b = &g->battle;
+    if (g->goddess.joined && g->goddess.hp == 0) g->goddess.hp = 1;  // she gets back up
     switch (b->outcome) {
     case OUTCOME_WON:
         g->foes[b->foe].alive = false;
@@ -555,8 +744,8 @@ static void end_battle(Game *g)
         }
         g->walker.safe_timer = 0.5f;
         g->state = STATE_MAP;
-        if (g->foes[b->foe].kind == ENCOUNTER_EMBERS) {
-            g->goddess_saved = true;
+        if (g->foes[b->foe].kind == ENCOUNTER_EMBERS && !g->goddess.joined) {
+            goddess_joins(g);
             start_scene(g, SCENE_GODDESS, STATE_MAP);
         }
         break;
@@ -573,16 +762,43 @@ static void end_battle(Game *g)
     }
 }
 
-static void choose_target_or_resolve(Game *g, int action, int skill)
+// The lumberjack's choice is made: the goddess chooses next, if she can.
+static void hero_chosen(Game *g, int action, int skill, int target)
+{
+    Battle *b = &g->battle;
+    b->hero_action = action;
+    b->hero_skill = skill;
+    b->hero_target = target;
+    if (action != MENU_FLEE && b->ally_in && g->goddess.hp > 0) {
+        b->phase = PHASE_ALLY;
+        b->choosing = 1;
+    } else {
+        b->ally_spell = -1;
+        resolve_round(g);
+    }
+}
+
+static void ally_chosen(Game *g, int spell, int target)
+{
+    g->battle.ally_spell = spell;
+    g->battle.ally_target = target;
+    resolve_round(g);
+}
+
+// Asks for a target when there is a choice; `who` is 0 for him, 1 for her.
+static void choose_target(Game *g, int who, int action, int skill)
 {
     Battle *b = &g->battle;
     if (alive_enemies(b) > 1) {
-        b->pending = action == MENU_ATTACK ? MENU_ATTACK : MENU_SKILLS;
+        b->choosing = who;
+        b->pending = action;
         b->skill_cursor = skill;
         b->target = first_alive(b);
         b->phase = PHASE_TARGET;
+    } else if (who == 0) {
+        hero_chosen(g, action, skill, first_alive(b));
     } else {
-        resolve_round(g, action, skill, first_alive(b));
+        ally_chosen(g, SPELL_BEAM, first_alive(b));
     }
 }
 
@@ -594,6 +810,7 @@ static void update_battle(Game *g, const GameInput *in, float dt)
     for (int i = 0; i < b->enemy_count; i++)
         if (b->enemies[i].flash > 0) b->enemies[i].flash -= dt;
     if (b->player_flash > 0) b->player_flash -= dt;
+    if (b->ally_flash > 0) b->ally_flash -= dt;
 
     switch (b->phase) {
     case PHASE_MESSAGES: {
@@ -606,8 +823,10 @@ static void update_battle(Game *g, const GameInput *in, float dt)
             if (b->msg_index >= b->msg_count) {
                 b->shown_hp = g->stats.hp;
                 b->shown_sp = g->stats.sp;
+                b->ally_shown_hp = g->goddess.hp;
+                b->ally_shown_mp = g->goddess.mp;
                 if (b->outcome != OUTCOME_NONE) end_battle(g);
-                else b->phase = PHASE_MENU;
+                else { b->phase = PHASE_MENU; b->choosing = 0; }
             }
         }
         break;
@@ -620,9 +839,9 @@ static void update_battle(Game *g, const GameInput *in, float dt)
         if (!choose) break;
         if (!battle_menu_enabled(g, (MenuItem)b->cursor)) { g->events |= EVENT_DENIED; break; }
         g->events |= EVENT_CONFIRM;
-        if (b->cursor == MENU_ATTACK) choose_target_or_resolve(g, MENU_ATTACK, 0);
+        if (b->cursor == MENU_ATTACK) choose_target(g, 0, MENU_ATTACK, 0);
         else if (b->cursor == MENU_SKILLS) { b->phase = PHASE_SKILLS; b->skill_cursor = 0; }
-        else resolve_round(g, b->cursor, 0, 0);
+        else hero_chosen(g, b->cursor, 0, 0);
         break;
     }
 
@@ -634,8 +853,25 @@ static void update_battle(Game *g, const GameInput *in, float dt)
         if (!choose) break;
         if (!battle_skill_enabled(g, (SkillItem)b->skill_cursor)) { g->events |= EVENT_DENIED; break; }
         g->events |= EVENT_CONFIRM;
-        if (b->skill_cursor == SKILL_SPLIT) choose_target_or_resolve(g, MENU_SKILLS, SKILL_SPLIT);
-        else resolve_round(g, MENU_SKILLS, SKILL_SPIN, 0);
+        if (b->skill_cursor == SKILL_SPLIT) choose_target(g, 0, MENU_SKILLS, SKILL_SPLIT);
+        else hero_chosen(g, MENU_SKILLS, SKILL_SPIN, 0);
+        break;
+    }
+
+    case PHASE_ALLY: {
+        if (in->nav_y) { b->ally_cursor = wrap(b->ally_cursor + in->nav_y, SPELL_MENU_COUNT); g->events |= EVENT_CURSOR; }
+        bool choose = in->confirm_pressed;
+        if (in->pick >= 1 && in->pick <= SPELL_MENU_COUNT) { b->ally_cursor = in->pick - 1; choose = true; }
+        if (in->cancel_pressed || (choose && b->ally_cursor == SPELL_BACK)) {
+            b->phase = PHASE_MENU;  // the lumberjack chooses again
+            b->choosing = 0;
+            break;
+        }
+        if (!choose) break;
+        if (!battle_spell_enabled(g, (SpellItem)b->ally_cursor)) { g->events |= EVENT_DENIED; break; }
+        g->events |= EVENT_CONFIRM;
+        if (b->ally_cursor == SPELL_BEAM) choose_target(g, 1, MENU_ATTACK, 0);
+        else ally_chosen(g, b->ally_cursor, 0);
         break;
     }
 
@@ -652,10 +888,15 @@ static void update_battle(Game *g, const GameInput *in, float dt)
         bool choose = in->confirm_pressed;
         int t = in->target_pick - 1;
         if (t >= 0 && t < b->enemy_count && b->enemies[t].hp > 0) { b->target = t; choose = true; }
-        if (in->cancel_pressed) { b->phase = b->pending == MENU_SKILLS ? PHASE_SKILLS : PHASE_MENU; break; }
+        if (in->cancel_pressed) {
+            if (b->choosing == 1) b->phase = PHASE_ALLY;
+            else b->phase = b->pending == MENU_SKILLS ? PHASE_SKILLS : PHASE_MENU;
+            break;
+        }
         if (!choose) break;
         g->events |= EVENT_CONFIRM;
-        resolve_round(g, b->pending, b->skill_cursor, b->target);
+        if (b->choosing == 1) ally_chosen(g, SPELL_BEAM, b->target);
+        else hero_chosen(g, b->pending, b->skill_cursor, b->target);
         break;
     }
     }
@@ -663,42 +904,97 @@ static void update_battle(Game *g, const GameInput *in, float dt)
 
 // --- Flow -------------------------------------------------------------------------
 
-void game_enter_level(Game *g, int index)
+static void save_area(Game *g)
 {
+    if (g->area < 0 || g->area >= MAX_AREAS) return;
+    g->saved[g->area].visited = true;
+    memcpy(g->saved[g->area].tiles, g->tiles, sizeof g->tiles);
+    memcpy(g->saved[g->area].foes, g->foes, sizeof g->foes);
+    g->saved[g->area].foe_count = g->foe_count;
+}
+
+void game_enter_area(Game *g, int area, int link)
+{
+    save_area(g);
+    if (area < 0 || area >= area_count() || area >= MAX_AREAS) area = 0;
     int count = 0;
-    const char *const *rows = level_rows(index, &count);
-    level_load_rows(g, rows, count);
-    g->level = index;
+    const char *const *rows = area_rows(area, &count);
+    area_load_rows(g, rows, count);
+    if (g->saved[area].visited) {
+        memcpy(g->tiles, g->saved[area].tiles, sizeof g->tiles);
+        memcpy(g->foes, g->saved[area].foes, sizeof g->foes);
+        g->foe_count = g->saved[area].foe_count;
+    }
+    g->area = area;
+
+    // Where he arrives: next to the exit he came through, or at the start.
+    if (link == 0 && g->start_x < 0) {
+        for (int y = 0; y < g->h && !link; y++)
+            for (int x = 0; x < g->w && !link; x++) link = g->links[y][x];
+    }
+    float x = g->start_x, y = g->start_y;
+    int face_x = 0, face_y = 1;
+    if (link > 0) {
+        static const int dirs[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+        bool found = false;
+        for (int ty = 0; ty < g->h && !found; ty++)
+            for (int tx = 0; tx < g->w && !found; tx++) {
+                if (g->links[ty][tx] != link) continue;
+                for (int d = 0; d < 4 && !found; d++) {
+                    int nx = tx + dirs[d][0], ny = ty + dirs[d][1];
+                    TileType t = game_tile_at(g, nx, ny);
+                    if (game_tile_blocks(t) || t == TILE_EXIT) continue;
+                    x = nx * TILE + (TILE - WALKER_SIZE) / 2.0f;
+                    y = ny * TILE + (TILE - WALKER_SIZE) / 2.0f;
+                    face_x = dirs[d][0];
+                    face_y = dirs[d][1];
+                    found = true;
+                }
+            }
+    }
     memset(&g->walker, 0, sizeof g->walker);
-    g->walker.x = g->respawn_x = g->start_x;
-    g->walker.y = g->respawn_y = g->start_y;
-    g->walker.face_y = 1;
+    g->walker.x = x;
+    g->walker.y = y;
+    g->walker.face_x = face_x;
+    g->walker.face_y = face_y;
     g->walker.safe_timer = 1.0f;
-    g->rng = 0x2545f491u + (unsigned)index * 7919u;
+    reset_trail(g);
     for (int i = 0; i < g->foe_count; i++) foe_pick_direction(g, &g->foes[i]);
     g->state = STATE_MAP;
     g->state_timer = 0;
-    show_toast(g, TOAST_MAP, index + 1);
+    show_toast(g, TOAST_MAP, area + 1);
     update_camera(g);
+    if (area == AREA_WOODS && !g->heard_cry) {
+        g->heard_cry = true;
+        start_scene(g, SCENE_WOODS, STATE_MAP);
+    }
 }
 
 void game_new(Game *g)
 {
     memset(&g->stats, 0, sizeof g->stats);
+    memset(&g->goddess, 0, sizeof g->goddess);
+    memset(g->saved, 0, sizeof g->saved);
     g->goddess_saved = false;
+    g->heard_cry = false;
     g->stats.level = 1;
     g->stats.hp = g->stats.max_hp = 40;
     g->stats.sp = g->stats.max_sp = 8;
     g->stats.atk = 9;
     g->stats.def = 3;
     g->stats.herbs = 2;
-    game_enter_level(g, 0);
+    g->rng = 0x2545f491u;
+    g->area = -1;
+    game_enter_area(g, AREA_HOME, 0);
+    g->respawn_area = AREA_HOME;
+    g->respawn_x = g->walker.x;
+    g->respawn_y = g->walker.y;
 }
 
 void game_init(Game *g)
 {
     memset(g, 0, sizeof *g);
-    game_new(g);  // the first map is shown behind the title
+    game_new(g);  // the home is shown behind the title
     g->toast = TOAST_NONE;
     g->state = STATE_TITLE;
     g->state_timer = MENU_DELAY;
@@ -759,12 +1055,16 @@ void game_step(Game *g, const GameInput *in)
 
     case STATE_GAME_OVER:
         if (menu_pressed(g, in)) {
-            // Wakes up at the last campfire, rested. Nothing else is lost.
+            // Wakes up where he last rested, rested. Nothing else is lost.
+            if (g->area != g->respawn_area) game_enter_area(g, g->respawn_area, 0);
             g->stats.hp = g->stats.max_hp;
             g->stats.sp = g->stats.max_sp;
+            g->goddess.hp = g->goddess.max_hp;
+            g->goddess.mp = g->goddess.max_mp;
             g->walker.x = g->respawn_x;
             g->walker.y = g->respawn_y;
             g->walker.safe_timer = SAFE_TIME;
+            reset_trail(g);
             g->state = STATE_MAP;
             update_camera(g);
         }

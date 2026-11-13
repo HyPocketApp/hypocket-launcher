@@ -65,6 +65,8 @@
 #define MOON_SKIN (Color){ 250, 226, 210, 255 }
 #define MOON_SILVER (Color){ 200, 220, 255, 255 }
 #define EMBER_RED (Color){ 230, 80, 40, 255 }
+#define ROOF (Color){ 150, 60, 50, 255 }
+#define ROOF_DARK (Color){ 110, 40, 36, 255 }
 #define SHADOW (Color){ 0, 0, 0, 60 }
 #define DISABLED (Color){ 120, 120, 130, 255 }
 
@@ -259,8 +261,8 @@ static void poll_touch(InputState *s, View v, const Game *g)
         Vector2 p = to_virtual(v, GetTouchPosition(0));
         if (g->state == STATE_BATTLE) {
             const Battle *b = &g->battle;
-            if (b->phase == PHASE_MENU || b->phase == PHASE_SKILLS) {
-                int n = b->phase == PHASE_MENU ? MENU_COUNT : SKILL_MENU_COUNT;
+            if (b->phase == PHASE_MENU || b->phase == PHASE_SKILLS || b->phase == PHASE_ALLY) {
+                int n = b->phase == PHASE_MENU ? MENU_COUNT : b->phase == PHASE_SKILLS ? SKILL_MENU_COUNT : SPELL_MENU_COUNT;
                 for (int i = 0; i < n; i++)
                     if (CheckCollisionPointRec(p, menu_entry_rect(i))) s->pick = i + 1;
             } else if (b->phase == PHASE_TARGET) {
@@ -649,11 +651,47 @@ static void draw_map(const Game *g, int cam_x, int cam_y)
                 draw_goddess(x + 8.0f, y + 7.0f, 1.0f, t);
                 break;
             case TILE_EXIT:
-                DrawRectangle(x + 2, y, 12, TILE, PATH);
-                DrawRectangle(x + 7, y + 2, 2, 10, TRUNK);
-                DrawRectangle(x + 3, y + 3, 10, 4, PLANK);
-                DrawTriangle((Vector2){ x + 13.0f, y + 3.0f }, (Vector2){ x + 13.0f, y + 7.0f },
-                             (Vector2){ x + 15.0f, y + 5.0f }, PLANK);
+            case TILE_PATH:
+                DrawRectangle(x, y + 2, TILE, TILE - 4, PATH);
+                if (tile_hash(tx, ty) % 2) DrawRectangle(x + 4 + (int)(tile_hash(tx, ty) >> 5) % 8, y + 6, 2, 1, TRUNK_LIGHT);
+                break;
+            case TILE_HOUSE:
+            case TILE_DOOR: {
+                TileType above = game_tile_at(g, tx, ty - 1);
+                bool roof = above != TILE_HOUSE && above != TILE_DOOR;
+                if (roof) {
+                    DrawRectangle(x - 1, y - 4, TILE + 2, TILE + 4, ROOF);
+                    for (int i = 0; i < TILE; i += 4) DrawRectangle(x - 1, y - 4 + i, TILE + 2, 1, ROOF_DARK);
+                    DrawRectangle(x - 1, y + TILE - 2, TILE + 2, 2, ROOF_DARK);
+                    TileType right = game_tile_at(g, tx + 1, ty);
+                    if (right != TILE_HOUSE && right != TILE_DOOR) {  // chimney with a wisp of smoke
+                        DrawRectangle(x + 8, y - 9, 5, 7, CLIFF_DARK);
+                        float k = fmodf(t * 0.6f, 1.0f);
+                        DrawCircle(x + 11 + (int)(k * 4), y - 11 - (int)(k * 10), 2 + k * 2, Fade(RAYWHITE, 0.5f * (1 - k)));
+                    }
+                } else {
+                    DrawRectangle(x, y, TILE, TILE, TRUNK_LIGHT);
+                    for (int i = 3; i < TILE; i += 4) DrawRectangle(x, y + i, TILE, 1, TRUNK);
+                    if (tile == TILE_DOOR) {
+                        DrawRectangle(x + 3, y + 2, 10, 14, PLANK_DARK);
+                        DrawRectangle(x + 4, y + 3, 8, 13, TRUNK);
+                        DrawRectangle(x + 10, y + 9, 1, 2, GOLDEN);
+                    } else if (game_tile_at(g, tx, ty + 1) == TILE_HOUSE || game_tile_at(g, tx, ty + 1) == TILE_DOOR || tx % 2) {
+                        DrawRectangle(x + 4, y + 4, 8, 7, PLANK_DARK);  // window with a warm light
+                        DrawRectangle(x + 5, y + 5, 6, 5, FIRE_B);
+                        DrawRectangle(x + 7, y + 5, 1, 5, PLANK_DARK);
+                    }
+                }
+                break;
+            }
+            case TILE_WOODPILE:
+                DrawEllipse(x + 8, y + 14, 8, 2, SHADOW);
+                for (int r = 0; r < 3; r++)
+                    for (int c = 0; c < 3 - r; c++) {
+                        int lx = x + 3 + c * 5 + r * 2, ly = y + 11 - r * 4;
+                        DrawCircle(lx, ly, 2.5f, TRUNK_LIGHT);
+                        DrawCircle(lx, ly, 1.0f, TRUNK);
+                    }
                 break;
             default:
                 break;
@@ -703,7 +741,8 @@ static void draw_map_hud(const Game *g, const InputState *s)
         case TOAST_AXE: msg = TextFormat(text_get(TXT_TOAST_AXE), g->toast_amount); break;
         case TOAST_REST: msg = text_get(TXT_TOAST_REST); break;
         case TOAST_TOO_HARD: msg = text_get(TXT_TOAST_TOO_HARD); break;
-        case TOAST_MAP: msg = text_get((TextId)(TXT_MAP_1 + (g->toast_amount - 1) % 3)); break;
+        case TOAST_HOME: msg = text_get(TXT_TOAST_HOME); break;
+        case TOAST_MAP: msg = text_get((TextId)(TXT_MAP_HOME + (g->toast_amount - 1) % 4)); break;
         default: break;
         }
         float a = fminf(1.0f, g->toast_timer * 2.0f);
@@ -756,10 +795,16 @@ static const char *msg_text(const Game *g, const BattleMsg *m)
     case MSG_FLEE_OK: return text_get(TXT_MSG_FLEE_OK);
     case MSG_FLEE_FAIL: return text_get(TXT_MSG_FLEE_FAIL);
     case MSG_CANT_FLEE: return text_get(TXT_MSG_CANT_FLEE);
-    case MSG_ENEMY_ATTACK: return TextFormat(text_get(TXT_MSG_ENEMY_ATTACK), actor, m->amount);
+    case MSG_BEAM: return TextFormat(text_get(TXT_MSG_BEAM), target, m->amount);
+    case MSG_LIGHT: return TextFormat(text_get(TXT_MSG_LIGHT), m->amount);
+    case MSG_ALLY_DEFEND: return text_get(TXT_MSG_ALLY_DEFEND);
+    case MSG_ALLY_DOWN: return text_get(TXT_MSG_ALLY_DOWN);
+    case MSG_ENEMY_ATTACK:
+        return TextFormat(text_get(m->on_ally ? TXT_MSG_ENEMY_ATTACK_ALLY : TXT_MSG_ENEMY_ATTACK), actor, m->amount);
     case MSG_ENEMY_SPECIAL:
-        if (b->enemies[m->actor].species == SPECIES_ELDER_STUMP) return TextFormat(text_get(TXT_MSG_ROOTS), m->amount);
-        return TextFormat(text_get(TXT_MSG_BITE), actor, m->amount);
+        if (b->enemies[m->actor].species == SPECIES_ELDER_STUMP)
+            return TextFormat(text_get(m->on_ally ? TXT_MSG_ROOTS_ALLY : TXT_MSG_ROOTS), m->amount);
+        return TextFormat(text_get(m->on_ally ? TXT_MSG_BITE_ALLY : TXT_MSG_BITE), actor, m->amount);
     case MSG_ENEMY_DOWN: return TextFormat(text_get(TXT_MSG_ENEMY_DOWN), target);
     case MSG_VICTORY: return TextFormat(text_get(TXT_MSG_VICTORY), m->amount);
     case MSG_FOUND_HERB: return TextFormat(text_get(TXT_MSG_FOUND_HERB), m->amount);
@@ -824,6 +869,14 @@ static void draw_battle(const Game *g, const InputState *s)
         if (m && m->target == i && m->amount > 0 &&
             (m->type == MSG_ATTACK || m->type == MSG_SPLIT || m->type == MSG_SPIN_HIT))
             draw_damage_popup(m, b->msg_timer, (Vector2){ cx, r.y + 4 }, m->crit ? GOLDEN : RAYWHITE);
+        if (m && m->target == i && m->type == MSG_BEAM) {
+            // A beam of moonlight falls on the monster.
+            float k = fminf(1.0f, b->msg_timer * 3.0f);
+            float bw = 10 * (1.0f - fabsf(k * 2 - 1)) + 2;
+            DrawRectangle((int)(cx - bw / 2), 0, (int)bw, (int)(cy + 10), Fade(MOON_SILVER, 0.75f));
+            DrawRectangle((int)(cx - bw / 4), 0, (int)fmaxf(1, bw / 2), (int)(cy + 10), Fade(RAYWHITE, 0.9f));
+            draw_damage_popup(m, b->msg_timer, (Vector2){ cx, r.y + 4 }, MOON_SILVER);
+        }
     }
 
     // The lumberjack, swinging when he acts.
@@ -834,7 +887,32 @@ static void draw_battle(const Game *g, const InputState *s)
     }
     bool hurt = b->player_flash > 0 && fmodf(b->player_flash, 0.1f) < 0.05f;
     bool down = m && m->type == MSG_PLAYER_DOWN;
-    if (g->foes[b->foe].kind == ENCOUNTER_EMBERS) draw_goddess(26, 84, 2.0f, g->time);  // behind him
+    // The goddess, behind him: watching while the fire beings attack her,
+    // fighting at his side once she has joined.
+    if (b->ally_in) {
+        bool her_hurt = b->ally_flash > 0 && fmodf(b->ally_flash, 0.1f) < 0.05f;
+        bool casting = m && (m->type == MSG_BEAM || m->type == MSG_LIGHT);
+        if (b->ally_shown_hp <= 0) {
+            DrawRectangle(14, 96, 26, 6, MOON_WHITE);  // she fell
+            DrawRectangle(10, 94, 8, 8, MOON_SHADE);
+        } else if (!her_hurt) {
+            draw_goddess(26 + (casting ? sinf(fminf(b->msg_timer * 6.0f, PI)) * 8.0f : 0.0f), 86, 2.0f, g->time * (casting ? 4.0f : 1.0f));
+        }
+        if (b->ally_defending) DrawCircleLines(26, 78, 18, Fade(MOON_SILVER, 0.8f));
+        if (m && m->type == MSG_LIGHT) {
+            for (int k = 0; k < 10; k++) {  // sparkles over both of them
+                float a = g->time * 3.0f + k * 0.63f;
+                float rise = fmodf(b->msg_timer * 30.0f + k * 7, 40.0f);
+                DrawRectangle((int)(48 + cosf(a) * 34), (int)(96 - rise), 2, 2, Fade(MOON_SILVER, 1.0f - rise / 40.0f));
+            }
+            draw_damage_popup(m, b->msg_timer, (Vector2){ 26, 50 }, SLIME_C);
+            draw_damage_popup(m, b->msg_timer, (Vector2){ 70, 50 }, SLIME_C);
+        }
+        if (m && m->on_ally && (m->type == MSG_ENEMY_ATTACK || m->type == MSG_ENEMY_SPECIAL))
+            draw_damage_popup(m, b->msg_timer, (Vector2){ 26, 50 }, HP_COLOR);
+    } else if (g->foes[b->foe].kind == ENCOUNTER_EMBERS) {
+        draw_goddess(26, 84, 2.0f, g->time);
+    }
     if (!hurt) {
         if (down) {
             DrawRectangle(52, 92, 26, 6, SHIRT);  // lying on the grass
@@ -844,7 +922,7 @@ static void draw_battle(const Game *g, const InputState *s)
         }
     }
     if (b->defending) DrawCircleLines(70, 78, 18, Fade(SP_COLOR, 0.8f));
-    if (m && (m->type == MSG_ENEMY_ATTACK || m->type == MSG_ENEMY_SPECIAL))
+    if (m && !m->on_ally && (m->type == MSG_ENEMY_ATTACK || m->type == MSG_ENEMY_SPECIAL))
         draw_damage_popup(m, b->msg_timer, (Vector2){ 70, 50 }, HP_COLOR);
     if (m && m->type == MSG_HERB) draw_damage_popup(m, b->msg_timer, (Vector2){ 70, 50 }, SLIME_C);
 
@@ -852,6 +930,7 @@ static void draw_battle(const Game *g, const InputState *s)
     const char *line = NULL;
     if (m) line = msg_text(g, m);
     else if (b->phase == PHASE_TARGET) line = text_get(TXT_CHOOSE_TARGET);
+    else if (b->phase == PHASE_ALLY) line = text_get(TXT_ALLY_TURN);
     if (line) {
         draw_box((Rectangle){ 4, 4, VIEW_W - 8, 16 });
         draw_text_centered(line, 7, 10, RAYWHITE);
@@ -860,8 +939,23 @@ static void draw_battle(const Game *g, const InputState *s)
     // Bottom panel: menu on the left, status on the right.
     draw_box((Rectangle){ 3, PANEL_Y, 154, VIEW_H - PANEL_Y - 3 });
     draw_box((Rectangle){ 161, PANEL_Y, VIEW_W - 164, VIEW_H - PANEL_Y - 3 });
-    bool menu_active = b->phase == PHASE_MENU || b->phase == PHASE_SKILLS;
-    if (b->phase == PHASE_SKILLS) {
+    bool menu_active = b->phase == PHASE_MENU || b->phase == PHASE_SKILLS || b->phase == PHASE_ALLY;
+    if (b->phase == PHASE_ALLY || (b->phase == PHASE_TARGET && b->choosing == 1)) {
+        for (int i = 0; i < SPELL_MENU_COUNT; i++) {
+            const char *label = i == SPELL_BEAM ? TextFormat(text_get(TXT_SPELL_BEAM), SPELL_BEAM_COST)
+                              : i == SPELL_LIGHT ? TextFormat(text_get(TXT_SPELL_LIGHT), SPELL_LIGHT_COST)
+                              : i == SPELL_DEFEND ? text_get(TXT_MENU_DEFEND)
+                                                  : text_get(TXT_BACK);
+            Rectangle r = menu_entry_rect(i);
+            bool on = b->ally_cursor == i;
+            Color c = b->phase != PHASE_ALLY ? Fade(RAYWHITE, 0.5f)
+                    : battle_spell_enabled(g, (SpellItem)i) ? RAYWHITE : DISABLED;
+            if (on) DrawRectangleRec(r, Fade(PANEL_EDGE, 0.2f));
+            DrawText(label, (int)r.x + 10, (int)r.y + 1, 10, c);
+            if (i == SPELL_BEAM || i == SPELL_LIGHT) DrawCircle((int)r.x + MENU_W - 12, (int)r.y + 5, 2, MOON_SILVER);
+            if (on && !s->touch_ui) DrawText(">", (int)r.x + 2, (int)r.y + 1, 10, GOLDEN);
+        }
+    } else if (b->phase == PHASE_SKILLS) {
         for (int i = 0; i < SKILL_MENU_COUNT; i++) {
             const char *label = i == SKILL_SPLIT ? TextFormat(text_get(TXT_SKILL_SPLIT), SKILL_SPLIT_COST)
                               : i == SKILL_SPIN ? TextFormat(text_get(TXT_SKILL_SPIN), SKILL_SPIN_COST)
@@ -888,6 +982,29 @@ static void draw_battle(const Game *g, const InputState *s)
     }
 
     int sx = 167, sy = PANEL_Y + 6;
+    if (b->ally_in) {
+        // Two of them: a name line with numbers, then thin bars.
+        const Ally *a = &g->goddess;
+        struct { const char *name, *nums; int hp, max_hp, sp, max_sp; Color sp_color; bool active; } rows[2] = {
+            { text_get(TXT_HERO), TextFormat("%s %d  %s %d", text_get(TXT_HP), b->shown_hp, text_get(TXT_SP), b->shown_sp),
+              b->shown_hp, st->max_hp, b->shown_sp, st->max_sp, SP_COLOR, b->phase != PHASE_MESSAGES && b->choosing == 0 },
+            { text_get(TXT_GODDESS_SHORT), TextFormat("%s %d  %s %d", text_get(TXT_HP), b->ally_shown_hp, text_get(TXT_MP), b->ally_shown_mp),
+              b->ally_shown_hp, a->max_hp, b->ally_shown_mp, a->max_mp, MOON_SILVER, b->phase != PHASE_MESSAGES && b->choosing == 1 },
+        };
+        for (int i = 0; i < 2; i++) {
+            int y = PANEL_Y + 4 + i * 26;
+            Color name_c = rows[i].active ? GOLDEN : Fade(GOLDEN, 0.6f);
+            draw_text_shadow(rows[i].name, sx, y, 10, name_c);
+            draw_text_shadow(rows[i].nums, VIEW_W - 9 - MeasureText(rows[i].nums, 10), y, 10, RAYWHITE);
+            draw_bar(sx, y + 12, 140, rows[i].hp, rows[i].max_hp, HP_COLOR);
+            DrawRectangle(sx, y + 17, 140, 2, (Color){ 0, 0, 0, 140 });
+            DrawRectangle(sx, y + 17, rows[i].max_sp > 0 ? 140 * rows[i].sp / rows[i].max_sp : 0, 2, rows[i].sp_color);
+        }
+        int xp_need2 = xp_to_next_level(st->level);
+        DrawRectangle(sx, VIEW_H - 8, 140, 1, (Color){ 0, 0, 0, 140 });
+        DrawRectangle(sx, VIEW_H - 8, 140 * st->xp / (xp_need2 > 0 ? xp_need2 : 1), 1, GOLDEN);
+        return;
+    }
     draw_text_shadow(TextFormat("%s  %s", text_get(TXT_HERO), TextFormat(text_get(TXT_LEVEL_SHORT), st->level)), sx, sy, 10, GOLDEN);
     draw_text_shadow(text_get(TXT_HP), sx, sy + 15, 10, RAYWHITE);
     draw_bar(sx + 20, sy + 18, 80, b->shown_hp, st->max_hp, HP_COLOR);
@@ -912,24 +1029,24 @@ typedef struct {
 static const ScenePage intro_pages[] = {
     { TXT_INTRO_1, SPEAKER_NONE },
     { TXT_INTRO_2, SPEAKER_NONE },
-    { TXT_INTRO_3, SPEAKER_NONE },
+};
+static const ScenePage woods_pages[] = {
+    { TXT_WOODS_CRY, SPEAKER_NONE },
 };
 static const ScenePage goddess_pages[] = {
     { TXT_GODDESS_1, SPEAKER_NONE },
     { TXT_GODDESS_2, SPEAKER_STRANGER },
     { TXT_GODDESS_3, SPEAKER_GODDESS },
     { TXT_GODDESS_4, SPEAKER_GODDESS },
-};
-static const ScenePage goddess_talk_pages[] = {
-    { TXT_GODDESS_TALK, SPEAKER_GODDESS },
+    { TXT_GODDESS_5, SPEAKER_GODDESS },
 };
 
 static const ScenePage *scene_page(Scene scene, int page)
 {
     static const struct { const ScenePage *pages; int count; } scenes[SCENE_COUNT] = {
         [SCENE_INTRO] = { intro_pages, COUNT(intro_pages) },
+        [SCENE_WOODS] = { woods_pages, COUNT(woods_pages) },
         [SCENE_GODDESS] = { goddess_pages, COUNT(goddess_pages) },
-        [SCENE_GODDESS_TALK] = { goddess_talk_pages, COUNT(goddess_talk_pages) },
     };
     if (scene < 0 || scene >= SCENE_COUNT || page < 0 || page >= scenes[scene].count) return NULL;
     return &scenes[scene].pages[page];
@@ -1028,9 +1145,15 @@ static void draw_game(const Game *g, const InputState *s, float chop)
     if (g->state != STATE_TITLE && g->state != STATE_WON) {
         const Walker *w = &g->walker;
         bool blink = g->state != STATE_SCENE && w->safe_timer > 0 && w->safe_timer < 1.9f && fmodf(w->safe_timer, 0.2f) < 0.1f;
+        const Walker *f = &g->follower;
+        bool with_her = g->goddess.joined;
+        float fx = f->x + WALKER_SIZE / 2.0f - cam_x, fy = f->y + WALKER_SIZE / 2.0f - cam_y - 2;
+        fy -= f->walk_anim > 0 ? fabsf(sinf(f->walk_anim * 0.3f)) : 0.0f;
+        if (with_her && f->y < w->y) draw_goddess(fx, fy, 1.0f, g->time);  // behind him
         if (!blink)
             draw_lumberjack(w->x + WALKER_SIZE / 2.0f - cam_x, w->y + WALKER_SIZE / 2.0f - cam_y - 2, 1.0f,
                             w->face_x, w->face_y, w->walk_anim, chop);
+        if (with_her && f->y >= w->y) draw_goddess(fx, fy, 1.0f, g->time);
         if (g->state == STATE_MAP || g->state == STATE_PAUSED) draw_map_hud(g, s);
     }
     draw_overlay(g, s->touch_ui);

@@ -10,10 +10,21 @@ ela é a **Deusa da Lua**, que perdeu grande parte dos seus poderes, e esses
 seres querem roubar o que resta. A história está em
 [docs/LORE.md](docs/LORE.md).
 
+- **Um mundo ligado:** o jogo começa na **casa do lenhador**, um lugar
+  tranquilo, sem monstros. Uma trilha leva ao bosque, o bosque ao vale e o
+  vale à clareira. Não há fases: você vai e volta entre as áreas como num RPG
+  tradicional, e cada área lembra o que mudou (árvores cortadas, baús
+  abertos, monstros derrotados).
+- **A Deusa da Lua:** depois de salva, ela **segue o lenhador** pelo mapa e
+  **luta ao lado dele**. Em cada turno você escolhe a ação dele e depois a
+  dela: **Raio Lunar** (magia num monstro, atravessa metade da armadura),
+  **Luz da Lua** (cura os dois) ou **Defender**. Magias gastam PM. Os
+  monstros atacam os dois; se ela cair, volta a levantar depois da luta.
 - **Explorando o mapa:** ande livremente, **derrube árvores** com o machado
   para abrir caminhos, abra **baús** (ervas ou uma lâmina mais afiada) e
-  **descanse nas fogueiras** para recuperar tudo. Se você cair numa batalha,
-  acorda na última fogueira em que descansou, sem perder nada.
+  **descanse nas fogueiras** (ou na porta de casa) para recuperar tudo. Se
+  você cair numa batalha, acorda no último lugar em que descansou, sem perder
+  nada.
 - **Batalhas por turno:** ao tocar num monstro, começa uma batalha. Você
   escolhe uma ação e depois cada monstro age:
   - **Machadada:** um golpe simples (às vezes crítico).
@@ -25,8 +36,8 @@ seres querem roubar o que resta. A história está em
 - **Evolução:** cada vitória dá experiência. Ao subir de nível, vida,
   fôlego, ataque e defesa aumentam. O machado corta mais forte em coisas de
   madeira.
-- **3 mapas:** Bosque da Serraria, Vale dos Lobos e Clareira Ancestral, onde
-  o Toco Ancião espera. Os monstros são fagulhas (os seres de fogo), gosmas,
+- **4 áreas:** Casa do Lenhador, Bosque da Serraria, Vale dos Lobos e
+  Clareira Ancestral, onde o Toco Ancião espera. Os monstros são fagulhas (os seres de fogo), gosmas,
   besouros e lobos.
 - **Cenas de história:** telas de texto entre a ação. Enter ou toque
   avança; X pula a cena.
@@ -116,11 +127,14 @@ gosmas, os lobos pedem alguns níveis, e o chefe vence quem chega despreparado.
 
 Edite `src/levels.c`. Cada caractere é um quadrado de 16x16 pixels:
 `#` penhasco, `T` árvore (dá para cortar), `R` pedra, `~` água, `=` ponte,
-`c` baú com ervas, `A` baú com lâmina afiada, `f` fogueira, `X` saída,
-`P` início, `M` a Deusa da Lua. Monstros: `s` gosma, `g` duas gosmas,
+`c` baú com ervas, `A` baú com lâmina afiada, `f` fogueira, `H` casa,
+`D` porta (descansar), `W` lenha, `:` trilha, `P` início (só na casa),
+`M` a Deusa da Lua. Os dígitos `1` a `9` são caminhos entre áreas: andar
+sobre um leva à outra área que tem o mesmo dígito, e cada dígito aparece em
+exatamente duas áreas. Monstros: `s` gosma, `g` duas gosmas,
 `b` besouro e gosma, `v` lobo, `w` dois lobos, `e` seres de fogo (ficam
 parados; não dá para fugir), `B` o chefe. Rode os testes depois: eles avisam se
-algo ficou inalcançável.
+algo ficou inalcançável ou se um caminho não tem par.
 
 ### Mudar o equilíbrio
 

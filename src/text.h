@@ -17,6 +17,7 @@ typedef enum {
     TXT_WON_2,
     // Map
     TXT_LEVEL_SHORT,    // %d: level
+    TXT_MAP_HOME,       // the four area names stay in this order
     TXT_MAP_1,
     TXT_MAP_2,
     TXT_MAP_3,
@@ -24,6 +25,7 @@ typedef enum {
     TXT_TOAST_AXE,      // %d
     TXT_TOAST_REST,
     TXT_TOAST_TOO_HARD,
+    TXT_TOAST_HOME,
     // Battle menus and status
     TXT_MENU_ATTACK,
     TXT_MENU_SKILLS,
@@ -73,12 +75,25 @@ typedef enum {
     TXT_NAME_GODDESS,
     TXT_INTRO_1,
     TXT_INTRO_2,
-    TXT_INTRO_3,
+    TXT_WOODS_CRY,
     TXT_GODDESS_1,
     TXT_GODDESS_2,
     TXT_GODDESS_3,
     TXT_GODDESS_4,
-    TXT_GODDESS_TALK,
+    TXT_GODDESS_5,
+    // The goddess in battle.
+    TXT_GODDESS_SHORT,
+    TXT_MP,
+    TXT_ALLY_TURN,
+    TXT_SPELL_BEAM,     // %d: cost
+    TXT_SPELL_LIGHT,    // %d: cost
+    TXT_MSG_BEAM,       // %s %d
+    TXT_MSG_LIGHT,      // %d
+    TXT_MSG_ALLY_DEFEND,
+    TXT_MSG_ALLY_DOWN,
+    TXT_MSG_ENEMY_ATTACK_ALLY, // %s %d
+    TXT_MSG_BITE_ALLY,  // %s %d
+    TXT_MSG_ROOTS_ALLY, // %d
     TXT_COUNT,
 } TextId;
 

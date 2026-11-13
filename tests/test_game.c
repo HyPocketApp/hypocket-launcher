@@ -30,7 +30,8 @@ static void load(const char *const *rows, int count)
 {
     memset(&g, 0, sizeof g);
     game_new(&g);  // stats, and map 1 which we replace now
-    CHECK(level_load_rows(&g, rows, count));
+    CHECK(area_load_rows(&g, rows, count));
+    g.area = -1;  // not one of the game's areas
     memset(&g.walker, 0, sizeof g.walker);
     g.walker.x = g.respawn_x = g.start_x;
     g.walker.y = g.respawn_y = g.start_y;
@@ -128,65 +129,80 @@ static bool map_is_completable(const Game *m)
     return ok;
 }
 
+static bool area_has(int area, char c)
+{
+    int count = 0;
+    const char *const *rows = area_rows(area, &count);
+    for (int r = 0; r < count; r++)
+        if (strchr(rows[r], c)) return true;
+    return false;
+}
+
 static void test_maps_are_valid(void)
 {
-    CHECK(level_count() >= 3);
-    for (int i = 0; i < level_count(); i++) {
+    CHECK(area_count() >= 4 && area_count() <= MAX_AREAS);
+    for (int i = 0; i < area_count(); i++) {
         int count = 0;
-        const char *const *rows = level_rows(i, &count);
+        const char *const *rows = area_rows(i, &count);
         memset(&g, 0, sizeof g);
-        CHECK(level_load_rows(&g, rows, count));
-        CHECK(g.foe_count > 0);
+        CHECK(area_load_rows(&g, rows, count));
+        if (i == AREA_HOME) CHECK(g.foe_count == 0 && g.start_x >= 0);  // a safe place to start
+        else CHECK(g.foe_count > 0);
         for (int r = 0; r < count; r++) {
             CHECK((int)strlen(rows[r]) == g.w);
-            CHECK(rows[r][0] == '#' && rows[r][g.w - 1] == '#');
+            CHECK(strchr("#123456789", rows[r][0]) && strchr("#123456789", rows[r][g.w - 1]));
         }
-        for (int x = 0; x < g.w; x++) CHECK(rows[0][x] == '#' && rows[count - 1][x] == '#');
+        for (int x = 0; x < g.w; x++)
+            CHECK(strchr("#123456789", rows[0][x]) && strchr("#123456789", rows[count - 1][x]));
+        if (g.start_x < 0) {  // no start: search from the first path in
+            for (int y = 0; y < g.h && g.start_x < 0; y++)
+                for (int x = 0; x < g.w && g.start_x < 0; x++)
+                    if (g.links[y][x]) { g.start_x = (float)x * TILE; g.start_y = (float)y * TILE; }
+        }
         CHECK(map_is_completable(&g));
     }
-    // The boss waits on the last map.
-    int count = 0;
-    memset(&g, 0, sizeof g);
-    const char *const *last = level_rows(level_count() - 1, &count);
-    level_load_rows(&g, last, count);
-    bool boss = false;
-    for (int i = 0; i < g.foe_count; i++) boss |= g.foes[i].kind == ENCOUNTER_BOSS;
-    CHECK(boss);
-    // The goddess and the fire beings are on the first map.
-    memset(&g, 0, sizeof g);
-    const char *const *first = level_rows(0, &count);
-    level_load_rows(&g, first, count);
-    bool embers = false, goddess = false;
-    for (int i = 0; i < g.foe_count; i++) embers |= g.foes[i].kind == ENCOUNTER_EMBERS;
-    for (int y = 0; y < g.h; y++)
-        for (int x = 0; x < g.w; x++) goddess |= game_tile_at(&g, x, y) == TILE_GODDESS;
-    CHECK(embers && goddess);
+    // Each path digit joins exactly two areas, and every area can be reached from home.
+    bool reached[MAX_AREAS] = { [AREA_HOME] = true };
+    for (int round = 0; round < MAX_AREAS; round++) {
+        for (char c = '1'; c <= '9'; c++) {
+            int n = 0, first = -1, second = -1;
+            for (int i = 0; i < area_count(); i++)
+                if (area_has(i, c)) { n++; if (first < 0) first = i; else second = i; }
+            CHECK(n == 0 || n == 2);
+            if (n == 2 && (reached[first] || reached[second])) reached[first] = reached[second] = true;
+        }
+    }
+    for (int i = 0; i < area_count(); i++) CHECK(reached[i]);
+    // The boss waits in the last area; the goddess and the fire beings in the woods.
+    CHECK(area_has(area_count() - 1, 'B'));
+    CHECK(area_has(AREA_WOODS, 'M') && area_has(AREA_WOODS, 'e'));
 }
 
 static void test_bad_map_is_rejected(void)
 {
     static const char *const no_end[] = { "#####", "#P..#", "#####" };
     memset(&g, 0, sizeof g);
-    CHECK(!level_load_rows(&g, no_end, 3));
+    CHECK(!area_load_rows(&g, no_end, 3));
 }
 
 // --- Exploring ----------------------------------------------------------------------
 
 static void test_axe_chops_trees(void)
 {
-    static const char *const rows[] = { "#######", "#P.T.X#", "#######" };
+    static const char *const rows[] = { "#######", "#P.T.9#", "#######" };
     load(rows, COUNT(rows));
     run(&RIGHT, 60);
     CHECK(g.walker.x + WALKER_SIZE <= 3 * TILE + 0.01f);  // the tree stops him
     face(1, 0);
     CHECK(run(&CONFIRM, 1) & EVENT_CHOP);
     CHECK(game_tile_at(&g, 3, 1) == TILE_STUMP);
-    CHECK(run(&RIGHT, 120) & EVENT_EXIT);
+    run(&RIGHT, 60);
+    CHECK(g.walker.x > 3 * TILE);  // the way is open
 }
 
 static void test_rocks_are_too_hard(void)
 {
-    static const char *const rows[] = { "#######", "#PR..X#", "#######" };
+    static const char *const rows[] = { "#######", "#PR..9#", "#######" };
     load(rows, COUNT(rows));
     face(1, 0);
     CHECK(run(&CONFIRM, 1) & EVENT_BUMP);
@@ -196,7 +212,7 @@ static void test_rocks_are_too_hard(void)
 
 static void test_chests(void)
 {
-    static const char *const rows[] = { "#######", "#cPA.X#", "#######" };
+    static const char *const rows[] = { "#######", "#cPA.9#", "#######" };
     load(rows, COUNT(rows));
     int herbs = g.stats.herbs, atk = g.stats.atk;
     face(-1, 0);
@@ -212,7 +228,7 @@ static void test_chests(void)
 
 static void test_campfire_heals_and_saves(void)
 {
-    static const char *const rows[] = { "#######", "#..P.X#", "#..f..#", "#######" };
+    static const char *const rows[] = { "#######", "#..P.9#", "#..f..#", "#######" };
     load(rows, COUNT(rows));
     g.stats.hp = 1;
     g.stats.sp = 0;
@@ -223,20 +239,85 @@ static void test_campfire_heals_and_saves(void)
     CHECK(g.respawn_x == g.walker.x);
 }
 
-static void test_exit_leads_to_next_map(void)
+// Puts the lumberjack on tile (tx, ty) of the current area.
+static void place(int tx, int ty)
 {
-    static const char *const rows[] = { "######", "#P.X.#", "######" };
-    load(rows, COUNT(rows));
-    g.level = 0;
-    run(&RIGHT, 60);
-    CHECK(g.level == 1);
+    g.walker.x = tx * TILE + (TILE - WALKER_SIZE) / 2.0f;
+    g.walker.y = ty * TILE + (TILE - WALKER_SIZE) / 2.0f;
+    g.walker.safe_timer = 10;
+}
+
+static void find_tile(char c, int area, int *tx, int *ty)
+{
+    int count = 0;
+    const char *const *rows = area_rows(area, &count);
+    for (int r = 0; r < count; r++) {
+        const char *p = strchr(rows[r], c);
+        if (p) { *tx = (int)(p - rows[r]); *ty = r; return; }
+    }
+    *tx = *ty = -1;
+}
+
+static void test_walking_between_areas(void)
+{
+    memset(&g, 0, sizeof g);
+    game_new(&g);
+    CHECK(g.area == AREA_HOME && g.state == STATE_MAP);
+    int ex, ey;
+    find_tile('1', AREA_HOME, &ex, &ey);
+    place(ex - 1, ey);
+    run(&RIGHT, 30);
+    CHECK(g.area == AREA_WOODS);
+    CHECK(g.state == STATE_SCENE && g.scene == SCENE_WOODS);  // a cry, the first time
+    run(&NONE, 30);
+    run(&CANCEL, 1);
     CHECK(g.state == STATE_MAP);
-    CHECK(g.toast == TOAST_MAP);
+    CHECK(g.toast == TOAST_MAP && g.toast_amount == AREA_WOODS + 1);
+    int wx, wy;
+    find_tile('1', AREA_WOODS, &wx, &wy);
+    CHECK((int)(g.walker.x / TILE) == wx + 1 && (int)(g.walker.y / TILE) == wy);  // next to the path
+
+    // Things done in an area stay done.
+    g.tiles[wy + 1][wx + 1] = TILE_STUMP;
+    g.foes[0].alive = false;
+    place(wx + 1, wy);
+    for (int i = 0; i < 60 && g.area == AREA_WOODS; i++) run(&LEFT, 1);
+    CHECK(g.area == AREA_HOME);
+    CHECK((int)(g.walker.x / TILE) == ex - 1);
+    run(&RIGHT, 30);
+    CHECK(g.area == AREA_WOODS);
+    CHECK(g.state == STATE_MAP);  // no cry the second time
+    CHECK(game_tile_at(&g, wx + 1, wy + 1) == TILE_STUMP);
+    CHECK(!g.foes[0].alive);
+}
+
+static void test_home_is_a_place_to_rest(void)
+{
+    memset(&g, 0, sizeof g);
+    game_new(&g);
+    int dx, dy;
+    find_tile('D', AREA_HOME, &dx, &dy);
+    place(dx, dy + 1);
+    face(0, -1);
+    g.stats.hp = 1;
+    CHECK(run(&CONFIRM, 1) & EVENT_REST);
+    CHECK(g.stats.hp == g.stats.max_hp && g.toast == TOAST_HOME);
+
+    // Falling in the woods wakes him at home.
+    game_enter_area(&g, AREA_WOODS, 1);
+    run(&NONE, 30);
+    run(&CANCEL, 1);
+    g.stats.hp = 0;
+    g.state = STATE_GAME_OVER;
+    run(&NONE, 30);
+    run(&CONFIRM, 1);
+    CHECK(g.state == STATE_MAP && g.area == AREA_HOME);
+    CHECK(g.stats.hp == g.stats.max_hp);
 }
 
 static void test_pause(void)
 {
-    static const char *const rows[] = { "######", "#P..X#", "######" };
+    static const char *const rows[] = { "######", "#P..9#", "######" };
     load(rows, COUNT(rows));
     GameInput pause = { .pause_pressed = true };
     run(&pause, 1);
@@ -250,8 +331,8 @@ static void test_pause(void)
 
 // --- Battles ------------------------------------------------------------------------
 
-static const char *const one_slime[] = { "#######", "#P.s.X#", "#######" };
-static const char *const two_slimes[] = { "#######", "#P.g.X#", "#######" };
+static const char *const one_slime[] = { "#######", "#P.s.9#", "#######" };
+static const char *const two_slimes[] = { "#######", "#P.g.9#", "#######" };
 
 static void test_touching_a_monster_starts_a_battle(void)
 {
@@ -493,7 +574,7 @@ static void test_title_starts_game(void)
     CHECK(g.state == STATE_SCENE && g.scene == SCENE_INTRO);
     CHECK(read_scene() == scene_page_count(SCENE_INTRO));
     CHECK(g.state == STATE_MAP);
-    CHECK(g.level == 0 && g.stats.level == 1);
+    CHECK(g.area == AREA_HOME && g.stats.level == 1);
     CHECK(!g.goddess_saved);
 }
 
@@ -511,7 +592,7 @@ static void test_scene_can_be_skipped(void)
 static const char *const goddess_map[] = {
     "#######",
     "#P.e..#",
-    "#..M.X#",
+    "#..M.9#",
     "#######",
 };
 
@@ -548,18 +629,97 @@ static void test_saving_the_goddess(void)
         play_messages();
     }
     CHECK(g.state == STATE_SCENE && g.scene == SCENE_GODDESS);
-    CHECK(g.goddess_saved);
+    CHECK(g.goddess_saved && g.goddess.joined);
+    CHECK(g.goddess.hp == g.goddess.max_hp && g.goddess.hp > 0);
+    CHECK(game_tile_at(&g, 3, 2) == TILE_FLOOR);  // she left her spot
     CHECK(read_scene() == scene_page_count(SCENE_GODDESS));
     CHECK(g.state == STATE_MAP);
 
-    // Now she talks.
-    g.walker.x = 2 * TILE + 3;
-    g.walker.y = 2 * TILE + 3;
-    face(1, 0);
-    run(&CONFIRM, 1);
-    CHECK(g.state == STATE_SCENE && g.scene == SCENE_GODDESS_TALK);
-    read_scene();
-    CHECK(g.state == STATE_MAP);
+    // She follows him.
+    place(1, 1);
+    for (int i = 0; i < TRAIL_LEN; i++) { g.trail_x[i] = g.walker.x; g.trail_y[i] = g.walker.y; }
+    run(&RIGHT, 40);
+    float dx = g.walker.x - g.follower.x, dy = g.walker.y - g.follower.y;
+    float dist = sqrtf(dx * dx + dy * dy);
+    CHECK(dist > 6 && dist < 30);
+    CHECK(g.follower.x < g.walker.x);  // behind him
+}
+
+// A battle with the goddess at his side, against one slime.
+static void start_party_battle(void)
+{
+    load(one_slime, COUNT(one_slime));
+    g.goddess.joined = true;
+    g.goddess.max_hp = g.goddess.hp = 30;
+    g.goddess.max_mp = g.goddess.mp = 10;
+    g.goddess.mag = 10;
+    g.goddess.def = 2;
+    game_start_battle(&g, 0);
+    CHECK(g.battle.ally_in);
+    play_messages();
+}
+
+static void test_goddess_casts_spells(void)
+{
+    start_party_battle();
+    g.battle.enemies[0].hp = 999;
+    pick(MENU_DEFEND);
+    CHECK(g.battle.phase == PHASE_ALLY);  // her turn to choose
+    pick(SPELL_BACK);
+    CHECK(g.battle.phase == PHASE_MENU);  // he can change his mind
+    pick(MENU_DEFEND);
+    pick(SPELL_BEAM);
+    CHECK(has_msg(MSG_BEAM));
+    CHECK(g.goddess.mp <= 10 - SPELL_BEAM_COST + 1);
+    CHECK(g.battle.enemies[0].hp < 999);
+    play_messages();
+
+    g.stats.hp = 5;
+    g.goddess.hp = 5;
+    pick(MENU_DEFEND);
+    pick(SPELL_LIGHT);
+    CHECK(has_msg(MSG_LIGHT));
+    play_messages();
+    CHECK(g.state == STATE_BATTLE);
+
+    // Without magic left, the spells are closed.
+    g.goddess.mp = 0;
+    pick(MENU_DEFEND);
+    CHECK(pick(SPELL_BEAM) & EVENT_DENIED);
+    CHECK(g.battle.phase == PHASE_ALLY);
+    pick(SPELL_DEFEND);
+    CHECK(has_msg(MSG_ALLY_DEFEND));
+}
+
+static void test_monsters_attack_the_goddess_too(void)
+{
+    start_party_battle();
+    g.battle.enemies[0].hp = 999;
+    g.stats.hp = g.stats.max_hp = 999;
+    bool hit_her = false, hit_him = false;
+    for (int round = 0; round < 30 && g.goddess.hp > 0; round++) {
+        pick(MENU_DEFEND);
+        pick(SPELL_DEFEND);
+        for (int i = 0; i < g.battle.msg_count; i++) {
+            const BattleMsg *m = &g.battle.msgs[i];
+            if (m->type == MSG_ENEMY_ATTACK) { if (m->on_ally) hit_her = true; else hit_him = true; }
+        }
+        play_messages();
+    }
+    CHECK(hit_her && hit_him);
+
+    // When she falls, she sits out and gets back up after the battle.
+    g.goddess.hp = 0;
+    pick(MENU_ATTACK);
+    CHECK(g.battle.phase != PHASE_ALLY);
+    g.battle.enemies[0].hp = 0;
+    g.stats.atk = 99;
+    play_messages();
+    while (g.state == STATE_BATTLE) {
+        pick(MENU_ATTACK);
+        play_messages();
+    }
+    CHECK(g.goddess.hp == 1);
 }
 
 // --- Balance --------------------------------------------------------------------------
@@ -567,9 +727,9 @@ static void test_saving_the_goddess(void)
 // Fights a whole battle with a simple strategy: a herb below a third of the
 // health, the strongest skill there is stamina for, else a plain attack.
 // Returns true on a win.
-static bool auto_battle(Encounter kind, int level, int herbs, unsigned seed)
+static bool auto_battle_with(Encounter kind, int level, int herbs, unsigned seed, bool goddess)
 {
-    static const char *const rows[] = { "######", "#P.s.#", "#...X#", "######" };
+    static const char *const rows[] = { "######", "#P.s.#", "#...9#", "######" };
     load(rows, COUNT(rows));
     g.foes[0].kind = kind;
     g.rng = seed * 2654435761u + 1u;  // a different fight each time
@@ -583,6 +743,13 @@ static bool auto_battle(Encounter kind, int level, int herbs, unsigned seed)
     g.stats.hp = g.stats.max_hp;
     g.stats.sp = g.stats.max_sp;
     g.stats.herbs = herbs;
+    if (goddess) {
+        g.goddess.joined = true;
+        g.goddess.max_hp = g.goddess.hp = 24 + 5 * level;
+        g.goddess.max_mp = g.goddess.mp = 8 + 2 * level;
+        g.goddess.mag = 8 + 2 * level;
+        g.goddess.def = 2 + level / 2;
+    }
     game_start_battle(&g, 0);
     for (int round = 0; round < 100 && g.state == STATE_BATTLE; round++) {
         play_messages();
@@ -602,8 +769,20 @@ static bool auto_battle(Encounter kind, int level, int herbs, unsigned seed)
             pick(MENU_ATTACK);
         }
         if (g.battle.phase == PHASE_TARGET) run(&CONFIRM, 1);
+        if (g.battle.phase == PHASE_ALLY) {
+            // She heals when he is hurt, else casts her beam, else rests.
+            if (s->hp * 2 < s->max_hp && battle_spell_enabled(&g, SPELL_LIGHT)) pick(SPELL_LIGHT);
+            else if (battle_spell_enabled(&g, SPELL_BEAM)) pick(SPELL_BEAM);
+            else pick(SPELL_DEFEND);
+            if (g.battle.phase == PHASE_TARGET) run(&CONFIRM, 1);
+        }
     }
     return !g.foes[0].alive && (g.state == STATE_MAP || g.state == STATE_SCENE || g.state == STATE_WON);
+}
+
+static bool auto_battle(Encounter kind, int level, int herbs, unsigned seed)
+{
+    return auto_battle_with(kind, level, herbs, seed, false);
 }
 
 static void test_balance(void)
@@ -628,6 +807,16 @@ static void test_balance(void)
     wins = 0;
     for (unsigned i = 0; i < 20; i++) wins += auto_battle(ENCOUNTER_BOSS, 1, 0, i);
     CHECK(wins == 0);
+    // With the goddess, the boss is easier but still needs levels.
+    wins = 0;
+    for (unsigned i = 0; i < 20; i++) wins += auto_battle_with(ENCOUNTER_BOSS, 6, 3, i, true);
+    CHECK(wins >= 17);
+    wins = 0;
+    for (unsigned i = 0; i < 20; i++) wins += auto_battle_with(ENCOUNTER_BOSS, 2, 0, i, true);
+    CHECK(wins <= 2);
+    wins = 0;
+    for (unsigned i = 0; i < 20; i++) wins += auto_battle_with(ENCOUNTER_WOLVES, 3, 1, i, true);
+    CHECK(wins >= 17);
 }
 
 int main(void)
@@ -639,12 +828,15 @@ int main(void)
         { "maps are valid and completable", test_maps_are_valid },
         { "scene can be skipped", test_scene_can_be_skipped },
         { "saving the goddess", test_saving_the_goddess },
+        { "goddess casts spells", test_goddess_casts_spells },
+        { "monsters attack the goddess too", test_monsters_attack_the_goddess_too },
         { "bad map is rejected", test_bad_map_is_rejected },
         { "axe chops trees", test_axe_chops_trees },
         { "rocks are too hard", test_rocks_are_too_hard },
         { "chests", test_chests },
         { "campfire heals and saves", test_campfire_heals_and_saves },
-        { "exit leads to next map", test_exit_leads_to_next_map },
+        { "walking between areas", test_walking_between_areas },
+        { "home is a place to rest", test_home_is_a_place_to_rest },
         { "pause", test_pause },
         { "touching a monster starts a battle", test_touching_a_monster_starts_a_battle },
         { "attack hurts and monsters answer", test_attack_hurts_and_monsters_answer },

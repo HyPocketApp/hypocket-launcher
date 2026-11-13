@@ -5,10 +5,13 @@
 // on PC and Android. main.c turns input into a GameInput, calls game_step()
 // at a fixed 60 steps per second, and draws what is in the Game.
 //
-// The player is a lumberjack on his way to a nearby village. On the map (seen
-// from above) he walks, chops trees out of the way with his axe, opens chests
-// and rests at campfires. On the first map he saves the Moon Goddess from
-// small fire beings; short story scenes play between the action (see Scene).
+// The player is a lumberjack on his way to a nearby village. The world is a
+// set of areas joined by paths (his home, the woods, the valley, the
+// clearing); he can walk back and forth and each area remembers what changed.
+// On the map (seen from above) he walks, chops trees out of the way with his
+// axe, opens chests and rests at campfires. In the woods he saves the Moon
+// Goddess from small fire beings; she then follows him and fights with magic.
+// Short story scenes play between the action (see Scene).
 // Touching a monster starts a turn-based battle: he picks an action, then
 // every monster still standing takes its turn. Winning gives experience and
 // levels. The last map ends with a boss.
@@ -28,7 +31,9 @@
 #define MAX_MAP_H 64
 #define MAX_FOES 48
 #define MAX_BATTLE_ENEMIES 3
-#define MAX_BATTLE_MSGS 32
+#define MAX_BATTLE_MSGS 40
+#define MAX_AREAS 8
+#define TRAIL_LEN 32  // steps of the lumberjack the goddess follows
 
 #define STEP_DT (1.0f / 60.0f)
 #define WALKER_SIZE 10  // hitbox of the lumberjack and of monsters on the map
@@ -47,9 +52,16 @@ typedef enum {
     TILE_CHEST_AXE,  // 'A' chest with a sharper axe head
     TILE_CHEST_OPEN,
     TILE_FIRE,       // 'f' campfire: rest to heal; you come back here if you fall
-    TILE_EXIT,       // 'X' path to the next map
-    TILE_GODDESS,    // 'M' the Moon Goddess; blocks, talk to her with the action
+    TILE_EXIT,       // '1'..'9' path to another area: the same digit there
+    TILE_GODDESS,    // 'M' the Moon Goddess, waiting for help
+    TILE_HOUSE,      // 'H' the lumberjack's house, blocks
+    TILE_DOOR,       // 'D' its door: rest at home
+    TILE_PATH,       // ':' dirt path
+    TILE_WOODPILE,   // 'W' stacked firewood, blocks
 } TileType;
+
+// The areas, in the order of areas_rows() (levels.c).
+enum { AREA_HOME, AREA_WOODS, AREA_VALLEY, AREA_CLEARING };
 
 // --- Monsters -------------------------------------------------------------------
 
@@ -111,6 +123,17 @@ typedef struct {
 
 int xp_to_next_level(int level);
 
+// The Moon Goddess, once she joins. Her strength follows the lumberjack's level.
+typedef struct {
+    bool joined;
+    int hp, max_hp;
+    int mp, max_mp;  // magic, spent on spells
+    int mag, def;
+} Ally;
+
+#define SPELL_BEAM_COST 3   // Moonbeam: magic hit on one monster
+#define SPELL_LIGHT_COST 4  // Moonlight: heals both of them
+
 typedef struct {
     float x, y;            // top-left corner of the hitbox, in pixels
     int face_x, face_y;    // one of the 4 directions
@@ -136,10 +159,20 @@ typedef enum {
     SKILL_MENU_COUNT,
 } SkillItem;
 
+// The goddess's battle menu.
 typedef enum {
-    PHASE_MENU,     // choose an action
-    PHASE_SKILLS,   // choose a skill
-    PHASE_TARGET,   // choose which monster
+    SPELL_BEAM,
+    SPELL_LIGHT,
+    SPELL_DEFEND,
+    SPELL_BACK,  // back to the lumberjack's choice
+    SPELL_MENU_COUNT,
+} SpellItem;
+
+typedef enum {
+    PHASE_MENU,     // the lumberjack chooses an action
+    PHASE_SKILLS,   // the lumberjack chooses a skill
+    PHASE_ALLY,     // the goddess chooses
+    PHASE_TARGET,   // choose which monster (for whoever is choosing)
     PHASE_MESSAGES, // the results play one message at a time
 } BattlePhase;
 
@@ -157,7 +190,11 @@ typedef enum {
     MSG_FLEE_OK,
     MSG_FLEE_FAIL,
     MSG_CANT_FLEE,
-    MSG_ENEMY_ATTACK,    // actor, amount
+    MSG_BEAM,            // the goddess: target, amount
+    MSG_LIGHT,           // the goddess heals both
+    MSG_ALLY_DEFEND,
+    MSG_ALLY_DOWN,       // the goddess cannot fight until the battle ends
+    MSG_ENEMY_ATTACK,    // actor, amount; on_ally when it hits the goddess
     MSG_ENEMY_SPECIAL,   // actor, amount (wolf bite, boss roots)
     MSG_ENEMY_DOWN,      // target
     MSG_VICTORY,         // amount = xp
@@ -170,8 +207,10 @@ typedef struct {
     MsgType type;
     int actor, target, amount;
     bool crit;
+    bool on_ally;         // an enemy action aimed at the goddess
     int enemy_hp_after;   // hp of `target` after this message
     int player_hp_after, player_sp_after;
+    int ally_hp_after, ally_mp_after;
 } BattleMsg;
 
 typedef struct {
@@ -191,15 +230,21 @@ typedef struct {
     BattlePhase phase;
     int cursor;        // in the main menu
     int skill_cursor;  // in the skills menu
-    int target;        // chosen monster
-    int pending;       // MENU_ATTACK or SKILL_SPLIT waiting for a target
-    bool defending;
+    int target;        // monster under the target cursor
+    int pending;       // MENU_ATTACK or MENU_SKILLS waiting for a target
+    int choosing;      // 0: the lumberjack is choosing, 1: the goddess
+    int hero_action, hero_skill, hero_target;  // his choice for this round
+    bool ally_in;      // the goddess fights in this battle
+    int ally_cursor;
+    int ally_spell, ally_target;
+    bool defending, ally_defending;
     int turn;
     BattleMsg msgs[MAX_BATTLE_MSGS];
     int msg_count, msg_index;
     float msg_timer;
     int shown_hp, shown_sp;
-    float player_flash;
+    int ally_shown_hp, ally_shown_mp;
+    float player_flash, ally_flash;
     Outcome outcome;
 } Battle;
 
@@ -218,9 +263,9 @@ typedef enum {
 // Story scenes. The rules only know how many pages each has; the words and
 // who says them are in main.c and text.c.
 typedef enum {
-    SCENE_INTRO,         // the lumberjack sets out for the village
-    SCENE_GODDESS,       // after saving her: she is the Moon Goddess
-    SCENE_GODDESS_TALK,  // talking to her again
+    SCENE_INTRO,    // the lumberjack sets out for the village
+    SCENE_WOODS,    // first steps into the woods: a cry
+    SCENE_GODDESS,  // after saving her: she is the Moon Goddess, and joins
     SCENE_COUNT,
 } Scene;
 
@@ -233,7 +278,8 @@ typedef enum {
     TOAST_AXE,       // the axe got sharper
     TOAST_REST,      // rested at the campfire
     TOAST_TOO_HARD,  // tried to chop a rock
-    TOAST_MAP,       // arrived at a new map
+    TOAST_MAP,       // arrived in an area; amount = area + 1
+    TOAST_HOME,      // rested at home
 } Toast;
 
 // Things that happened during the last step, for sounds and effects.
@@ -271,13 +317,27 @@ typedef struct {
     GameState state;
     float state_timer;
 
-    int level;  // index into the map list
+    int area;   // index into the area list, -1 for a map loaded by hand
     int w, h;   // map size in tiles
     unsigned char tiles[MAX_MAP_H][MAX_MAP_W];
+    unsigned char links[MAX_MAP_H][MAX_MAP_W];  // digit of each exit tile
     float start_x, start_y;
+    int respawn_area;
     float respawn_x, respawn_y;
 
+    // What changed in each area the lumberjack has left.
+    struct {
+        bool visited;
+        unsigned char tiles[MAX_MAP_H][MAX_MAP_W];
+        Foe foes[MAX_FOES];
+        int foe_count;
+    } saved[MAX_AREAS];
+
     Walker walker;
+    Walker follower;  // the goddess walking behind him
+    float trail_x[TRAIL_LEN], trail_y[TRAIL_LEN];
+    int trail_head;
+    Ally goddess;
     Foe foes[MAX_FOES];
     int foe_count;
     Stats stats;
@@ -287,6 +347,7 @@ typedef struct {
     int scene_page;
     GameState scene_return;  // where the game goes when the scene ends
     bool goddess_saved;
+    bool heard_cry;
 
     Toast toast;
     int toast_amount;
@@ -298,23 +359,27 @@ typedef struct {
     unsigned events;  // EVENT_* flags set by the last step
 } Game;
 
-// Maps, defined in levels.c.
-int level_count(void);
-const char *const *level_rows(int index, int *row_count);
+// Areas, defined in levels.c.
+int area_count(void);
+const char *const *area_rows(int index, int *row_count);
 
 // Fills the map part of `g` from text rows (see levels.c). Returns false when
-// the map is too big or has no start ('P'), or neither an exit nor a boss.
-bool level_load_rows(Game *g, const char *const *rows, int row_count);
+// the map is too big or has neither an exit nor a boss.
+bool area_load_rows(Game *g, const char *const *rows, int row_count);
 
 void game_init(Game *g);       // title screen
-void game_new(Game *g);        // a new lumberjack on the first map
-void game_enter_level(Game *g, int index);
+void game_new(Game *g);        // a new lumberjack at home
+// Goes to an area, arriving by the exit with digit `link`, or at its start
+// ('P') when link is 0.
+void game_enter_area(Game *g, int area, int link);
 void game_start_battle(Game *g, int foe);
 void game_step(Game *g, const GameInput *in);
 
 TileType game_tile_at(const Game *g, int tx, int ty);
 bool game_tile_blocks(TileType t);
 int skill_cost(SkillItem s);
+int spell_cost(SpellItem s);
+bool battle_spell_enabled(const Game *g, SpellItem item);
 bool battle_menu_enabled(const Game *g, MenuItem item);
 bool battle_skill_enabled(const Game *g, SkillItem item);
 // The message playing now, or NULL.
