@@ -18,3 +18,5 @@
   that is under "Definido" into the game, and ask before inventing more.
 - Story scenes: the page count is in `scene_page_count()` (game.c) and the
   pages (text and speaker) are in `main.c`; keep them in sync.
+- After every change to the game, build the APK and send it to the user as a
+  download (`timberheart-NN.apk`, counting up), even when they did not ask.
