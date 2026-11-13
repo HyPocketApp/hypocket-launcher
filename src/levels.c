@@ -40,7 +40,7 @@ static const char *const home[] = {
 static const char *const woods[] = {
     "####################################",
     "#TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT#",
-    "1.........T.........T.......c..TTTT#",
+    "1:::::::::T.........T.......c..TTTT#",
     "#T........T....s....T..........T...#",
     "#T...f....T.........TTTTTT.....T...#",
     "#T......e.TTT..........T.......T...#",

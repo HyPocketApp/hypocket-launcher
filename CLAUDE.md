@@ -16,7 +16,8 @@
   through the messages (`shown_hp`, `*_after` fields). Keep that split.
 - The story lives in `docs/LORE.md`. The author decides it: only put story
   that is under "Definido" into the game, and ask before inventing more.
-- Story scenes: the page count is in `scene_page_count()` (game.c) and the
-  pages (text and speaker) are in `main.c`; keep them in sync.
 - After every change to the game, build the APK and send it to the user as a
   download (`timberheart-NN.apk`, counting up), even when they did not ask.
+- The script of the scenes is in `src/story.c` (speaker, English, Portuguese).
+  It is the author's text: keep it word for word; only split a line into two
+  pages when it does not fit the box (the game warns at start-up).

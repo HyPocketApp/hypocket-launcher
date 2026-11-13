@@ -1,6 +1,8 @@
 #include "game.h"
+#include "story.h"
 
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 // Tuning, in pixels and seconds.
@@ -21,7 +23,7 @@ static const SpeciesInfo species_table[SPECIES_COUNT] = {
     [SPECIES_SLIME] = { .max_hp = 14, .atk = 6, .def = 1, .xp = 5, .herb_drop = 20 },
     [SPECIES_BEETLE] = { .max_hp = 22, .atk = 8, .def = 4, .xp = 8, .herb_drop = 25 },
     [SPECIES_WOLF] = { .max_hp = 26, .atk = 11, .def = 2, .xp = 12, .herb_drop = 30 },
-    [SPECIES_EMBER] = { .max_hp = 12, .atk = 6, .def = 0, .xp = 6, .herb_drop = 50 },
+    [SPECIES_EMBER] = { .max_hp = 9, .atk = 5, .def = 0, .xp = 6, .herb_drop = 40 },
     [SPECIES_ELDER_STUMP] = { .max_hp = 260, .atk = 18, .def = 8, .xp = 100, .wooden = true },
 };
 
@@ -36,15 +38,14 @@ int encounter_party(Encounter e, Species out[MAX_BATTLE_ENEMIES])
     case ENCOUNTER_WOLF: out[0] = SPECIES_WOLF; return 1;
     case ENCOUNTER_WOLVES: out[0] = out[1] = SPECIES_WOLF; return 2;
     case ENCOUNTER_BOSS: out[0] = SPECIES_ELDER_STUMP; return 1;
-    case ENCOUNTER_EMBERS: out[0] = out[1] = SPECIES_EMBER; return 2;
+    case ENCOUNTER_EMBERS: out[0] = out[1] = out[2] = SPECIES_EMBER; return 3;
     default: return 0;
     }
 }
 
 int scene_page_count(Scene s)
 {
-    static const int pages[SCENE_COUNT] = { [SCENE_INTRO] = 2, [SCENE_WOODS] = 1, [SCENE_GODDESS] = 5 };
-    return (s >= 0 && s < SCENE_COUNT) ? pages[s] : 0;
+    return story_page_count(s);
 }
 
 // Encounters that stay where they are on the map.
@@ -336,6 +337,25 @@ static void map_action(Game *g)
     }
 }
 
+// Reaching the fire creatures (within 3 tiles) plays their scene, then the
+// battle. Returns true when it started.
+static bool meet_creatures(Game *g)
+{
+    if (g->creatures_met) return false;
+    int wx = tile_floor(g->walker.x + WALKER_SIZE / 2.0f), wy = tile_floor(g->walker.y + WALKER_SIZE / 2.0f);
+    for (int i = 0; i < g->foe_count; i++) {
+        const Foe *f = &g->foes[i];
+        if (!f->alive || f->kind != ENCOUNTER_EMBERS) continue;
+        int fx = tile_floor(f->x + WALKER_SIZE / 2.0f), fy = tile_floor(f->y + WALKER_SIZE / 2.0f);
+        if (abs(fx - wx) > 3 || abs(fy - wy) > 3) continue;
+        g->creatures_met = true;
+        g->scene_foe = i;
+        start_scene(g, SCENE_CREATURES, STATE_BATTLE);
+        return true;
+    }
+    return false;
+}
+
 // Walks onto an exit: goes to the area on the other side.
 static bool take_exit(Game *g)
 {
@@ -366,6 +386,7 @@ static void update_walker(Game *g, const GameInput *in, float dt)
     if (w->moving && walker_advance(w, WALK_SPEED, dt)) {
         w->moving = false;
         if (take_exit(g)) return;
+        if (meet_creatures(g)) return;
     }
     if (!w->moving && (dir_x || dir_y)) {
         w->face_x = dir_x;
@@ -410,7 +431,13 @@ static void update_foes(Game *g, float dt)
         }
         if (w->safe_timer <= 0 &&
             overlaps(w->x, w->y, WALKER_SIZE, WALKER_SIZE, f->x - 1, f->y - 1, WALKER_SIZE + 2, WALKER_SIZE + 2)) {
-            game_start_battle(g, i);
+            if (f->kind == ENCOUNTER_EMBERS && !g->creatures_met) {  // their scene comes first
+                g->creatures_met = true;
+                g->scene_foe = i;
+                start_scene(g, SCENE_CREATURES, STATE_BATTLE);
+            } else {
+                game_start_battle(g, i);
+            }
             return;
         }
     }
@@ -712,7 +739,6 @@ void game_start_battle(Game *g, int foe)
     b->ally_shown_hp = g->goddess.hp;
     b->ally_shown_mp = g->goddess.mp;
     push_msg(g, MSG_START, -1, -1, g->foes[foe].kind, false);
-    if (g->foes[foe].kind == ENCOUNTER_EMBERS) push_msg(g, MSG_EMBERS_TAUNT, 0, -1, 0, false);
     b->phase = PHASE_MESSAGES;
     g->state = STATE_BATTLE;
     g->events |= EVENT_ENCOUNTER;
@@ -1005,6 +1031,7 @@ void game_new(Game *g)
     memset(g->saved, 0, sizeof g->saved);
     g->goddess_saved = false;
     g->heard_cry = false;
+    g->creatures_met = false;
     g->stats.level = 1;
     g->stats.hp = g->stats.max_hp = 40;
     g->stats.sp = g->stats.max_sp = 8;
@@ -1060,9 +1087,10 @@ void game_step(Game *g, const GameInput *in)
             g->events |= EVENT_CURSOR;
         }
         if (g->scene_page >= scene_page_count(g->scene)) {
-            g->state = g->scene_return;
             g->state_timer = 0;
             g->events |= EVENT_CONFIRM;
+            if (g->scene_return == STATE_BATTLE) game_start_battle(g, g->scene_foe);
+            else g->state = g->scene_return;
         }
         break;
 

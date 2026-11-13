@@ -69,20 +69,10 @@ static const char *const english[TXT_COUNT] = {
     [TXT_MSG_LEVEL_UP] = "Level up! You are now level %d.",
     [TXT_MSG_PLAYER_DOWN] = "The lumberjack falls...",
     [TXT_EMBER] = "Ember",
-    [TXT_MSG_EMBERS] = "Fire beings surround the woman in white!",
-    [TXT_MSG_EMBERS_TAUNT] = "%s: \"Her power will be ours!\"",
+    [TXT_MSG_EMBERS] = "The fire creatures attack!",
+    [TXT_MSG_EMBER_FLEES] = "%s falls back!",
     [TXT_SCENE_KEYS] = "Enter: next   X: skip",
     [TXT_SCENE_TAP] = "Tap to go on",
-    [TXT_NAME_STRANGER] = "???",
-    [TXT_NAME_GODDESS] = "Moon Goddess",
-    [TXT_INTRO_1] = "At the edge of the forest lives a lumberjack.\nJust him, his axe and the sound of the trees.",
-    [TXT_INTRO_2] = "One day, he decides to go to a nearby village.\nHe takes his axe and sets off down the trail.",
-    [TXT_WOODS_CRY] = "A cry rings out\nfrom between the trees...",
-    [TXT_GODDESS_1] = "The majestic woman turns to you.\nHer hair and clothes are white as moonlight.",
-    [TXT_GODDESS_2] = "Thank you, lumberjack.\nYou came just in time.",
-    [TXT_GODDESS_3] = "I am the Goddess of the Moon.\nBut I have lost most of my powers.",
-    [TXT_GODDESS_4] = "Those fire beings are of a race\nthat wants to steal my power.",
-    [TXT_GODDESS_5] = "Let me go with you to the village.\nWeak as I am, I can still fight with magic.",
     [TXT_GODDESS_SHORT] = "Goddess",
     [TXT_MP] = "MP",
     [TXT_ALLY_TURN] = "What will the goddess do?",
@@ -156,20 +146,10 @@ static const char *const portuguese[TXT_COUNT] = {
     [TXT_MSG_LEVEL_UP] = "Subiu de nível! Agora você é nível %d.",
     [TXT_MSG_PLAYER_DOWN] = "O lenhador cai...",
     [TXT_EMBER] = "Fagulha",
-    [TXT_MSG_EMBERS] = "Seres de fogo cercam a mulher de branco!",
-    [TXT_MSG_EMBERS_TAUNT] = "%s: \"O poder dela será nosso!\"",
+    [TXT_MSG_EMBERS] = "As criaturas de fogo atacam!",
+    [TXT_MSG_EMBER_FLEES] = "%s recua!",
     [TXT_SCENE_KEYS] = "Enter: seguir   X: pular",
     [TXT_SCENE_TAP] = "Toque para seguir",
-    [TXT_NAME_STRANGER] = "???",
-    [TXT_NAME_GODDESS] = "Deusa da Lua",
-    [TXT_INTRO_1] = "Na beira da floresta vive um lenhador.\nSó ele, o machado e o som das árvores.",
-    [TXT_INTRO_2] = "Um dia, ele decide ir até uma vila próxima.\nPega o machado e segue pela trilha.",
-    [TXT_WOODS_CRY] = "Um grito ecoa\nentre as árvores...",
-    [TXT_GODDESS_1] = "A mulher majestosa se vira para você.\nCabelos e roupas brancos como a luz da lua.",
-    [TXT_GODDESS_2] = "Obrigada, lenhador.\nVocê chegou na hora certa.",
-    [TXT_GODDESS_3] = "Eu sou a deusa da lua.\nMas perdi grande parte dos meus poderes.",
-    [TXT_GODDESS_4] = "Aqueles seres de fogo são de uma raça\nque quer roubar o meu poder.",
-    [TXT_GODDESS_5] = "Deixe-me ir com você até a vila.\nMesmo fraca, ainda posso lutar com magia.",
     [TXT_GODDESS_SHORT] = "Deusa",
     [TXT_MP] = "PM",
     [TXT_ALLY_TURN] = "O que a deusa vai fazer?",
@@ -213,6 +193,8 @@ void text_init(void)
 {
     current = system_is_portuguese() ? portuguese : english;
 }
+
+bool text_is_portuguese(void) { return current == portuguese; }
 
 const char *text_get(TextId id)
 {

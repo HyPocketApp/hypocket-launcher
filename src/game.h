@@ -183,7 +183,6 @@ typedef enum {
 // the screen shows them when the message plays, using the *_after values.
 typedef enum {
     MSG_START,           // amount = encounter
-    MSG_EMBERS_TAUNT,    // the fire beings speak, after MSG_START
     MSG_ATTACK,          // target, amount, crit
     MSG_SPLIT,           // target, amount, crit
     MSG_SPIN,            // then one MSG_SPIN_HIT per monster
@@ -267,12 +266,13 @@ typedef enum {
 // who says them are in main.c and text.c.
 typedef enum {
     SCENE_INTRO,    // the lumberjack sets out for the village
-    SCENE_WOODS,    // first steps into the woods: a cry
-    SCENE_GODDESS,  // after saving her: she is the Moon Goddess, and joins
+    SCENE_WOODS,      // first steps into the woods: a cry
+    SCENE_CREATURES,  // reaching her: the fire creatures; a battle follows
+    SCENE_GODDESS,    // after the battle: she is the Moon Goddess, and joins
     SCENE_COUNT,
 } Scene;
 
-int scene_page_count(Scene s);
+int scene_page_count(Scene s);  // from story.c
 
 // Short notes shown on the map.
 typedef enum {
@@ -349,6 +349,8 @@ typedef struct {
     GameState scene_return;  // where the game goes when the scene ends
     bool goddess_saved;
     bool heard_cry;
+    bool creatures_met;
+    int scene_foe;  // the battle that starts when SCENE_CREATURES ends
 
     Toast toast;
     int toast_amount;

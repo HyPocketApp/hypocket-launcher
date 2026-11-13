@@ -6,20 +6,23 @@ decidir; nada ali deve ir para o jogo sem a escolha do autor.
 
 ## Definido
 
-### O começo
+### Roteiro da introdução
 
-O protagonista é um **lenhador** que vive na beira da floresta, numa casa
-dele, e luta com um **machado**. Um dia ele decide ir até uma **vila
-próxima**.
+O roteiro completo, escrito pelo autor, está no jogo em `src/story.c`, fala
+por fala, em português e inglês. Resumo:
 
-No caminho, ele encontra uma **mulher majestosa, de cabelos e roupas
-brancos**, sendo atacada por **pequenos seres de fogo**. O lenhador a salva.
-
-Depois, ela conta quem é:
-
-- ela é a **Deusa da Lua**;
-- ela **perdeu grande parte dos seus poderes**;
-- os seres que a atacaram são de uma **raça que quer roubar o poder dela**.
+1. **Uma manhã comum.** O lenhador sai de casa, pega o machado e decide
+   passar na vila mais próxima, onde costuma comprar mantimentos.
+2. **O grito.** Na trilha pela floresta, alguém grita por socorro, um pouco
+   afastado do caminho. Ele sai da trilha para ajudar.
+3. **Encontro com as criaturas.** Numa pequena clareira, uma mulher de
+   cabelos prateados está caída, cercada por **três criaturas de fogo** que
+   exigem o que resta do poder dela. O lenhador intervém, e começa a
+   batalha.
+4. **Depois da batalha.** As criaturas recuam ("Isso não acabou... A deusa
+   não vai escapar de nós!"). A mulher conta que eles querem roubar os
+   poderes dela e que ela é a **Deusa da Lua**, que perdeu boa parte dos
+   poderes. O lenhador decide que a ida à vila vai ter que esperar.
 
 Depois disso, a deusa **acompanha o lenhador** e **luta usando magia**.
 
@@ -27,36 +30,33 @@ Depois disso, a deusa **acompanha o lenhador** e **luta usando magia**.
 
 | Personagem | O que sabemos |
 |---|---|
-| O lenhador | Protagonista. Mora na beira da floresta e usa um machado. Está indo até uma vila próxima. |
-| A Deusa da Lua | Mulher majestosa de cabelos e roupas brancos. Perdeu grande parte dos poderes. Acompanha o lenhador e luta com magia. |
-| Os seres de fogo | Pequenos, de uma raça que quer roubar o poder da deusa. No jogo, cada um se chama **Fagulha** (nome provisório). |
+| O lenhador | Protagonista. Mora numa casa de madeira no meio da floresta e usa um machado. Ia até a vila comprar mantimentos. Calmo e prestativo; "um humano bastante estranho", segundo a deusa. |
+| A Deusa da Lua | Cabelos prateados, roupas brancas. Perdeu boa parte dos poderes. Diz que o nome dela "não importa muito agora". Acompanha o lenhador e luta com magia. |
+| As criaturas de fogo | Uma raça que quer roubar o poder da deusa e a persegue há algum tempo. Na introdução aparecem três. |
 
 ## Como isso aparece no jogo
 
-- **Introdução** (2 telas, depois do título): o lenhador decide ir até a
-  vila. O jogo começa na **casa dele**, sem monstros.
-- **Bosque da Serraria:** ao entrar pela primeira vez, um grito ecoa. A
-  deusa está perto da entrada, cercada por seres de fogo (`M` e `e` no mapa).
-- **Luta contra as Fagulhas:** duas Fagulhas, sem opção de fugir. A deusa
-  aparece atrás do lenhador durante a luta.
-- **Cena da deusa** (5 telas, depois da vitória): ela agradece, diz que é a
-  Deusa da Lua, que perdeu grande parte dos poderes, que aqueles seres
-  querem roubar o poder dela, e pede para ir junto até a vila.
-- **Depois:** ela segue o lenhador pelo mapa e luta nas batalhas com
-  **Raio Lunar** e **Luz da Lua** (nomes provisórios).
+- **Cena 01** toca depois do título, na casa do lenhador (sem monstros).
+- **Cena 02** toca ao entrar no Bosque da Serraria pela primeira vez.
+- **Cena 03** toca quando o lenhador chega perto da clareira (a até 3
+  quadrados das criaturas); a batalha contra as três começa logo depois,
+  sem opção de fugir. Na batalha elas "recuam" em vez de cair.
+- **Cena 04** toca depois da vitória; em seguida a deusa passa a seguir o
+  lenhador e a lutar com ele (**Raio Lunar** e **Luz da Lua**, nomes
+  provisórios).
 
-Os textos ficam em `src/text.c` (`TXT_INTRO_*`, `TXT_GODDESS_*`), em
-português e inglês. A ordem e quem fala cada tela ficam em `src/main.c`
-(`intro_pages`, `goddess_pages`); o número de telas fica em
-`scene_page_count()` em `src/game.c`, e os dois precisam bater.
+Cada fala é uma tela; Enter ou toque avança, X pula a cena. O texto quebra
+as linhas sozinho, e o jogo avisa (no registro, ao abrir) se alguma fala não
+couber na caixa.
 
 ## Em aberto
 
-- Nomes: do lenhador, da deusa, da raça de fogo e da vila.
-- Por que o lenhador vai até a vila.
-- Como a deusa perdeu os poderes e para que a raça de fogo quer esse poder.
-- Para onde vão depois da vila.
-- Como a história se liga ao resto do jogo. Hoje os mapas 2 e 3 ainda são os
-  da versão anterior (lobos, besouros e o chefe **Toco Ancião**), e a tela de
-  título ainda fala em "acalmar o Toco Ancião". O chefe final pode passar a
-  ser alguém da raça de fogo, por exemplo.
+- **O nome da raça de fogo.** O roteiro diz "Eles são da raça dos [nome]".
+  Por enquanto o jogo usa **Fagulhas** (é o mesmo nome dos monstros na
+  batalha). Para trocar: `src/story.c` (a fala) e `TXT_EMBER` em
+  `src/text.c` (o nome na batalha).
+- Os nomes do lenhador, da deusa e da vila.
+- Como a deusa perdeu os poderes e para que as criaturas querem esse poder.
+- O que acontece depois da introdução. Hoje os mapas 2 e 3 ainda são os da
+  versão anterior (lobos, besouros e o chefe **Toco Ancião**), e a tela de
+  título ainda fala em "acalmar o Toco Ancião".

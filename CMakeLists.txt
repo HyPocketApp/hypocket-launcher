@@ -8,7 +8,7 @@ option(TIMBERHEART_GAME "Build the game (needs raylib, downloaded automatically)
 option(TIMBERHEART_TESTS "Build the tests of the game rules" ON)
 
 # The game rules: plain C, no raylib, so they can be tested anywhere.
-add_library(timberheart_rules STATIC src/game.c src/levels.c)
+add_library(timberheart_rules STATIC src/game.c src/levels.c src/story.c)
 target_include_directories(timberheart_rules PUBLIC src)
 if(NOT MSVC)
   target_compile_options(timberheart_rules PRIVATE -Wall -Wextra)

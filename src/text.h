@@ -2,6 +2,8 @@
 #ifndef TIMBERHEART_TEXT_H
 #define TIMBERHEART_TEXT_H
 
+#include <stdbool.h>
+
 typedef enum {
     // Screens
     TXT_PRESS_TO_PLAY,
@@ -49,7 +51,7 @@ typedef enum {
     TXT_MSG_START,
     TXT_MSG_BOSS,
     TXT_MSG_EMBERS,
-    TXT_MSG_EMBERS_TAUNT, // %s: who speaks
+    TXT_MSG_EMBER_FLEES,  // %s
     TXT_MSG_CRIT,       // put before a hit message
     TXT_MSG_ATTACK,     // %s %d
     TXT_MSG_SPLIT,      // %s %d
@@ -68,19 +70,9 @@ typedef enum {
     TXT_MSG_FOUND_HERB, // %d
     TXT_MSG_LEVEL_UP,   // %d
     TXT_MSG_PLAYER_DOWN,
-    // Story scenes; '\n' splits the two lines.
+    // Story scenes (the script itself is in story.c).
     TXT_SCENE_KEYS,
     TXT_SCENE_TAP,
-    TXT_NAME_STRANGER,
-    TXT_NAME_GODDESS,
-    TXT_INTRO_1,
-    TXT_INTRO_2,
-    TXT_WOODS_CRY,
-    TXT_GODDESS_1,
-    TXT_GODDESS_2,
-    TXT_GODDESS_3,
-    TXT_GODDESS_4,
-    TXT_GODDESS_5,
     // The goddess in battle.
     TXT_GODDESS_SHORT,
     TXT_MP,
@@ -99,5 +91,6 @@ typedef enum {
 
 void text_init(void);  // picks the language of the system
 const char *text_get(TextId id);
+bool text_is_portuguese(void);
 
 #endif

@@ -1,5 +1,6 @@
 // Tests for the game rules (game.c, levels.c). They need no window or GPU.
 #include "game.h"
+#include "story.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -657,8 +658,7 @@ static void test_saving_the_goddess(void)
     CHECK(g.state == STATE_MAP);
 
     game_start_battle(&g, 0);
-    CHECK(g.battle.enemy_count == 2 && g.battle.enemies[0].species == SPECIES_EMBER);
-    CHECK(has_msg(MSG_EMBERS_TAUNT));
+    CHECK(g.battle.enemy_count == 3 && g.battle.enemies[0].species == SPECIES_EMBER);
     play_messages();
     pick(MENU_FLEE);
     CHECK(has_msg(MSG_CANT_FLEE));
@@ -685,6 +685,33 @@ static void test_saving_the_goddess(void)
     CHECK(hx == 5 && hy == 1);  // stopped by the wall
     CHECK((int)(g.follower.x / TILE) == hx - 1 && (int)(g.follower.y / TILE) == hy);
     CHECK(g.follower.x == g.walker.x - TILE && g.follower.y == g.walker.y);
+}
+
+static void test_reaching_the_creatures_plays_their_scene(void)
+{
+    load(goddess_map, COUNT(goddess_map));
+    g.walker.safe_timer = 0;
+    // Two tiles away from them is close enough.
+    for (int i = 0; i < 60 && g.state == STATE_MAP; i++) run(&RIGHT, 1);
+    CHECK(g.state == STATE_SCENE && g.scene == SCENE_CREATURES);
+    CHECK(g.creatures_met);
+    CHECK(read_scene() == scene_page_count(SCENE_CREATURES));
+    CHECK(g.state == STATE_BATTLE);  // the battle follows the scene
+    CHECK(g.battle.enemy_count == 3);
+}
+
+static void test_story_is_complete(void)
+{
+    for (int sc = 0; sc < SCENE_COUNT; sc++) {
+        CHECK(scene_page_count((Scene)sc) > 0);
+        CHECK(story_page((Scene)sc, scene_page_count((Scene)sc)) == NULL);
+        for (int i = 0; i < scene_page_count((Scene)sc); i++) {
+            const StoryPage *p = story_page((Scene)sc, i);
+            CHECK(p && p->en && p->pt && p->en[0] && p->pt[0]);
+            CHECK(p->who >= SPEAKER_NONE && p->who < SPEAKER_COUNT);
+            CHECK(p->who == SPEAKER_NONE || story_speaker_name(p->who, true)[0]);
+        }
+    }
 }
 
 // A battle with the goddess at his side, against one slime.
@@ -870,6 +897,8 @@ int main(void)
         { "maps are valid and completable", test_maps_are_valid },
         { "scene can be skipped", test_scene_can_be_skipped },
         { "saving the goddess", test_saving_the_goddess },
+        { "reaching the creatures plays their scene", test_reaching_the_creatures_plays_their_scene },
+        { "story is complete", test_story_is_complete },
         { "goddess casts spells", test_goddess_casts_spells },
         { "monsters attack the goddess too", test_monsters_attack_the_goddess_too },
         { "bad map is rejected", test_bad_map_is_rejected },

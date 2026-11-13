@@ -4,6 +4,7 @@
 // Android, raylib's NativeActivity glue calls main() for us. Everything is
 // drawn by code (no image files) at 320x180 and scaled up to the screen.
 #include "game.h"
+#include "story.h"
 #include "text.h"
 
 #include <math.h>
@@ -63,6 +64,7 @@
 #define MOON_WHITE (Color){ 244, 246, 255, 255 }
 #define MOON_SHADE (Color){ 196, 204, 232, 255 }
 #define MOON_SKIN (Color){ 250, 226, 210, 255 }
+#define MOON_HAIR (Color){ 212, 218, 232, 255 }  // silver
 #define MOON_SILVER (Color){ 200, 220, 255, 255 }
 #define EMBER_RED (Color){ 230, 80, 40, 255 }
 #define ROOF (Color){ 150, 60, 50, 255 }
@@ -457,20 +459,30 @@ static void draw_goddess(float cx, float cy, float s, float t)
     DrawCircle((int)cx, (int)(cy - 2 * s), 13 * s, Fade(MOON_SILVER, glow));
     DrawEllipse((int)cx, (int)(cy + 7 * s), 5 * s, 2 * s, SHADOW);
     // Hair falling behind her back.
-    DrawRectangle((int)(cx - 4 * s), (int)(cy - 9 * s), (int)(8 * s), (int)(12 * s), MOON_SHADE);
+    DrawRectangle((int)(cx - 4 * s), (int)(cy - 9 * s), (int)(8 * s), (int)(12 * s), MOON_HAIR);
     // Dress, wider at the hem.
     DrawTriangle((Vector2){ cx, cy - 4 * s }, (Vector2){ cx - 6 * s, cy + 7 * s }, (Vector2){ cx + 6 * s, cy + 7 * s }, MOON_WHITE);
     DrawRectangle((int)(cx - 3 * s), (int)(cy - 4 * s), (int)(6 * s), (int)(5 * s), MOON_WHITE);
     DrawRectangle((int)(cx - 3 * s), (int)(cy - 1 * s), (int)(6 * s), (int)fmaxf(1, s), MOON_SILVER);  // belt
     // Face and the hair around it.
     DrawRectangle((int)(cx - 2 * s), (int)(cy - 9 * s), (int)(5 * s), (int)(5 * s), MOON_SKIN);
-    DrawRectangle((int)(cx - 3 * s), (int)(cy - 10 * s), (int)(7 * s), (int)(2 * s), MOON_WHITE);
-    DrawRectangle((int)(cx - 3 * s), (int)(cy - 9 * s), (int)fmaxf(1, s), (int)(7 * s), MOON_WHITE);
-    DrawRectangle((int)(cx + 3 * s), (int)(cy - 9 * s), (int)fmaxf(1, s), (int)(7 * s), MOON_WHITE);
+    DrawRectangle((int)(cx - 3 * s), (int)(cy - 10 * s), (int)(7 * s), (int)(2 * s), MOON_HAIR);
+    DrawRectangle((int)(cx - 3 * s), (int)(cy - 9 * s), (int)fmaxf(1, s), (int)(7 * s), MOON_HAIR);
+    DrawRectangle((int)(cx + 3 * s), (int)(cy - 9 * s), (int)fmaxf(1, s), (int)(7 * s), MOON_HAIR);
     DrawRectangle((int)(cx - 1 * s), (int)(cy - 7 * s), (int)fmaxf(1, s), (int)fmaxf(1, s), INK);
     DrawRectangle((int)(cx + 1 * s), (int)(cy - 7 * s), (int)fmaxf(1, s), (int)fmaxf(1, s), INK);
     // Crescent moon above her brow.
     DrawRing((Vector2){ cx, cy - 12 * s }, 1.3f * s, 2.6f * s, 20, 200, 10, MOON_SILVER);
+}
+
+// The goddess lying on the ground, before the lumberjack saves her.
+static void draw_goddess_fallen(float cx, float cy, float s, float t)
+{
+    DrawCircle((int)cx, (int)cy, 10 * s, Fade(MOON_SILVER, 0.12f + 0.05f * sinf(t * 2.0f)));
+    DrawEllipse((int)cx, (int)(cy + 3 * s), 8 * s, 2 * s, SHADOW);
+    DrawRectangle((int)(cx - 2 * s), (int)(cy - 1 * s), (int)(9 * s), (int)(4 * s), MOON_WHITE);  // dress
+    DrawRectangle((int)(cx - 8 * s), (int)(cy - 2 * s), (int)(6 * s), (int)(5 * s), MOON_HAIR);   // hair
+    DrawRectangle((int)(cx - 6 * s), (int)(cy - 1 * s), (int)(3 * s), (int)(3 * s), MOON_SKIN);   // face
 }
 
 // A monster centered at (cx, cy). `s` is the size (1 on the map).
@@ -648,7 +660,7 @@ static void draw_map(const Game *g, int cam_x, int cam_y)
                 break;
             }
             case TILE_GODDESS:
-                draw_goddess(x + 8.0f, y + 7.0f, 1.0f, t);
+                draw_goddess_fallen(x + 8.0f, y + 9.0f, 1.0f, t);
                 break;
             case TILE_EXIT:
             case TILE_PATH:
@@ -785,7 +797,6 @@ static const char *msg_text(const Game *g, const BattleMsg *m)
         if (m->amount == ENCOUNTER_BOSS) return text_get(TXT_MSG_BOSS);
         if (m->amount == ENCOUNTER_EMBERS) return text_get(TXT_MSG_EMBERS);
         return text_get(TXT_MSG_START);
-    case MSG_EMBERS_TAUNT: return TextFormat(text_get(TXT_MSG_EMBERS_TAUNT), actor);
     case MSG_ATTACK: return TextFormat("%s%s", crit, TextFormat(text_get(TXT_MSG_ATTACK), target, m->amount));
     case MSG_SPLIT: return TextFormat("%s%s", crit, TextFormat(text_get(TXT_MSG_SPLIT), target, m->amount));
     case MSG_SPIN: return text_get(TXT_MSG_SPIN);
@@ -805,7 +816,9 @@ static const char *msg_text(const Game *g, const BattleMsg *m)
         if (b->enemies[m->actor].species == SPECIES_ELDER_STUMP)
             return TextFormat(text_get(m->on_ally ? TXT_MSG_ROOTS_ALLY : TXT_MSG_ROOTS), m->amount);
         return TextFormat(text_get(m->on_ally ? TXT_MSG_BITE_ALLY : TXT_MSG_BITE), actor, m->amount);
-    case MSG_ENEMY_DOWN: return TextFormat(text_get(TXT_MSG_ENEMY_DOWN), target);
+    case MSG_ENEMY_DOWN:
+        if (b->enemies[m->target].species == SPECIES_EMBER) return TextFormat(text_get(TXT_MSG_EMBER_FLEES), target);
+        return TextFormat(text_get(TXT_MSG_ENEMY_DOWN), target);
     case MSG_VICTORY: return TextFormat(text_get(TXT_MSG_VICTORY), m->amount);
     case MSG_FOUND_HERB: return TextFormat(text_get(TXT_MSG_FOUND_HERB), m->amount);
     case MSG_LEVEL_UP: return TextFormat(text_get(TXT_MSG_LEVEL_UP), m->amount);
@@ -911,7 +924,7 @@ static void draw_battle(const Game *g, const InputState *s)
         if (m && m->on_ally && (m->type == MSG_ENEMY_ATTACK || m->type == MSG_ENEMY_SPECIAL))
             draw_damage_popup(m, b->msg_timer, (Vector2){ 26, 50 }, HP_COLOR);
     } else if (g->foes[b->foe].kind == ENCOUNTER_EMBERS) {
-        draw_goddess(26, 84, 2.0f, g->time);
+        draw_goddess_fallen(28, 96, 2.0f, g->time);
     }
     if (!hurt) {
         if (down) {
@@ -1019,77 +1032,99 @@ static void draw_battle(const Game *g, const InputState *s)
 
 // --- Story scenes ---------------------------------------------------------------------
 
-typedef enum { SPEAKER_NONE, SPEAKER_STRANGER, SPEAKER_GODDESS } Speaker;
+#define SCENE_TEXT_W (VIEW_W - 24)
 
-typedef struct {
-    TextId text;  // up to two lines, split by '\n'
-    Speaker who;
-} ScenePage;
-
-static const ScenePage intro_pages[] = {
-    { TXT_INTRO_1, SPEAKER_NONE },
-    { TXT_INTRO_2, SPEAKER_NONE },
-};
-static const ScenePage woods_pages[] = {
-    { TXT_WOODS_CRY, SPEAKER_NONE },
-};
-static const ScenePage goddess_pages[] = {
-    { TXT_GODDESS_1, SPEAKER_NONE },
-    { TXT_GODDESS_2, SPEAKER_STRANGER },
-    { TXT_GODDESS_3, SPEAKER_GODDESS },
-    { TXT_GODDESS_4, SPEAKER_GODDESS },
-    { TXT_GODDESS_5, SPEAKER_GODDESS },
-};
-
-static const ScenePage *scene_page(Scene scene, int page)
+// Splits `text` into lines that fit `width` pixels. Returns how many lines
+// it needs; fills at most `max_lines` of them.
+static int wrap_text(const char *text, int width, char lines[][160], int max_lines)
 {
-    static const struct { const ScenePage *pages; int count; } scenes[SCENE_COUNT] = {
-        [SCENE_INTRO] = { intro_pages, COUNT(intro_pages) },
-        [SCENE_WOODS] = { woods_pages, COUNT(woods_pages) },
-        [SCENE_GODDESS] = { goddess_pages, COUNT(goddess_pages) },
-    };
-    if (scene < 0 || scene >= SCENE_COUNT || page < 0 || page >= scenes[scene].count) return NULL;
-    return &scenes[scene].pages[page];
+    int count = 0;
+    char line[160] = "";
+    const char *p = text;
+    while (*p) {
+        while (*p == ' ') p++;
+        const char *end = p;
+        while (*end && *end != ' ') end++;
+        if (end == p) break;
+        char word[160];
+        int wl = (int)(end - p) < 159 ? (int)(end - p) : 159;
+        memcpy(word, p, wl);
+        word[wl] = 0;
+        char attempt[320];
+        snprintf(attempt, sizeof attempt, "%s%s%s", line, line[0] ? " " : "", word);
+        if (line[0] && MeasureText(attempt, 10) > width) {
+            if (count < max_lines) memcpy(lines[count], line, sizeof line);
+            count++;
+            memcpy(line, word, sizeof word);
+        } else {
+            size_t n = strlen(attempt);
+            if (n >= sizeof line) n = sizeof line - 1;
+            memcpy(line, attempt, n);
+            line[n] = 0;
+        }
+        p = end;
+    }
+    if (line[0]) {
+        if (count < max_lines) memcpy(lines[count], line, sizeof line);
+        count++;
+    }
+    return count;
+}
+
+static const char *page_text(const StoryPage *p) { return text_is_portuguese() ? p->pt : p->en; }
+
+// Who speaks is shown on the left, above the box.
+static void draw_portrait(Speaker who, float t)
+{
+    switch (who) {
+    case SPEAKER_HERO: draw_lumberjack(40, 94, 3.0f, 1, 0, 0, 0); break;
+    case SPEAKER_WOMAN: draw_goddess(40, 92, 3.0f, t); break;
+    case SPEAKER_CREATURE_1:
+    case SPEAKER_CREATURE_2:
+    case SPEAKER_CREATURE_3: draw_monster(SPECIES_EMBER, 40, 96, 3.0f, t + who, false, 1); break;
+    default: break;
+    }
 }
 
 static void draw_scene(const Game *g, bool touch)
 {
-    const ScenePage *p = scene_page(g->scene, g->scene_page);
+    const StoryPage *p = story_page(g->scene, g->scene_page);
     if (!p) return;
-    if (g->scene == SCENE_INTRO) {
-        DrawRectangle(0, 0, VIEW_W, VIEW_H, Fade(INK, 0.7f));
-        draw_lumberjack(160, 76, 3.0f, 1, 0, g->scene_page == 1 ? g->time * 20.0f : 0, 0);
-    }
-    if (p->who == SPEAKER_GODDESS || p->who == SPEAKER_STRANGER) draw_goddess(40, 92, 3.0f, g->time);
+    draw_portrait(p->who, g->time);
 
     Rectangle box = { 4, 120, VIEW_W - 8, 56 };
     draw_box(box);
-    int y = 124;
+    int y = 124, max_lines = 3;
     if (p->who != SPEAKER_NONE) {
-        draw_text_shadow(text_get(p->who == SPEAKER_GODDESS ? TXT_NAME_GODDESS : TXT_NAME_STRANGER), 10, y, 10, GOLDEN);
+        draw_text_shadow(story_speaker_name(p->who, text_is_portuguese()), 10, y, 10, GOLDEN);
         y += 13;
+        max_lines = 2;
     } else {
-        y += 6;
+        y += 2;
     }
-    // Two lines at most.
-    char line[160];
-    const char *txt = text_get(p->text);
-    for (int n = 0; n < 2 && *txt; n++) {
-        const char *end = strchr(txt, '\n');
-        size_t len = end ? (size_t)(end - txt) : strlen(txt);
-        if (len >= sizeof line) len = sizeof line - 1;
-        memcpy(line, txt, len);
-        line[len] = 0;
-        draw_text_shadow(line, 10, y, 10, RAYWHITE);
-        y += 12;
-        txt = end ? end + 1 : txt + len;
-    }
+    char lines[3][160];
+    int n = wrap_text(page_text(p), SCENE_TEXT_W, lines, max_lines);
+    for (int i = 0; i < n && i < max_lines; i++, y += 12)
+        draw_text_shadow(lines[i], 10, y, 10, p->who == SPEAKER_NONE ? Fade(RAYWHITE, 0.85f) : RAYWHITE);
     const char *hint = text_get(touch ? TXT_SCENE_TAP : TXT_SCENE_KEYS);
     DrawText(hint, (int)(box.x + box.width) - MeasureText(hint, 10) - 6, 164, 10, Fade(RAYWHITE, 0.55f));
     if (fmodf(g->time, 0.8f) < 0.5f) {
-        float ax = box.x + box.width - 10, ay = 152;
+        float ax = box.x + box.width - 10, ay = 125;
         DrawTriangle((Vector2){ ax, ay }, (Vector2){ ax + 3, ay + 4 }, (Vector2){ ax + 6, ay }, GOLDEN);
     }
+}
+
+// Warns when a page needs more lines than the box has.
+static void check_story_fits(void)
+{
+    char lines[8][160];
+    for (int sc = 0; sc < SCENE_COUNT; sc++)
+        for (int i = 0; i < story_page_count((Scene)sc); i++) {
+            const StoryPage *p = story_page((Scene)sc, i);
+            int room = p->who == SPEAKER_NONE ? 3 : 2;
+            if (wrap_text(p->en, SCENE_TEXT_W, lines, 8) > room || wrap_text(p->pt, SCENE_TEXT_W, lines, 8) > room)
+                TraceLog(LOG_WARNING, "scene %d page %d does not fit the box", sc, i);
+        }
 }
 
 // --- Screens ----------------------------------------------------------------------------
@@ -1178,10 +1213,7 @@ int main(int argc, char *argv[])
     SetTextureFilter(canvas.texture, TEXTURE_FILTER_POINT);
     Sounds sounds = load_sounds();
 
-    // The rules count the pages of each scene; the words are here. They must agree.
-    for (int sc = 0; sc < SCENE_COUNT; sc++)
-        if (scene_page((Scene)sc, scene_page_count((Scene)sc) - 1) == NULL || scene_page((Scene)sc, scene_page_count((Scene)sc)) != NULL)
-            TraceLog(LOG_WARNING, "scene %d: page count differs between game.c and main.c", sc);
+    check_story_fits();
 
     static Game game;
     game_init(&game);
