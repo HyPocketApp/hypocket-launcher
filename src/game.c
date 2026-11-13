@@ -13,7 +13,6 @@
 #define MENU_DELAY 0.4f      // ignore presses right after a screen appears
 #define PAGE_DELAY 0.15f     // between pages of a story scene
 #define FLEE_CHANCE 65       // percent
-#define FOLLOW_GAP 14        // how many steps behind him the goddess walks
 #define ALLY_HIT_CHANCE 35   // percent of monster attacks aimed at the goddess
 
 // --- Tables -------------------------------------------------------------------
@@ -240,36 +239,48 @@ static void rest(Game *g, Toast toast)
     show_toast(g, toast, 0);
 }
 
-// The goddess walks toward where the lumberjack was a few steps ago.
+// Moves a walker toward its next tile. Returns true on arrival.
+static bool walker_advance(Walker *w, float speed, float dt)
+{
+    float dx = w->to_x - w->x, dy = w->to_y - w->y;
+    float dist = sqrtf(dx * dx + dy * dy), step = speed * dt;
+    if (dist <= step) {
+        w->x = w->to_x;
+        w->y = w->to_y;
+        w->walk_anim += dist;
+        return true;
+    }
+    w->x += dx / dist * step;
+    w->y += dy / dist * step;
+    w->walk_anim += step;
+    return false;
+}
+
+// The goddess walks to the tile the lumberjack just left.
 static void update_follower(Game *g, float dt)
 {
     Walker *f = &g->follower;
-    int i = (g->trail_head - FOLLOW_GAP + TRAIL_LEN) % TRAIL_LEN;
-    float dx = g->trail_x[i] - f->x, dy = g->trail_y[i] - f->y;
-    float dist = sqrtf(dx * dx + dy * dy);
-    if (dist > 0.5f) {
-        float step = fminf(dist, WALK_SPEED * 1.25f * dt);
-        f->x += dx / dist * step;
-        f->y += dy / dist * step;
-        if (fabsf(dx) > fabsf(dy)) { f->face_x = dx > 0 ? 1 : -1; f->face_y = 0; }
-        else { f->face_x = 0; f->face_y = dy > 0 ? 1 : -1; }
-        f->walk_anim += step;
-    } else {
+    if (!f->moving) {
         f->walk_anim = 0;
+        return;
     }
+    float dx = f->to_x - f->x, dy = f->to_y - f->y;
+    if (fabsf(dx) > fabsf(dy)) { f->face_x = dx > 0 ? 1 : -1; f->face_y = 0; }
+    else if (dy != 0) { f->face_x = 0; f->face_y = dy > 0 ? 1 : -1; }
+    // Hurries when she is far behind (just after joining).
+    float speed = dx * dx + dy * dy > 1.5f * TILE * 1.5f * TILE ? WALK_SPEED * 2.0f : WALK_SPEED;
+    if (walker_advance(f, speed, dt)) f->moving = false;
 }
 
-static void reset_trail(Game *g)
+// She stands where he stands (after arriving in an area or waking up).
+static void reset_follower(Game *g)
 {
-    for (int i = 0; i < TRAIL_LEN; i++) {
-        g->trail_x[i] = g->walker.x;
-        g->trail_y[i] = g->walker.y;
-    }
-    g->trail_head = 0;
-    g->follower.x = g->walker.x;
-    g->follower.y = g->walker.y;
-    g->follower.face_x = g->walker.face_x;
-    g->follower.face_y = g->walker.face_y;
+    Walker *f = &g->follower;
+    memset(f, 0, sizeof *f);
+    f->x = f->to_x = g->walker.x;
+    f->y = f->to_y = g->walker.y;
+    f->face_x = g->walker.face_x;
+    f->face_y = g->walker.face_y;
 }
 
 // The other area with an exit marked `link`, or -1.
@@ -325,39 +336,56 @@ static void map_action(Game *g)
     }
 }
 
+// Walks onto an exit: goes to the area on the other side.
+static bool take_exit(Game *g)
+{
+    const Walker *w = &g->walker;
+    int cx = tile_floor(w->x + WALKER_SIZE / 2.0f), cy = tile_floor(w->y + WALKER_SIZE / 2.0f);
+    if (game_tile_at(g, cx, cy) != TILE_EXIT) return false;
+    int link = g->links[cy][cx];
+    int to = linked_area(g->area, link);
+    if (to < 0) return false;
+    g->events |= EVENT_EXIT;
+    game_enter_area(g, to, link);
+    return true;
+}
+
 static void update_walker(Game *g, const GameInput *in, float dt)
 {
     Walker *w = &g->walker;
-    float mx = in->move_x, my = in->move_y, len = sqrtf(mx * mx + my * my);
-    if (len > 1.0f) { mx /= len; my /= len; len = 1.0f; }
-    if (len > 0.2f) {
-        if (fabsf(mx) > fabsf(my)) { w->face_x = mx > 0 ? 1 : -1; w->face_y = 0; }
-        else { w->face_x = 0; w->face_y = my > 0 ? 1 : -1; }
-        w->walk_anim += len * WALK_SPEED * dt;
-    } else {
-        w->walk_anim = 0;
-    }
     if (w->safe_timer > 0) w->safe_timer -= dt;
-    float old_x = w->x, old_y = w->y;
-    move_box(g, &w->x, &w->y, mx * WALK_SPEED * dt, my * WALK_SPEED * dt, game_tile_blocks);
-    if (w->x != old_x || w->y != old_y) {
-        g->trail_head = (g->trail_head + 1) % TRAIL_LEN;
-        g->trail_x[g->trail_head] = w->x;
-        g->trail_y[g->trail_head] = w->y;
+
+    // Only up, down, left or right: the stronger axis of the stick wins.
+    int dir_x = 0, dir_y = 0;
+    float mx = in->move_x, my = in->move_y;
+    if (fabsf(mx) > 0.3f || fabsf(my) > 0.3f) {
+        if (fabsf(mx) > fabsf(my)) dir_x = mx > 0 ? 1 : -1;
+        else dir_y = my > 0 ? 1 : -1;
     }
-    update_follower(g, dt);
 
-    if (in->confirm_pressed) map_action(g);
-
-    int cx = tile_floor(w->x + WALKER_SIZE / 2.0f), cy = tile_floor(w->y + WALKER_SIZE / 2.0f);
-    if (game_tile_at(g, cx, cy) == TILE_EXIT) {
-        int link = g->links[cy][cx];
-        int to = linked_area(g->area, link);
-        if (to >= 0) {
-            g->events |= EVENT_EXIT;
-            game_enter_area(g, to, link);
+    if (w->moving && walker_advance(w, WALK_SPEED, dt)) {
+        w->moving = false;
+        if (take_exit(g)) return;
+    }
+    if (!w->moving && (dir_x || dir_y)) {
+        w->face_x = dir_x;
+        w->face_y = dir_y;
+        int tx = tile_floor(w->x + WALKER_SIZE / 2.0f) + dir_x;
+        int ty = tile_floor(w->y + WALKER_SIZE / 2.0f) + dir_y;
+        if (!game_tile_blocks(game_tile_at(g, tx, ty))) {
+            Walker *f = &g->follower;
+            f->to_x = w->x;  // she takes the tile he leaves
+            f->to_y = w->y;
+            f->moving = true;
+            w->to_x = tx * TILE + (TILE - WALKER_SIZE) / 2.0f;
+            w->to_y = ty * TILE + (TILE - WALKER_SIZE) / 2.0f;
+            w->moving = true;
         }
     }
+    if (!w->moving) w->walk_anim = 0;
+    update_follower(g, dt);
+
+    if (in->confirm_pressed && !w->moving) map_action(g);
 }
 
 static void foe_pick_direction(Game *g, Foe *f)
@@ -720,13 +748,13 @@ static void goddess_joins(Game *g)
     g->goddess_saved = true;
     g->goddess.joined = true;
     goddess_scale(g, true);
-    reset_trail(g);
+    reset_follower(g);
     for (int y = 0; y < g->h; y++)
         for (int x = 0; x < g->w; x++)
             if (g->tiles[y][x] == TILE_GODDESS) {
                 g->tiles[y][x] = TILE_FLOOR;
-                g->follower.x = x * TILE + (TILE - WALKER_SIZE) / 2.0f;
-                g->follower.y = y * TILE + (TILE - WALKER_SIZE) / 2.0f;
+                g->follower.x = g->follower.to_x = x * TILE + (TILE - WALKER_SIZE) / 2.0f;
+                g->follower.y = g->follower.to_y = y * TILE + (TILE - WALKER_SIZE) / 2.0f;
             }
 }
 
@@ -958,7 +986,7 @@ void game_enter_area(Game *g, int area, int link)
     g->walker.face_x = face_x;
     g->walker.face_y = face_y;
     g->walker.safe_timer = 1.0f;
-    reset_trail(g);
+    reset_follower(g);
     for (int i = 0; i < g->foe_count; i++) foe_pick_direction(g, &g->foes[i]);
     g->state = STATE_MAP;
     g->state_timer = 0;
@@ -1046,7 +1074,9 @@ void game_step(Game *g, const GameInput *in)
         break;
 
     case STATE_PAUSED:
-        if (in->pause_pressed || in->cancel_pressed) g->state = STATE_MAP;
+        // Any of the buttons resumes: the screen says Enter or a tap.
+        if (in->pause_pressed || in->cancel_pressed || in->confirm_pressed || in->pick || in->target_pick)
+            g->state = STATE_MAP;
         break;
 
     case STATE_BATTLE:
@@ -1063,8 +1093,9 @@ void game_step(Game *g, const GameInput *in)
             g->goddess.mp = g->goddess.max_mp;
             g->walker.x = g->respawn_x;
             g->walker.y = g->respawn_y;
+            g->walker.moving = false;
             g->walker.safe_timer = SAFE_TIME;
-            reset_trail(g);
+            reset_follower(g);
             g->state = STATE_MAP;
             update_camera(g);
         }

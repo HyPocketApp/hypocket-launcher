@@ -20,7 +20,7 @@ seres querem roubar o que resta. A história está em
   dela: **Raio Lunar** (magia num monstro, atravessa metade da armadura),
   **Luz da Lua** (cura os dois) ou **Defender**. Magias gastam PM. Os
   monstros atacam os dois; se ela cair, volta a levantar depois da luta.
-- **Explorando o mapa:** ande livremente, **derrube árvores** com o machado
+- **Explorando o mapa:** ande um quadrado por vez (para cima, para baixo e para os lados), como nos RPGs clássicos, **derrube árvores** com o machado
   para abrir caminhos, abra **baús** (ervas ou uma lâmina mais afiada) e
   **descanse nas fogueiras** (ou na porta de casa) para recuperar tudo. Se
   você cair numa batalha, acorda no último lugar em que descansou, sem perder

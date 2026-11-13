@@ -232,7 +232,11 @@ static void test_campfire_heals_and_saves(void)
     load(rows, COUNT(rows));
     g.stats.hp = 1;
     g.stats.sp = 0;
-    run(&LEFT, 5);
+    run(&LEFT, 2);  // one tile left, then back
+    run(&NONE, 30);
+    run(&RIGHT, 2);
+    CHECK(!(run(&CONFIRM, 1) & EVENT_REST));  // no action while walking
+    run(&NONE, 30);
     face(0, 1);
     CHECK(run(&CONFIRM, 1) & EVENT_REST);
     CHECK(g.stats.hp == g.stats.max_hp && g.stats.sp == g.stats.max_sp);
@@ -244,6 +248,7 @@ static void place(int tx, int ty)
 {
     g.walker.x = tx * TILE + (TILE - WALKER_SIZE) / 2.0f;
     g.walker.y = ty * TILE + (TILE - WALKER_SIZE) / 2.0f;
+    g.walker.moving = false;
     g.walker.safe_timer = 10;
 }
 
@@ -327,6 +332,43 @@ static void test_pause(void)
     CHECK(g.walker.x == x);
     run(&pause, 1);
     CHECK(g.state == STATE_MAP);
+    // Enter or a tap also resumes, as the pause screen says.
+    run(&pause, 1);
+    CHECK(g.state == STATE_PAUSED);
+    run(&CONFIRM, 1);
+    CHECK(g.state == STATE_MAP);
+    run(&pause, 1);
+    GameInput tap = { .pick = 1 };
+    run(&tap, 1);
+    CHECK(g.state == STATE_MAP);
+}
+
+static void test_walking_tile_by_tile(void)
+{
+    static const char *const rows[] = { "#######", "#P....#", "#.....#", "#....9#", "#######" };
+    load(rows, COUNT(rows));
+    float x0 = g.walker.x, y0 = g.walker.y;
+    run(&RIGHT, 2);  // a tap starts a step...
+    run(&NONE, 30);  // ...which always ends on the next tile
+    CHECK(g.walker.x == x0 + TILE && g.walker.y == y0);
+    // Diagonal input moves along one axis only.
+    GameInput diag = { .move_x = 1, .move_y = 0.6f };
+    run(&diag, 2);
+    run(&NONE, 30);
+    CHECK(g.walker.x == x0 + 2 * TILE && g.walker.y == y0);
+    GameInput down = { .move_y = 1 };
+    run(&down, 2);
+    run(&NONE, 30);
+    CHECK(g.walker.x == x0 + 2 * TILE && g.walker.y == y0 + TILE);
+    // Every stop is on a tile.
+    run(&RIGHT, 7);
+    run(&NONE, 30);
+    CHECK(fmodf(g.walker.x - x0, TILE) == 0 && !g.walker.moving);
+    // A wall turns him but he stays put.
+    place(1, 1);
+    GameInput up = { .move_y = -1 };
+    run(&up, 20);
+    CHECK(g.walker.y == y0 && g.walker.face_y == -1);
 }
 
 // --- Battles ------------------------------------------------------------------------
@@ -635,14 +677,14 @@ static void test_saving_the_goddess(void)
     CHECK(read_scene() == scene_page_count(SCENE_GODDESS));
     CHECK(g.state == STATE_MAP);
 
-    // She follows him.
+    // She follows him, on the tile he just left.
     place(1, 1);
-    for (int i = 0; i < TRAIL_LEN; i++) { g.trail_x[i] = g.walker.x; g.trail_y[i] = g.walker.y; }
-    run(&RIGHT, 40);
-    float dx = g.walker.x - g.follower.x, dy = g.walker.y - g.follower.y;
-    float dist = sqrtf(dx * dx + dy * dy);
-    CHECK(dist > 6 && dist < 30);
-    CHECK(g.follower.x < g.walker.x);  // behind him
+    run(&RIGHT, 50);
+    run(&NONE, 30);
+    int hx = (int)(g.walker.x / TILE), hy = (int)(g.walker.y / TILE);
+    CHECK(hx == 5 && hy == 1);  // stopped by the wall
+    CHECK((int)(g.follower.x / TILE) == hx - 1 && (int)(g.follower.y / TILE) == hy);
+    CHECK(g.follower.x == g.walker.x - TILE && g.follower.y == g.walker.y);
 }
 
 // A battle with the goddess at his side, against one slime.
@@ -838,6 +880,7 @@ int main(void)
         { "walking between areas", test_walking_between_areas },
         { "home is a place to rest", test_home_is_a_place_to_rest },
         { "pause", test_pause },
+        { "walking tile by tile", test_walking_tile_by_tile },
         { "touching a monster starts a battle", test_touching_a_monster_starts_a_battle },
         { "attack hurts and monsters answer", test_attack_hurts_and_monsters_answer },
         { "choosing a target", test_choosing_a_target },

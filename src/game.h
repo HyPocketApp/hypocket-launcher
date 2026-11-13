@@ -33,7 +33,6 @@
 #define MAX_BATTLE_ENEMIES 3
 #define MAX_BATTLE_MSGS 40
 #define MAX_AREAS 8
-#define TRAIL_LEN 32  // steps of the lumberjack the goddess follows
 
 #define STEP_DT (1.0f / 60.0f)
 #define WALKER_SIZE 10  // hitbox of the lumberjack and of monsters on the map
@@ -134,9 +133,13 @@ typedef struct {
 #define SPELL_BEAM_COST 3   // Moonbeam: magic hit on one monster
 #define SPELL_LIGHT_COST 4  // Moonlight: heals both of them
 
+// Someone walking on the map. The lumberjack and the goddess move one tile
+// at a time, up, down, left or right, like in classic RPGs.
 typedef struct {
     float x, y;            // top-left corner of the hitbox, in pixels
     int face_x, face_y;    // one of the 4 directions
+    bool moving;           // on the way to (to_x, to_y), the next tile
+    float to_x, to_y;
     float walk_anim;
     float safe_timer;      // monsters ignore him while above zero
 } Walker;
@@ -334,9 +337,7 @@ typedef struct {
     } saved[MAX_AREAS];
 
     Walker walker;
-    Walker follower;  // the goddess walking behind him
-    float trail_x[TRAIL_LEN], trail_y[TRAIL_LEN];
-    int trail_head;
+    Walker follower;  // the goddess, one tile behind him
     Ally goddess;
     Foe foes[MAX_FOES];
     int foe_count;
