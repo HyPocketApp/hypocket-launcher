@@ -17,7 +17,7 @@
             android:screenOrientation="sensorLandscape"
             android:launchMode="singleTask"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|screenLayout|navigation|uiMode|smallestScreenSize">
-            <meta-data android:name="android.app.lib_name" android:value="mossling" />
+            <meta-data android:name="android.app.lib_name" android:value="timberheart" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

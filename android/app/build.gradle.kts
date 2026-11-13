@@ -5,12 +5,12 @@ plugins {
 }
 
 android {
-    namespace = "dev.mossling.game"
+    namespace = "dev.timberheart.game"
     compileSdk = 36
     ndkVersion = "28.2.13676358"
 
     defaultConfig {
-        applicationId = "dev.mossling.game"
+        applicationId = "dev.timberheart.game"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
@@ -20,7 +20,7 @@ android {
         }
         externalNativeBuild {
             cmake {
-                arguments += "-DMOSSLING_TESTS=OFF"
+                arguments += "-DTIMBERHEART_TESTS=OFF"
                 // Build with a local copy of raylib instead of downloading it:
                 // ./gradlew assembleDebug -PraylibSourceDir=/path/to/raylib
                 providers.gradleProperty("raylibSourceDir").orNull?.let {

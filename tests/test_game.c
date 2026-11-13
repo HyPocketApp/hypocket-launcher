@@ -20,18 +20,23 @@ static int failures = 0;
 static Game g;
 static const GameInput NONE = { 0 };
 static const GameInput RIGHT = { .move_x = 1 };
-static const GameInput SWING = { .attack_pressed = true };
-static const GameInput START = { .start_pressed = true };
+static const GameInput LEFT = { .move_x = -1 };
+static const GameInput CONFIRM = { .confirm_pressed = true };
+static const GameInput CANCEL = { .cancel_pressed = true };
+static const GameInput DOWN = { .nav_y = 1 };
 
+// A fresh level-1 lumberjack on a test map.
 static void load(const char *const *rows, int count)
 {
     memset(&g, 0, sizeof g);
+    game_new(&g);  // stats, and map 1 which we replace now
     CHECK(level_load_rows(&g, rows, count));
-    g.player.x = g.start_x;
-    g.player.y = g.start_y;
-    g.player.face_y = 1;
-    g.player.health = MAX_HEALTH;
-    g.state = STATE_PLAYING;
+    memset(&g.walker, 0, sizeof g.walker);
+    g.walker.x = g.respawn_x = g.start_x;
+    g.walker.y = g.respawn_y = g.start_y;
+    g.walker.face_y = 1;
+    g.state = STATE_MAP;
+    for (int i = 0; i < g.foe_count; i++) g.foes[i].think = 1000;  // keep them still
 }
 
 static unsigned run(const GameInput *in, int steps)
@@ -44,65 +49,81 @@ static unsigned run(const GameInput *in, int steps)
     return events;
 }
 
-static void freeze_enemies(void)
+// Lets battle messages play until a menu is waiting or the battle is over.
+static unsigned play_messages(void)
 {
-    for (int i = 0; i < g.enemy_count; i++) {
-        g.enemies[i].vx = g.enemies[i].vy = 0;
-        g.enemies[i].think = 100;
-    }
+    unsigned events = 0;
+    for (int i = 0; i < 60 * 60 && g.state == STATE_BATTLE && g.battle.phase == PHASE_MESSAGES; i++)
+        events |= run(&NONE, 1);
+    return events;
 }
 
-// --- Maps -------------------------------------------------------------------
+static void face(int x, int y)
+{
+    g.walker.face_x = x;
+    g.walker.face_y = y;
+}
 
-// Walks the map from the start like a player would: through everything but
-// walls, trees, water and thorns, opening a door whenever a key is in hand.
-// Returns false and names what cannot be reached.
+static int pick(int entry)
+{
+    GameInput in = { .pick = entry + 1 };
+    return (int)run(&in, 1);
+}
+
+static bool has_msg(MsgType type)
+{
+    for (int i = 0; i < g.battle.msg_count; i++)
+        if (g.battle.msgs[i].type == type) return true;
+    return false;
+}
+
+// --- Maps -------------------------------------------------------------------------
+
+// Walks the map from the start through everything but cliffs, rocks and
+// water (trees count as open: the axe clears them). Every monster and exit
+// must be reached, and every chest and campfire must have a reachable side.
 static bool map_is_completable(const Game *m)
 {
-    static bool seen[MAX_MAP_H][MAX_MAP_W], open[MAX_MAP_H][MAX_MAP_W];
+    static bool seen[MAX_MAP_H][MAX_MAP_W];
     static int queue[MAX_MAP_H * MAX_MAP_W];
     static const int dirs[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
-    memset(open, 0, sizeof open);
-    int opened = 0;
-    for (;;) {
-        memset(seen, 0, sizeof seen);
-        int sx = (int)(m->start_x / TILE), sy = (int)(m->start_y / TILE);
-        int head = 0, tail = 0, keys = 0, door = -1;
-        queue[tail++] = sy * MAX_MAP_W + sx;
-        seen[sy][sx] = true;
-        while (head < tail) {
-            int x = queue[head] % MAX_MAP_W, y = queue[head] / MAX_MAP_W;
-            head++;
-            if (game_tile_at(m, x, y) == TILE_KEY) keys++;
-            for (int i = 0; i < 4; i++) {
-                int nx = x + dirs[i][0], ny = y + dirs[i][1];
-                if (nx < 0 || ny < 0 || nx >= m->w || ny >= m->h || seen[ny][nx]) continue;
-                TileType t = game_tile_at(m, nx, ny);
-                if (t == TILE_DOOR) {
-                    if (!open[ny][nx]) {
-                        if (door < 0) door = ny * MAX_MAP_W + nx;
-                        continue;
-                    }
-                } else if (game_tile_blocks(t) || t == TILE_THORNS) {
-                    continue;
-                }
-                seen[ny][nx] = true;
-                queue[tail++] = ny * MAX_MAP_W + nx;
-            }
+    memset(seen, 0, sizeof seen);
+    int sx = (int)(m->start_x / TILE), sy = (int)(m->start_y / TILE);
+    int head = 0, tail = 0;
+    queue[tail++] = sy * MAX_MAP_W + sx;
+    seen[sy][sx] = true;
+    while (head < tail) {
+        int x = queue[head] % MAX_MAP_W, y = queue[head] / MAX_MAP_W;
+        head++;
+        for (int i = 0; i < 4; i++) {
+            int nx = x + dirs[i][0], ny = y + dirs[i][1];
+            if (nx < 0 || ny < 0 || nx >= m->w || ny >= m->h || seen[ny][nx]) continue;
+            TileType t = game_tile_at(m, nx, ny);
+            if (t != TILE_TREE && game_tile_blocks(t)) continue;
+            seen[ny][nx] = true;
+            queue[tail++] = ny * MAX_MAP_W + nx;
         }
-        if (door < 0 || keys <= opened) break;
-        open[door / MAX_MAP_W][door % MAX_MAP_W] = true;
-        opened++;
     }
     bool ok = true;
     for (int y = 0; y < m->h; y++) {
         for (int x = 0; x < m->w; x++) {
             TileType t = game_tile_at(m, x, y);
-            if ((t == TILE_SEED || t == TILE_KEY || t == TILE_PORTAL) && !seen[y][x]) {
-                printf("  tile %d at (%d, %d) cannot be reached\n", t, x, y);
+            if (t == TILE_CHEST || t == TILE_CHEST_AXE || t == TILE_FIRE) {
+                bool side = false;
+                for (int i = 0; i < 4; i++) {
+                    int nx = x + dirs[i][0], ny = y + dirs[i][1];
+                    if (nx >= 0 && ny >= 0 && nx < m->w && ny < m->h && seen[ny][nx]) side = true;
+                }
+                if (!side) { printf("  tile %d at (%d, %d) cannot be reached\n", t, x, y); ok = false; }
+            } else if (t == TILE_EXIT && !seen[y][x]) {
+                printf("  exit at (%d, %d) cannot be reached\n", x, y);
                 ok = false;
             }
         }
+    }
+    for (int i = 0; i < m->foe_count; i++) {
+        int x = (int)(m->foes[i].x / TILE), y = (int)(m->foes[i].y / TILE);
+        if (!seen[y][x]) { printf("  monster at (%d, %d) cannot be reached\n", x, y); ok = false; }
     }
     return ok;
 }
@@ -115,8 +136,7 @@ static void test_maps_are_valid(void)
         const char *const *rows = level_rows(i, &count);
         memset(&g, 0, sizeof g);
         CHECK(level_load_rows(&g, rows, count));
-        CHECK(g.level_seeds > 0);
-        CHECK(g.enemy_count > 0);
+        CHECK(g.foe_count > 0);
         for (int r = 0; r < count; r++) {
             CHECK((int)strlen(rows[r]) == g.w);
             CHECK(rows[r][0] == '#' && rows[r][g.w - 1] == '#');
@@ -124,267 +144,397 @@ static void test_maps_are_valid(void)
         for (int x = 0; x < g.w; x++) CHECK(rows[0][x] == '#' && rows[count - 1][x] == '#');
         CHECK(map_is_completable(&g));
     }
+    // The boss waits on the last map.
+    int count = 0;
+    memset(&g, 0, sizeof g);
+    const char *const *last = level_rows(level_count() - 1, &count);
+    level_load_rows(&g, last, count);
+    bool boss = false;
+    for (int i = 0; i < g.foe_count; i++) boss |= g.foes[i].kind == ENCOUNTER_BOSS;
+    CHECK(boss);
 }
 
 static void test_bad_map_is_rejected(void)
 {
-    static const char *const no_portal[] = { "#####", "#P..#", "#####" };
+    static const char *const no_end[] = { "#####", "#P..#", "#####" };
     memset(&g, 0, sizeof g);
-    CHECK(!level_load_rows(&g, no_portal, 3));
+    CHECK(!level_load_rows(&g, no_end, 3));
 }
 
-static void test_enemies_stay_on_open_ground(void)
+// --- Exploring ----------------------------------------------------------------------
+
+static void test_axe_chops_trees(void)
 {
-    for (int level = 0; level < level_count(); level++) {
-        game_init(&g);
-        game_start_level(&g, level);
-        g.player.hurt_timer = 1e9f;  // nobody gets hurt in this test
-        run(&NONE, 60 * 30);
-        for (int i = 0; i < g.enemy_count; i++) {
-            const Enemy *e = &g.enemies[i];
-            for (int c = 0; c < 4; c++) {
-                float x = e->x + (c & 1 ? ENEMY_SIZE - 0.1f : 0), y = e->y + (c & 2 ? ENEMY_SIZE - 0.1f : 0);
-                TileType t = game_tile_at(&g, (int)floorf(x / TILE), (int)floorf(y / TILE));
-                CHECK(!game_tile_blocks(t) && t != TILE_THORNS);
-            }
-        }
-    }
+    static const char *const rows[] = { "#######", "#P.T.X#", "#######" };
+    load(rows, COUNT(rows));
+    run(&RIGHT, 60);
+    CHECK(g.walker.x + WALKER_SIZE <= 3 * TILE + 0.01f);  // the tree stops him
+    face(1, 0);
+    CHECK(run(&CONFIRM, 1) & EVENT_CHOP);
+    CHECK(game_tile_at(&g, 3, 1) == TILE_STUMP);
+    CHECK(run(&RIGHT, 120) & EVENT_EXIT);
 }
 
-// --- Movement ---------------------------------------------------------------
-
-static const char *const room[] = {
-    "##########",
-    "#........#",
-    "#.P......#",
-    "#........#",
-    "#.......X#",
-    "##########",
-};
-
-static void test_walls_stop_the_player(void)
+static void test_rocks_are_too_hard(void)
 {
-    load(room, COUNT(room));
-    run(&RIGHT, 300);
-    CHECK(fabsf(g.player.x + PLAYER_SIZE - 9 * TILE) < 0.01f);
-    GameInput up = { .move_y = -1 };
-    run(&up, 300);
-    CHECK(fabsf(g.player.y - TILE) < 0.01f);
+    static const char *const rows[] = { "#######", "#PR..X#", "#######" };
+    load(rows, COUNT(rows));
+    face(1, 0);
+    CHECK(run(&CONFIRM, 1) & EVENT_BUMP);
+    CHECK(game_tile_at(&g, 2, 1) == TILE_ROCK);
+    CHECK(g.toast == TOAST_TOO_HARD);
 }
 
-static void test_diagonal_is_not_faster(void)
+static void test_chests(void)
 {
-    load(room, COUNT(room));
-    float x0 = g.player.x, y0 = g.player.y;
-    GameInput diag = { .move_x = 1, .move_y = 1 };
-    run(&diag, 10);
-    float dx = g.player.x - x0, dy = g.player.y - y0;
-    float straight = 80.0f * 10 * STEP_DT;
-    CHECK(fabsf(sqrtf(dx * dx + dy * dy) - straight) < 0.1f);
-    CHECK(g.player.face_x == 1 && g.player.face_y == 1);
+    static const char *const rows[] = { "#######", "#cPA.X#", "#######" };
+    load(rows, COUNT(rows));
+    int herbs = g.stats.herbs, atk = g.stats.atk;
+    face(-1, 0);
+    CHECK(run(&CONFIRM, 1) & EVENT_CHEST);
+    CHECK(g.stats.herbs == herbs + 2);
+    face(1, 0);
+    run(&CONFIRM, 1);
+    CHECK(g.stats.atk == atk + AXE_UPGRADE_ATK);
+    CHECK(game_tile_at(&g, 3, 1) == TILE_CHEST_OPEN);
+    run(&CONFIRM, 1);  // an open chest gives nothing more
+    CHECK(g.stats.atk == atk + AXE_UPGRADE_ATK);
+}
+
+static void test_campfire_heals_and_saves(void)
+{
+    static const char *const rows[] = { "#######", "#..P.X#", "#..f..#", "#######" };
+    load(rows, COUNT(rows));
+    g.stats.hp = 1;
+    g.stats.sp = 0;
+    run(&LEFT, 5);
+    face(0, 1);
+    CHECK(run(&CONFIRM, 1) & EVENT_REST);
+    CHECK(g.stats.hp == g.stats.max_hp && g.stats.sp == g.stats.max_sp);
+    CHECK(g.respawn_x == g.walker.x);
+}
+
+static void test_exit_leads_to_next_map(void)
+{
+    static const char *const rows[] = { "######", "#P.X.#", "######" };
+    load(rows, COUNT(rows));
+    g.level = 0;
+    run(&RIGHT, 60);
+    CHECK(g.level == 1);
+    CHECK(g.state == STATE_MAP);
+    CHECK(g.toast == TOAST_MAP);
 }
 
 static void test_pause(void)
 {
-    load(room, COUNT(room));
-    run(&START, 1);
+    static const char *const rows[] = { "######", "#P..X#", "######" };
+    load(rows, COUNT(rows));
+    GameInput pause = { .pause_pressed = true };
+    run(&pause, 1);
     CHECK(g.state == STATE_PAUSED);
-    float x = g.player.x;
+    float x = g.walker.x;
     run(&RIGHT, 30);
-    CHECK(g.player.x == x);
-    run(&START, 1);
-    CHECK(g.state == STATE_PLAYING);
+    CHECK(g.walker.x == x);
+    run(&pause, 1);
+    CHECK(g.state == STATE_MAP);
 }
 
-// --- Items ------------------------------------------------------------------
+// --- Battles ------------------------------------------------------------------------
 
-static void test_seeds_open_the_portal(void)
+static const char *const one_slime[] = { "#######", "#P.s.X#", "#######" };
+static const char *const two_slimes[] = { "#######", "#P.g.X#", "#######" };
+
+static void test_touching_a_monster_starts_a_battle(void)
 {
-    static const char *const rows[] = { "#######", "#P.o.X#", "#######" };
-    load(rows, COUNT(rows));
-    CHECK(!game_portal_open(&g));
-    unsigned events = 0;
-    for (int i = 0; i < 300 && g.state == STATE_PLAYING; i++) events |= run(&RIGHT, 1);
-    CHECK(events & EVENT_SEED);
-    CHECK(events & EVENT_PORTAL);
-    CHECK(events & EVENT_EXIT);
-    CHECK(g.state == STATE_LEVEL_DONE);
+    load(two_slimes, COUNT(two_slimes));
+    CHECK(run(&RIGHT, 60) & EVENT_ENCOUNTER);
+    CHECK(g.state == STATE_BATTLE);
+    CHECK(g.battle.enemy_count == 2);
+    CHECK(g.battle.enemies[0].species == SPECIES_SLIME);
+    play_messages();
+    CHECK(g.battle.phase == PHASE_MENU);
 }
 
-static void test_closed_portal_does_nothing(void)
+static void test_attack_hurts_and_monsters_answer(void)
 {
-    static const char *const rows[] = { "#######", "#P..X.#", "#..o..#", "#######" };
-    load(rows, COUNT(rows));
-    run(&RIGHT, 300);
-    CHECK(g.state == STATE_PLAYING);
-}
-
-static void test_key_opens_door(void)
-{
-    static const char *const rows[] = { "########", "#Pk.D.X#", "########" };
-    load(rows, COUNT(rows));
-    unsigned events = run(&RIGHT, 300);
-    CHECK(events & EVENT_KEY);
-    CHECK(events & EVENT_DOOR);
-    CHECK(g.keys == 0);
-    CHECK(game_tile_at(&g, 4, 1) == TILE_FLOOR);
-}
-
-static void test_door_without_key_blocks(void)
-{
-    static const char *const rows[] = { "########", "#P..D.X#", "########" };
-    load(rows, COUNT(rows));
-    run(&RIGHT, 300);
-    CHECK(fabsf(g.player.x + PLAYER_SIZE - 4 * TILE) < 0.01f);
-}
-
-static void test_heart_heals(void)
-{
-    static const char *const rows[] = { "#######", "#P.h.X#", "#######" };
-    load(rows, COUNT(rows));
-    g.player.health = 1;
-    CHECK(run(&RIGHT, 40) & EVENT_HEART);
-    CHECK(g.player.health == 2);
-}
-
-static void test_full_health_leaves_heart(void)
-{
-    static const char *const rows[] = { "#######", "#P.h.X#", "#######" };
-    load(rows, COUNT(rows));
-    run(&RIGHT, 40);
-    CHECK(game_tile_at(&g, 3, 1) == TILE_HEART);
-}
-
-// --- Damage -----------------------------------------------------------------
-
-static void test_thorns_hurt(void)
-{
-    static const char *const rows[] = { "#######", "#P.^.X#", "#######" };
-    load(rows, COUNT(rows));
-    CHECK(run(&RIGHT, 30) & EVENT_HURT);
-    CHECK(g.player.health == MAX_HEALTH - 1);
-    CHECK(g.player.hurt_timer > 0);  // safe for a moment
-}
-
-static void test_last_heart_means_game_over_and_retry(void)
-{
-    static const char *const rows[] = { "#########", "#P....b.#", "#......X#", "#########" };
-    load(rows, COUNT(rows));
-    g.level = 0;
-    g.player.health = 1;
-    freeze_enemies();
-    run(&RIGHT, 120);
-    CHECK(g.state == STATE_DYING || g.state == STATE_GAME_OVER);
-    run(&NONE, 120);
-    CHECK(g.state == STATE_GAME_OVER);
-    run(&START, 1);
-    CHECK(g.state == STATE_PLAYING);
-    CHECK(g.level == 0);
-    CHECK(g.player.health == MAX_HEALTH);
-}
-
-// --- Fighting ---------------------------------------------------------------
-
-static const char *const arena[] = {
-    "#########",
-    "#Pb.....#",
-    "#......X#",
-    "#########",
-};
-
-static void face_right(void)
-{
-    g.player.face_x = 1;
-    g.player.face_y = 0;
-}
-
-static void test_swing_defeats_beetle(void)
-{
-    load(arena, COUNT(arena));
-    freeze_enemies();
-    face_right();
-    unsigned events = run(&SWING, 1) | run(&NONE, 20);
-    CHECK(events & EVENT_SWING);
-    CHECK(events & EVENT_DEFEAT);
-    CHECK(!g.enemies[0].alive);
-    CHECK(g.player.health == MAX_HEALTH);
-}
-
-static void test_slime_takes_two_swings(void)
-{
-    static const char *const rows[] = { "#########", "#Ps.....#", "#......X#", "#########" };
-    load(rows, COUNT(rows));
-    face_right();
-    float before = g.enemies[0].x;
-    unsigned events = run(&SWING, 1) | run(&NONE, 5);
+    load(one_slime, COUNT(one_slime));
+    game_start_battle(&g, 0);
+    play_messages();
+    int hp = g.stats.hp;
+    pick(MENU_ATTACK);  // only one monster: no need to choose
+    CHECK(g.battle.phase == PHASE_MESSAGES);
+    CHECK(has_msg(MSG_ATTACK));
+    CHECK(g.battle.enemies[0].hp < species_info(SPECIES_SLIME)->max_hp);
+    if (g.battle.enemies[0].hp > 0) CHECK(g.stats.hp < hp);
+    unsigned events = play_messages();
     CHECK(events & EVENT_HIT);
-    CHECK(g.enemies[0].alive);  // one swing hits only once
-    CHECK(g.enemies[0].health == 1);
-    CHECK(g.enemies[0].x > before + 3);  // knocked back
 }
 
-static void test_missed_swing_does_nothing(void)
+static void test_choosing_a_target(void)
 {
-    load(arena, COUNT(arena));
-    freeze_enemies();
-    g.player.face_x = -1;
-    g.player.face_y = 0;
-    CHECK(!(run(&SWING, 1) & EVENT_HIT));
-    CHECK(g.enemies[0].alive);
+    load(two_slimes, COUNT(two_slimes));
+    game_start_battle(&g, 0);
+    play_messages();
+    pick(MENU_ATTACK);
+    CHECK(g.battle.phase == PHASE_TARGET);
+    CHECK(g.battle.target == 0);
+    GameInput next = { .nav_x = 1 };
+    run(&next, 1);
+    CHECK(g.battle.target == 1);
+    run(&CANCEL, 1);
+    CHECK(g.battle.phase == PHASE_MENU);
+    pick(MENU_ATTACK);
+    GameInput tap = { .target_pick = 2 };
+    run(&tap, 1);
+    CHECK(g.battle.phase == PHASE_MESSAGES);
+    CHECK(g.battle.enemies[1].hp < species_info(SPECIES_SLIME)->max_hp);
+    CHECK(g.battle.enemies[0].hp == species_info(SPECIES_SLIME)->max_hp);
 }
 
-static void test_slime_follows_player(void)
+static void test_skills_cost_stamina(void)
 {
-    static const char *const rows[] = { "##########", "#P....s..#", "#.......X#", "##########" };
+    load(two_slimes, COUNT(two_slimes));
+    game_start_battle(&g, 0);
+    play_messages();
+    g.stats.sp = SKILL_SPIN_COST;
+    pick(MENU_SKILLS);
+    CHECK(g.battle.phase == PHASE_SKILLS);
+    pick(SKILL_SPIN);
+    CHECK(has_msg(MSG_SPIN));
+    int hits = 0;
+    for (int i = 0; i < g.battle.msg_count; i++) hits += g.battle.msgs[i].type == MSG_SPIN_HIT;
+    CHECK(hits == 2);
+    CHECK(g.stats.sp <= 1);  // spent 5, maybe got 1 back at the end of the round
+    play_messages();
+    if (g.state == STATE_BATTLE) {
+        g.stats.sp = 0;
+        CHECK(!battle_menu_enabled(&g, MENU_SKILLS));
+        CHECK(pick(MENU_SKILLS) & EVENT_DENIED);
+        CHECK(g.battle.phase == PHASE_MENU);
+    }
+}
+
+static void test_skills_menu_back(void)
+{
+    load(one_slime, COUNT(one_slime));
+    game_start_battle(&g, 0);
+    play_messages();
+    pick(MENU_SKILLS);
+    pick(SKILL_BACK);
+    CHECK(g.battle.phase == PHASE_MENU);
+    pick(MENU_SKILLS);
+    run(&CANCEL, 1);
+    CHECK(g.battle.phase == PHASE_MENU);
+}
+
+static void test_herb_heals(void)
+{
+    load(one_slime, COUNT(one_slime));
+    game_start_battle(&g, 0);
+    play_messages();
+    CHECK(!battle_menu_enabled(&g, MENU_HERB));  // full health
+    g.stats.hp = 5;
+    int herbs = g.stats.herbs;
+    pick(MENU_HERB);
+    CHECK(has_msg(MSG_HERB));
+    CHECK(g.stats.herbs == herbs - 1);
+    CHECK(g.battle.msgs[0].amount == HERB_HEAL);
+}
+
+static void test_defend_rests(void)
+{
+    load(one_slime, COUNT(one_slime));
+    game_start_battle(&g, 0);
+    play_messages();
+    g.stats.sp = 0;
+    pick(MENU_DEFEND);
+    CHECK(has_msg(MSG_DEFEND));
+    CHECK(g.stats.sp == 3);  // 2 for defending, 1 at the end of the round
+    // Halved damage: the slime's hits stay small.
+    for (int i = 0; i < g.battle.msg_count; i++)
+        if (g.battle.msgs[i].type == MSG_ENEMY_ATTACK) CHECK(g.battle.msgs[i].amount <= 3);
+}
+
+static void test_moving_the_cursor(void)
+{
+    load(one_slime, COUNT(one_slime));
+    game_start_battle(&g, 0);
+    play_messages();
+    CHECK(run(&DOWN, 1) & EVENT_CURSOR);
+    CHECK(g.battle.cursor == MENU_SKILLS);
+    GameInput up = { .nav_y = -1 };
+    run(&up, 2);
+    CHECK(g.battle.cursor == MENU_FLEE);  // wraps around
+}
+
+static void test_winning_a_battle(void)
+{
+    load(one_slime, COUNT(one_slime));
+    g.stats.atk = 99;
+    game_start_battle(&g, 0);
+    play_messages();
+    pick(MENU_ATTACK);
+    CHECK(has_msg(MSG_ENEMY_DOWN));
+    CHECK(has_msg(MSG_VICTORY));
+    CHECK(g.stats.xp == species_info(SPECIES_SLIME)->xp);
+    unsigned events = play_messages();
+    CHECK(events & EVENT_VICTORY);
+    CHECK(g.state == STATE_MAP);
+    CHECK(!g.foes[0].alive);
+}
+
+static void test_level_up(void)
+{
+    load(one_slime, COUNT(one_slime));
+    g.stats.atk = 99;
+    g.stats.xp = xp_to_next_level(1) - 1;
+    int max_hp = g.stats.max_hp;
+    g.stats.hp = 3;
+    game_start_battle(&g, 0);
+    play_messages();
+    pick(MENU_ATTACK);
+    CHECK(has_msg(MSG_LEVEL_UP));
+    CHECK(g.stats.level == 2);
+    CHECK(g.stats.max_hp > max_hp && g.stats.hp == g.stats.max_hp);
+    CHECK(play_messages() & EVENT_LEVEL_UP);
+}
+
+static void test_fleeing(void)
+{
+    load(one_slime, COUNT(one_slime));
+    bool fled = false;
+    for (int attempt = 0; attempt < 20 && !fled; attempt++) {
+        game_start_battle(&g, 0);
+        g.stats.hp = g.stats.max_hp;
+        play_messages();
+        pick(MENU_FLEE);
+        fled = has_msg(MSG_FLEE_OK);
+        play_messages();
+    }
+    CHECK(fled);
+    CHECK(g.state == STATE_MAP);
+    CHECK(g.foes[0].alive);
+    CHECK(g.walker.safe_timer > 0);
+}
+
+static void test_no_fleeing_from_the_boss(void)
+{
+    static const char *const rows[] = { "######", "#P.B.#", "######" };
     load(rows, COUNT(rows));
-    float before = g.enemies[0].x;
-    run(&NONE, 30);
-    CHECK(g.enemies[0].x < before - 10);
+    game_start_battle(&g, 0);
+    play_messages();
+    pick(MENU_FLEE);
+    CHECK(has_msg(MSG_CANT_FLEE));
+    CHECK(g.battle.outcome != OUTCOME_FLED);
 }
 
-static void test_touching_enemy_hurts(void)
+static void test_losing_wakes_at_campfire(void)
 {
-    load(arena, COUNT(arena));
-    freeze_enemies();
-    unsigned events = run(&RIGHT, 30);
-    CHECK(events & EVENT_HURT);
-    CHECK(g.player.health == MAX_HEALTH - 1);
+    load(one_slime, COUNT(one_slime));
+    g.respawn_x = 20;
+    g.respawn_y = 20;
+    game_start_battle(&g, 0);
+    play_messages();
+    g.stats.hp = 1;
+    g.stats.def = 0;
+    pick(MENU_DEFEND);  // even halved, a hit takes the last point
+    CHECK(has_msg(MSG_PLAYER_DOWN));
+    CHECK(play_messages() & EVENT_PLAYER_DOWN);
+    CHECK(g.state == STATE_GAME_OVER);
+    run(&NONE, 30);
+    run(&CONFIRM, 1);
+    CHECK(g.state == STATE_MAP);
+    CHECK(g.stats.hp == g.stats.max_hp);
+    CHECK(g.walker.x == 20 && g.walker.y == 20);
+    CHECK(g.foes[0].alive);
 }
 
-// --- Flow -------------------------------------------------------------------
+static void test_beating_the_boss_wins(void)
+{
+    static const char *const rows[] = { "######", "#P.B.#", "######" };
+    load(rows, COUNT(rows));
+    g.stats.atk = 500;
+    game_start_battle(&g, 0);
+    play_messages();
+    pick(MENU_ATTACK);
+    play_messages();
+    CHECK(g.state == STATE_WON);
+}
 
 static void test_title_starts_game(void)
 {
     game_init(&g);
     CHECK(g.state == STATE_TITLE);
-    run(&START, 1);
+    run(&CONFIRM, 1);
     CHECK(g.state == STATE_TITLE);  // too soon after the screen appeared
     run(&NONE, 30);
-    run(&START, 1);
-    CHECK(g.state == STATE_PLAYING);
-    CHECK(g.level == 0 && g.player.health == MAX_HEALTH);
+    run(&CONFIRM, 1);
+    CHECK(g.state == STATE_MAP);
+    CHECK(g.level == 0 && g.stats.level == 1);
 }
 
-static void test_portal_leads_to_next_map(void)
+// --- Balance --------------------------------------------------------------------------
+
+// Fights a whole battle with a simple strategy: a herb below a third of the
+// health, the strongest skill there is stamina for, else a plain attack.
+// Returns true on a win.
+static bool auto_battle(Encounter kind, int level, int herbs, unsigned seed)
 {
-    static const char *const rows[] = { "######", "#P.X.#", "######" };
+    static const char *const rows[] = { "######", "#P.s.#", "#...X#", "######" };
     load(rows, COUNT(rows));
-    g.level = 0;
-    run(&RIGHT, 60);
-    CHECK(g.state == STATE_LEVEL_DONE);
-    run(&NONE, 120);
-    CHECK(g.state == STATE_PLAYING);
-    CHECK(g.level == 1);
+    g.foes[0].kind = kind;
+    g.rng = seed * 2654435761u + 1u;  // a different fight each time
+    for (int l = 1; l < level; l++) {
+        g.stats.level++;
+        g.stats.max_hp += 8;
+        g.stats.max_sp += 2;
+        g.stats.atk += 2;
+        g.stats.def += 1;
+    }
+    g.stats.hp = g.stats.max_hp;
+    g.stats.sp = g.stats.max_sp;
+    g.stats.herbs = herbs;
+    game_start_battle(&g, 0);
+    for (int round = 0; round < 100 && g.state == STATE_BATTLE; round++) {
+        play_messages();
+        if (g.state != STATE_BATTLE) break;
+        const Stats *s = &g.stats;
+        int alive = 0;
+        for (int i = 0; i < g.battle.enemy_count; i++) alive += g.battle.enemies[i].hp > 0;
+        if (s->hp * 3 < s->max_hp && battle_menu_enabled(&g, MENU_HERB)) {
+            pick(MENU_HERB);
+        } else if (alive > 1 && s->sp >= SKILL_SPIN_COST) {
+            pick(MENU_SKILLS);
+            pick(SKILL_SPIN);
+        } else if (s->sp >= SKILL_SPLIT_COST) {
+            pick(MENU_SKILLS);
+            pick(SKILL_SPLIT);
+        } else {
+            pick(MENU_ATTACK);
+        }
+        if (g.battle.phase == PHASE_TARGET) run(&CONFIRM, 1);
+    }
+    return (g.state == STATE_MAP && !g.foes[0].alive) || g.state == STATE_WON;
 }
 
-static void test_last_map_wins(void)
+static void test_balance(void)
 {
-    static const char *const rows[] = { "######", "#P.X.#", "######" };
-    load(rows, COUNT(rows));
-    g.level = level_count() - 1;
-    run(&RIGHT, 60);
-    run(&NONE, 120);
-    CHECK(g.state == STATE_WON);
+    int wins;
+    // A new lumberjack handles the first monsters.
+    wins = 0;
+    for (unsigned i = 0; i < 20; i++) wins += auto_battle(ENCOUNTER_SLIMES, 1, 0, i);
+    CHECK(wins >= 18);
+    // Wolves need a few levels.
+    wins = 0;
+    for (unsigned i = 0; i < 20; i++) wins += auto_battle(ENCOUNTER_WOLVES, 4, 2, i);
+    CHECK(wins >= 15);
+    // The boss is a real fight, but a prepared lumberjack wins.
+    wins = 0;
+    for (unsigned i = 0; i < 20; i++) wins += auto_battle(ENCOUNTER_BOSS, 7, 4, i);
+    CHECK(wins >= 15);
+    wins = 0;
+    for (unsigned i = 0; i < 20; i++) wins += auto_battle(ENCOUNTER_BOSS, 1, 0, i);
+    CHECK(wins == 0);
 }
 
 int main(void)
@@ -395,26 +545,28 @@ int main(void)
     } tests[] = {
         { "maps are valid and completable", test_maps_are_valid },
         { "bad map is rejected", test_bad_map_is_rejected },
-        { "enemies stay on open ground", test_enemies_stay_on_open_ground },
-        { "walls stop the player", test_walls_stop_the_player },
-        { "diagonal is not faster", test_diagonal_is_not_faster },
+        { "axe chops trees", test_axe_chops_trees },
+        { "rocks are too hard", test_rocks_are_too_hard },
+        { "chests", test_chests },
+        { "campfire heals and saves", test_campfire_heals_and_saves },
+        { "exit leads to next map", test_exit_leads_to_next_map },
         { "pause", test_pause },
-        { "seeds open the portal", test_seeds_open_the_portal },
-        { "closed portal does nothing", test_closed_portal_does_nothing },
-        { "key opens door", test_key_opens_door },
-        { "door without key blocks", test_door_without_key_blocks },
-        { "heart heals", test_heart_heals },
-        { "full health leaves heart", test_full_health_leaves_heart },
-        { "thorns hurt", test_thorns_hurt },
-        { "last heart: game over and retry", test_last_heart_means_game_over_and_retry },
-        { "swing defeats beetle", test_swing_defeats_beetle },
-        { "slime takes two swings", test_slime_takes_two_swings },
-        { "missed swing does nothing", test_missed_swing_does_nothing },
-        { "slime follows player", test_slime_follows_player },
-        { "touching enemy hurts", test_touching_enemy_hurts },
+        { "touching a monster starts a battle", test_touching_a_monster_starts_a_battle },
+        { "attack hurts and monsters answer", test_attack_hurts_and_monsters_answer },
+        { "choosing a target", test_choosing_a_target },
+        { "skills cost stamina", test_skills_cost_stamina },
+        { "skills menu back", test_skills_menu_back },
+        { "herb heals", test_herb_heals },
+        { "defend rests", test_defend_rests },
+        { "moving the cursor", test_moving_the_cursor },
+        { "winning a battle", test_winning_a_battle },
+        { "level up", test_level_up },
+        { "fleeing", test_fleeing },
+        { "no fleeing from the boss", test_no_fleeing_from_the_boss },
+        { "losing wakes at the campfire", test_losing_wakes_at_campfire },
+        { "beating the boss wins", test_beating_the_boss_wins },
         { "title starts game", test_title_starts_game },
-        { "portal leads to next map", test_portal_leads_to_next_map },
-        { "last map wins", test_last_map_wins },
+        { "balance", test_balance },
     };
     int count = COUNT(tests);
     for (int i = 0; i < count; i++) {
