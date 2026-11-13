@@ -11,6 +11,7 @@
 #define MSG_MIN_TIME 0.2f    // a press skips a message only after this
 #define TOAST_TIME 2.2f
 #define MENU_DELAY 0.4f      // ignore presses right after a screen appears
+#define PAGE_DELAY 0.15f     // between pages of a story scene
 #define FLEE_CHANCE 65       // percent
 
 // --- Tables -------------------------------------------------------------------
@@ -19,6 +20,7 @@ static const SpeciesInfo species_table[SPECIES_COUNT] = {
     [SPECIES_SLIME] = { .max_hp = 14, .atk = 6, .def = 1, .xp = 5, .herb_drop = 20 },
     [SPECIES_BEETLE] = { .max_hp = 22, .atk = 8, .def = 4, .xp = 8, .herb_drop = 25 },
     [SPECIES_WOLF] = { .max_hp = 26, .atk = 11, .def = 2, .xp = 12, .herb_drop = 30 },
+    [SPECIES_EMBER] = { .max_hp = 12, .atk = 6, .def = 0, .xp = 6, .herb_drop = 50 },
     [SPECIES_ELDER_STUMP] = { .max_hp = 260, .atk = 18, .def = 8, .xp = 100, .wooden = true },
 };
 
@@ -33,9 +35,19 @@ int encounter_party(Encounter e, Species out[MAX_BATTLE_ENEMIES])
     case ENCOUNTER_WOLF: out[0] = SPECIES_WOLF; return 1;
     case ENCOUNTER_WOLVES: out[0] = out[1] = SPECIES_WOLF; return 2;
     case ENCOUNTER_BOSS: out[0] = SPECIES_ELDER_STUMP; return 1;
+    case ENCOUNTER_EMBERS: out[0] = out[1] = SPECIES_EMBER; return 2;
     default: return 0;
     }
 }
+
+int scene_page_count(Scene s)
+{
+    static const int pages[SCENE_COUNT] = { [SCENE_INTRO] = 3, [SCENE_GODDESS] = 4, [SCENE_GODDESS_TALK] = 1 };
+    return (s >= 0 && s < SCENE_COUNT) ? pages[s] : 0;
+}
+
+// Encounters that stay where they are on the map.
+static bool encounter_stays(Encounter e) { return e == ENCOUNTER_BOSS || e == ENCOUNTER_EMBERS; }
 
 int xp_to_next_level(int level) { return level * 15; }
 
@@ -52,7 +64,7 @@ TileType game_tile_at(const Game *g, int tx, int ty)
 bool game_tile_blocks(TileType t)
 {
     return t == TILE_WALL || t == TILE_TREE || t == TILE_ROCK || t == TILE_WATER || t == TILE_CHEST ||
-           t == TILE_CHEST_AXE || t == TILE_CHEST_OPEN || t == TILE_FIRE;
+           t == TILE_CHEST_AXE || t == TILE_CHEST_OPEN || t == TILE_FIRE || t == TILE_GODDESS;
 }
 
 static bool foe_blocked_by(TileType t) { return game_tile_blocks(t) || t == TILE_EXIT || t == TILE_BRIDGE; }
@@ -150,6 +162,7 @@ bool level_load_rows(Game *g, const char *const *rows, int row_count)
             case 'A': t = TILE_CHEST_AXE; break;
             case 'f': t = TILE_FIRE; break;
             case 'X': t = TILE_EXIT; has_end = true; break;
+            case 'M': t = TILE_GODDESS; break;
             case 'P':
                 g->start_x = tx * TILE + (TILE - WALKER_SIZE) / 2.0f;
                 g->start_y = ty * TILE + (TILE - WALKER_SIZE) / 2.0f;
@@ -161,6 +174,7 @@ bool level_load_rows(Game *g, const char *const *rows, int row_count)
             case 'v': encounter = ENCOUNTER_WOLF; break;
             case 'w': encounter = ENCOUNTER_WOLVES; break;
             case 'B': encounter = ENCOUNTER_BOSS; has_end = true; break;
+            case 'e': encounter = ENCOUNTER_EMBERS; break;
             default: break;
             }
             if (encounter >= 0 && g->foe_count < MAX_FOES) {
@@ -178,6 +192,15 @@ bool level_load_rows(Game *g, const char *const *rows, int row_count)
 }
 
 // --- Map ------------------------------------------------------------------------
+
+static void start_scene(Game *g, Scene scene, GameState after)
+{
+    g->scene = scene;
+    g->scene_page = 0;
+    g->scene_return = after;
+    g->state = STATE_SCENE;
+    g->state_timer = MENU_DELAY;
+}
 
 static void update_camera(Game *g)
 {
@@ -216,6 +239,9 @@ static void map_action(Game *g)
         g->stats.atk += AXE_UPGRADE_ATK;
         g->events |= EVENT_CHEST;
         show_toast(g, TOAST_AXE, AXE_UPGRADE_ATK);
+        break;
+    case TILE_GODDESS:
+        if (g->goddess_saved) start_scene(g, SCENE_GODDESS_TALK, STATE_MAP);
         break;
     case TILE_FIRE:
         g->stats.hp = g->stats.max_hp;
@@ -269,7 +295,7 @@ static void update_foes(Game *g, float dt)
     for (int i = 0; i < g->foe_count; i++) {
         Foe *f = &g->foes[i];
         if (!f->alive) continue;
-        if (f->kind != ENCOUNTER_BOSS && w->safe_timer <= 0) {
+        if (!encounter_stays(f->kind) && w->safe_timer <= 0) {
             f->think -= dt;
             if (f->think <= 0) foe_pick_direction(g, f);
             if (move_box(g, &f->x, &f->y, f->vx * dt, f->vy * dt, foe_blocked_by)) foe_pick_direction(g, f);
@@ -431,7 +457,7 @@ static void resolve_round(Game *g, int action, int skill, int target)
         push_msg(g, MSG_DEFEND, -1, -1, 0, false);
         break;
     case MENU_FLEE:
-        if (b->enemies[0].species == SPECIES_ELDER_STUMP) {
+        if (g->foes[b->foe].kind == ENCOUNTER_BOSS || g->foes[b->foe].kind == ENCOUNTER_EMBERS) {
             push_msg(g, MSG_CANT_FLEE, -1, -1, 0, false);
         } else if (chance(g, FLEE_CHANCE)) {
             push_msg(g, MSG_FLEE_OK, -1, -1, 0, false);
@@ -490,6 +516,7 @@ void game_start_battle(Game *g, int foe)
     b->shown_hp = g->stats.hp;
     b->shown_sp = g->stats.sp;
     push_msg(g, MSG_START, -1, -1, g->foes[foe].kind, false);
+    if (g->foes[foe].kind == ENCOUNTER_EMBERS) push_msg(g, MSG_EMBERS_TAUNT, 0, -1, 0, false);
     b->phase = PHASE_MESSAGES;
     g->state = STATE_BATTLE;
     g->events |= EVENT_ENCOUNTER;
@@ -528,6 +555,10 @@ static void end_battle(Game *g)
         }
         g->walker.safe_timer = 0.5f;
         g->state = STATE_MAP;
+        if (g->foes[b->foe].kind == ENCOUNTER_EMBERS) {
+            g->goddess_saved = true;
+            start_scene(g, SCENE_GODDESS, STATE_MAP);
+        }
         break;
     case OUTCOME_FLED:
         g->walker.safe_timer = SAFE_TIME;
@@ -654,6 +685,7 @@ void game_enter_level(Game *g, int index)
 void game_new(Game *g)
 {
     memset(&g->stats, 0, sizeof g->stats);
+    g->goddess_saved = false;
     g->stats.level = 1;
     g->stats.hp = g->stats.max_hp = 40;
     g->stats.sp = g->stats.max_sp = 8;
@@ -687,7 +719,27 @@ void game_step(Game *g, const GameInput *in)
 
     switch (g->state) {
     case STATE_TITLE:
-        if (menu_pressed(g, in)) game_new(g);
+        if (menu_pressed(g, in)) {
+            game_new(g);
+            start_scene(g, SCENE_INTRO, STATE_MAP);
+            g->events |= EVENT_CONFIRM;
+        }
+        break;
+
+    case STATE_SCENE:
+        if (g->state_timer > 0) break;
+        if (in->cancel_pressed) {
+            g->scene_page = scene_page_count(g->scene);  // skip the rest
+        } else if (in->confirm_pressed || in->pause_pressed || in->pick || in->target_pick) {
+            g->scene_page++;
+            g->state_timer = PAGE_DELAY;
+            g->events |= EVENT_CURSOR;
+        }
+        if (g->scene_page >= scene_page_count(g->scene)) {
+            g->state = g->scene_return;
+            g->state_timer = 0;
+            g->events |= EVENT_CONFIRM;
+        }
         break;
 
     case STATE_MAP:

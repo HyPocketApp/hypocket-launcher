@@ -11,6 +11,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define COUNT(a) (int)(sizeof(a) / sizeof((a)[0]))
+
 #include "raylib.h"
 
 // --- Colors -------------------------------------------------------------------
@@ -58,6 +60,11 @@
 #define PANEL (Color){ 28, 30, 48, 235 }
 #define PANEL_EDGE (Color){ 220, 210, 180, 255 }
 #define INK (Color){ 30, 30, 44, 255 }
+#define MOON_WHITE (Color){ 244, 246, 255, 255 }
+#define MOON_SHADE (Color){ 196, 204, 232, 255 }
+#define MOON_SKIN (Color){ 250, 226, 210, 255 }
+#define MOON_SILVER (Color){ 200, 220, 255, 255 }
+#define EMBER_RED (Color){ 230, 80, 40, 255 }
 #define SHADOW (Color){ 0, 0, 0, 60 }
 #define DISABLED (Color){ 120, 120, 130, 255 }
 
@@ -378,7 +385,7 @@ static unsigned tile_hash(int tx, int ty)
 
 static const char *species_name(Species s)
 {
-    static const TextId names[SPECIES_COUNT] = { TXT_SLIME, TXT_BEETLE, TXT_WOLF, TXT_ELDER_STUMP };
+    static const TextId names[SPECIES_COUNT] = { TXT_SLIME, TXT_BEETLE, TXT_WOLF, TXT_EMBER, TXT_ELDER_STUMP };
     return text_get(names[s]);
 }
 
@@ -440,6 +447,30 @@ static void draw_lumberjack(float cx, float cy, float s, int face_x, int face_y,
     DrawCircleV((Vector2){ tip.x - d * 1.0f * s, tip.y }, 1.2f * s, (Color){ 140, 150, 160, 255 });
 }
 
+// The Moon Goddess, centered at (cx, cy) with feet near cy + 7*s: long
+// white hair, a white dress and a silver crescent, with a soft glow.
+static void draw_goddess(float cx, float cy, float s, float t)
+{
+    float glow = 0.18f + 0.07f * sinf(t * 2.0f);
+    DrawCircle((int)cx, (int)(cy - 2 * s), 13 * s, Fade(MOON_SILVER, glow));
+    DrawEllipse((int)cx, (int)(cy + 7 * s), 5 * s, 2 * s, SHADOW);
+    // Hair falling behind her back.
+    DrawRectangle((int)(cx - 4 * s), (int)(cy - 9 * s), (int)(8 * s), (int)(12 * s), MOON_SHADE);
+    // Dress, wider at the hem.
+    DrawTriangle((Vector2){ cx, cy - 4 * s }, (Vector2){ cx - 6 * s, cy + 7 * s }, (Vector2){ cx + 6 * s, cy + 7 * s }, MOON_WHITE);
+    DrawRectangle((int)(cx - 3 * s), (int)(cy - 4 * s), (int)(6 * s), (int)(5 * s), MOON_WHITE);
+    DrawRectangle((int)(cx - 3 * s), (int)(cy - 1 * s), (int)(6 * s), (int)fmaxf(1, s), MOON_SILVER);  // belt
+    // Face and the hair around it.
+    DrawRectangle((int)(cx - 2 * s), (int)(cy - 9 * s), (int)(5 * s), (int)(5 * s), MOON_SKIN);
+    DrawRectangle((int)(cx - 3 * s), (int)(cy - 10 * s), (int)(7 * s), (int)(2 * s), MOON_WHITE);
+    DrawRectangle((int)(cx - 3 * s), (int)(cy - 9 * s), (int)fmaxf(1, s), (int)(7 * s), MOON_WHITE);
+    DrawRectangle((int)(cx + 3 * s), (int)(cy - 9 * s), (int)fmaxf(1, s), (int)(7 * s), MOON_WHITE);
+    DrawRectangle((int)(cx - 1 * s), (int)(cy - 7 * s), (int)fmaxf(1, s), (int)fmaxf(1, s), INK);
+    DrawRectangle((int)(cx + 1 * s), (int)(cy - 7 * s), (int)fmaxf(1, s), (int)fmaxf(1, s), INK);
+    // Crescent moon above her brow.
+    DrawRing((Vector2){ cx, cy - 12 * s }, 1.3f * s, 2.6f * s, 20, 200, 10, MOON_SILVER);
+}
+
 // A monster centered at (cx, cy). `s` is the size (1 on the map).
 static void draw_monster(Species sp, float cx, float cy, float s, float t, bool flash, int facing)
 {
@@ -481,6 +512,26 @@ static void draw_monster(Species sp, float cx, float cy, float s, float t, bool 
                      (Vector2){ cx + d * 4 * s, cy - 4 * s }, WOLF_DARK);
         DrawRectangle((int)(cx + d * 7 * s), (int)(cy - 4 * s), (int)fmaxf(1, s), (int)fmaxf(1, s), EYE_GLOW);
         DrawRectangle((int)(cx - d * 9 * s), (int)(cy - 2 * s), (int)(3 * s), (int)(2 * s), WOLF_DARK);  // tail
+        break;
+    }
+    case SPECIES_EMBER: {
+        // A small living flame with two dark eyes, bobbing in the air.
+        float bob = sinf(t * 6.0f) * s, flick = sinf(t * 17.0f) * s;
+        float y = cy - 2 * s + bob;
+        DrawCircle((int)cx, (int)y, 8 * s, Fade(FIRE_A, 0.2f));
+        DrawCircle((int)cx, (int)(y + 2 * s), 5 * s, flash ? f : EMBER_RED);
+        DrawTriangle((Vector2){ cx + flick, y - 9 * s }, (Vector2){ cx - 5 * s, y + 1 * s }, (Vector2){ cx + 5 * s, y + 1 * s },
+                     flash ? f : EMBER_RED);
+        DrawCircle((int)cx, (int)(y + 3 * s), 3.2f * s, FIRE_A);
+        DrawTriangle((Vector2){ cx - flick * 0.5f, y - 4 * s }, (Vector2){ cx - 3 * s, y + 2 * s }, (Vector2){ cx + 3 * s, y + 2 * s },
+                     FIRE_A);
+        DrawCircle((int)cx, (int)(y + 4 * s), 1.6f * s, FIRE_B);
+        DrawRectangle((int)(cx - 2 * s), (int)(y + 1 * s), (int)fmaxf(1, s), (int)(2 * s), INK);
+        DrawRectangle((int)(cx + 1 * s), (int)(y + 1 * s), (int)fmaxf(1, s), (int)(2 * s), INK);
+        // Sparks.
+        float k = fmodf(t * 1.7f, 1.0f);
+        DrawRectangle((int)(cx + 4 * s), (int)(y - 2 * s - k * 6 * s), (int)fmaxf(1, s), (int)fmaxf(1, s), Fade(FIRE_B, 1 - k));
+        DrawRectangle((int)(cx - 5 * s), (int)(y - k * 5 * s), (int)fmaxf(1, s), (int)fmaxf(1, s), Fade(FIRE_A, 1 - k));
         break;
     }
     case SPECIES_ELDER_STUMP: {
@@ -594,6 +645,9 @@ static void draw_map(const Game *g, int cam_x, int cam_y)
                              (Vector2){ x + 10.0f, y + 11.0f }, FIRE_B);
                 break;
             }
+            case TILE_GODDESS:
+                draw_goddess(x + 8.0f, y + 7.0f, 1.0f, t);
+                break;
             case TILE_EXIT:
                 DrawRectangle(x + 2, y, 12, TILE, PATH);
                 DrawRectangle(x + 7, y + 2, 2, 10, TRUNK);
@@ -625,7 +679,8 @@ static void draw_foes(const Game *g, int cam_x, int cam_y)
         Species sp = encounter_leader(f->kind);
         float scale = sp == SPECIES_ELDER_STUMP ? 1.4f : 0.9f;
         draw_monster(sp, cx, cy - (sp == SPECIES_ELDER_STUMP ? 6 : 0), scale, g->time + i, false, f->vx < 0 ? -1 : 1);
-        if (f->kind == ENCOUNTER_SLIMES || f->kind == ENCOUNTER_WOLVES || f->kind == ENCOUNTER_BEETLE)
+        if (f->kind == ENCOUNTER_SLIMES || f->kind == ENCOUNTER_WOLVES || f->kind == ENCOUNTER_BEETLE ||
+            f->kind == ENCOUNTER_EMBERS)
             DrawText("+", (int)cx + 5, (int)cy - 12, 10, RAYWHITE);  // more than one monster
     }
 }
@@ -688,7 +743,10 @@ static const char *msg_text(const Game *g, const BattleMsg *m)
     const char *crit = m->crit ? text_get(TXT_MSG_CRIT) : "";
     switch (m->type) {
     case MSG_START:
-        return text_get(m->amount == ENCOUNTER_BOSS ? TXT_MSG_BOSS : TXT_MSG_START);
+        if (m->amount == ENCOUNTER_BOSS) return text_get(TXT_MSG_BOSS);
+        if (m->amount == ENCOUNTER_EMBERS) return text_get(TXT_MSG_EMBERS);
+        return text_get(TXT_MSG_START);
+    case MSG_EMBERS_TAUNT: return TextFormat(text_get(TXT_MSG_EMBERS_TAUNT), actor);
     case MSG_ATTACK: return TextFormat("%s%s", crit, TextFormat(text_get(TXT_MSG_ATTACK), target, m->amount));
     case MSG_SPLIT: return TextFormat("%s%s", crit, TextFormat(text_get(TXT_MSG_SPLIT), target, m->amount));
     case MSG_SPIN: return text_get(TXT_MSG_SPIN);
@@ -776,6 +834,7 @@ static void draw_battle(const Game *g, const InputState *s)
     }
     bool hurt = b->player_flash > 0 && fmodf(b->player_flash, 0.1f) < 0.05f;
     bool down = m && m->type == MSG_PLAYER_DOWN;
+    if (g->foes[b->foe].kind == ENCOUNTER_EMBERS) draw_goddess(26, 84, 2.0f, g->time);  // behind him
     if (!hurt) {
         if (down) {
             DrawRectangle(52, 92, 26, 6, SHIRT);  // lying on the grass
@@ -841,6 +900,81 @@ static void draw_battle(const Game *g, const InputState *s)
     DrawRectangle(sx, sy + 45, 126 * st->xp / (xp_need > 0 ? xp_need : 1), 2, GOLDEN);
 }
 
+// --- Story scenes ---------------------------------------------------------------------
+
+typedef enum { SPEAKER_NONE, SPEAKER_STRANGER, SPEAKER_GODDESS } Speaker;
+
+typedef struct {
+    TextId text;  // up to two lines, split by '\n'
+    Speaker who;
+} ScenePage;
+
+static const ScenePage intro_pages[] = {
+    { TXT_INTRO_1, SPEAKER_NONE },
+    { TXT_INTRO_2, SPEAKER_NONE },
+    { TXT_INTRO_3, SPEAKER_NONE },
+};
+static const ScenePage goddess_pages[] = {
+    { TXT_GODDESS_1, SPEAKER_NONE },
+    { TXT_GODDESS_2, SPEAKER_STRANGER },
+    { TXT_GODDESS_3, SPEAKER_GODDESS },
+    { TXT_GODDESS_4, SPEAKER_GODDESS },
+};
+static const ScenePage goddess_talk_pages[] = {
+    { TXT_GODDESS_TALK, SPEAKER_GODDESS },
+};
+
+static const ScenePage *scene_page(Scene scene, int page)
+{
+    static const struct { const ScenePage *pages; int count; } scenes[SCENE_COUNT] = {
+        [SCENE_INTRO] = { intro_pages, COUNT(intro_pages) },
+        [SCENE_GODDESS] = { goddess_pages, COUNT(goddess_pages) },
+        [SCENE_GODDESS_TALK] = { goddess_talk_pages, COUNT(goddess_talk_pages) },
+    };
+    if (scene < 0 || scene >= SCENE_COUNT || page < 0 || page >= scenes[scene].count) return NULL;
+    return &scenes[scene].pages[page];
+}
+
+static void draw_scene(const Game *g, bool touch)
+{
+    const ScenePage *p = scene_page(g->scene, g->scene_page);
+    if (!p) return;
+    if (g->scene == SCENE_INTRO) {
+        DrawRectangle(0, 0, VIEW_W, VIEW_H, Fade(INK, 0.7f));
+        draw_lumberjack(160, 76, 3.0f, 1, 0, g->scene_page == 1 ? g->time * 20.0f : 0, 0);
+    }
+    if (p->who == SPEAKER_GODDESS || p->who == SPEAKER_STRANGER) draw_goddess(40, 92, 3.0f, g->time);
+
+    Rectangle box = { 4, 120, VIEW_W - 8, 56 };
+    draw_box(box);
+    int y = 124;
+    if (p->who != SPEAKER_NONE) {
+        draw_text_shadow(text_get(p->who == SPEAKER_GODDESS ? TXT_NAME_GODDESS : TXT_NAME_STRANGER), 10, y, 10, GOLDEN);
+        y += 13;
+    } else {
+        y += 6;
+    }
+    // Two lines at most.
+    char line[160];
+    const char *txt = text_get(p->text);
+    for (int n = 0; n < 2 && *txt; n++) {
+        const char *end = strchr(txt, '\n');
+        size_t len = end ? (size_t)(end - txt) : strlen(txt);
+        if (len >= sizeof line) len = sizeof line - 1;
+        memcpy(line, txt, len);
+        line[len] = 0;
+        draw_text_shadow(line, 10, y, 10, RAYWHITE);
+        y += 12;
+        txt = end ? end + 1 : txt + len;
+    }
+    const char *hint = text_get(touch ? TXT_SCENE_TAP : TXT_SCENE_KEYS);
+    DrawText(hint, (int)(box.x + box.width) - MeasureText(hint, 10) - 6, 164, 10, Fade(RAYWHITE, 0.55f));
+    if (fmodf(g->time, 0.8f) < 0.5f) {
+        float ax = box.x + box.width - 10, ay = 152;
+        DrawTriangle((Vector2){ ax, ay }, (Vector2){ ax + 3, ay + 4 }, (Vector2){ ax + 6, ay }, GOLDEN);
+    }
+}
+
 // --- Screens ----------------------------------------------------------------------------
 
 static void draw_overlay(const Game *g, bool touch)
@@ -866,6 +1000,9 @@ static void draw_overlay(const Game *g, bool touch)
         draw_text_centered(text_get(TXT_WAKE_UP), 90, 10, Fade(RAYWHITE, 0.8f));
         draw_text_centered(text_get(press), 120, 10, GOLDEN);
         break;
+    case STATE_SCENE:
+        draw_scene(g, touch);
+        break;
     case STATE_WON:
         DrawRectangle(0, 0, VIEW_W, VIEW_H, Fade(INK, 0.6f));
         draw_text_centered(text_get(TXT_WON), 44, 20, GOLDEN);
@@ -890,7 +1027,7 @@ static void draw_game(const Game *g, const InputState *s, float chop)
     draw_foes(g, cam_x, cam_y);
     if (g->state != STATE_TITLE && g->state != STATE_WON) {
         const Walker *w = &g->walker;
-        bool blink = w->safe_timer > 0 && w->safe_timer < 1.9f && fmodf(w->safe_timer, 0.2f) < 0.1f;
+        bool blink = g->state != STATE_SCENE && w->safe_timer > 0 && w->safe_timer < 1.9f && fmodf(w->safe_timer, 0.2f) < 0.1f;
         if (!blink)
             draw_lumberjack(w->x + WALKER_SIZE / 2.0f - cam_x, w->y + WALKER_SIZE / 2.0f - cam_y - 2, 1.0f,
                             w->face_x, w->face_y, w->walk_anim, chop);
@@ -917,6 +1054,11 @@ int main(int argc, char *argv[])
     RenderTexture2D canvas = LoadRenderTexture(VIEW_W, VIEW_H);
     SetTextureFilter(canvas.texture, TEXTURE_FILTER_POINT);
     Sounds sounds = load_sounds();
+
+    // The rules count the pages of each scene; the words are here. They must agree.
+    for (int sc = 0; sc < SCENE_COUNT; sc++)
+        if (scene_page((Scene)sc, scene_page_count((Scene)sc) - 1) == NULL || scene_page((Scene)sc, scene_page_count((Scene)sc)) != NULL)
+            TraceLog(LOG_WARNING, "scene %d: page count differs between game.c and main.c", sc);
 
     static Game game;
     game_init(&game);

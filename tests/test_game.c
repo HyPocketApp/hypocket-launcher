@@ -108,7 +108,7 @@ static bool map_is_completable(const Game *m)
     for (int y = 0; y < m->h; y++) {
         for (int x = 0; x < m->w; x++) {
             TileType t = game_tile_at(m, x, y);
-            if (t == TILE_CHEST || t == TILE_CHEST_AXE || t == TILE_FIRE) {
+            if (t == TILE_CHEST || t == TILE_CHEST_AXE || t == TILE_FIRE || t == TILE_GODDESS) {
                 bool side = false;
                 for (int i = 0; i < 4; i++) {
                     int nx = x + dirs[i][0], ny = y + dirs[i][1];
@@ -152,6 +152,15 @@ static void test_maps_are_valid(void)
     bool boss = false;
     for (int i = 0; i < g.foe_count; i++) boss |= g.foes[i].kind == ENCOUNTER_BOSS;
     CHECK(boss);
+    // The goddess and the fire beings are on the first map.
+    memset(&g, 0, sizeof g);
+    const char *const *first = level_rows(0, &count);
+    level_load_rows(&g, first, count);
+    bool embers = false, goddess = false;
+    for (int i = 0; i < g.foe_count; i++) embers |= g.foes[i].kind == ENCOUNTER_EMBERS;
+    for (int y = 0; y < g.h; y++)
+        for (int x = 0; x < g.w; x++) goddess |= game_tile_at(&g, x, y) == TILE_GODDESS;
+    CHECK(embers && goddess);
 }
 
 static void test_bad_map_is_rejected(void)
@@ -461,6 +470,18 @@ static void test_beating_the_boss_wins(void)
     CHECK(g.state == STATE_WON);
 }
 
+// Presses confirm until the scene is over; returns how many pages it took.
+static int read_scene(void)
+{
+    int pages = 0;
+    for (int i = 0; i < 600 && g.state == STATE_SCENE; i++) {
+        int before = g.scene_page;
+        run(&CONFIRM, 1);
+        if (g.state != STATE_SCENE || g.scene_page != before) pages++;
+    }
+    return pages;
+}
+
 static void test_title_starts_game(void)
 {
     game_init(&g);
@@ -469,8 +490,76 @@ static void test_title_starts_game(void)
     CHECK(g.state == STATE_TITLE);  // too soon after the screen appeared
     run(&NONE, 30);
     run(&CONFIRM, 1);
+    CHECK(g.state == STATE_SCENE && g.scene == SCENE_INTRO);
+    CHECK(read_scene() == scene_page_count(SCENE_INTRO));
     CHECK(g.state == STATE_MAP);
     CHECK(g.level == 0 && g.stats.level == 1);
+    CHECK(!g.goddess_saved);
+}
+
+static void test_scene_can_be_skipped(void)
+{
+    game_init(&g);
+    run(&NONE, 30);
+    run(&CONFIRM, 1);
+    CHECK(g.state == STATE_SCENE);
+    run(&NONE, 30);
+    run(&CANCEL, 1);
+    CHECK(g.state == STATE_MAP);
+}
+
+static const char *const goddess_map[] = {
+    "#######",
+    "#P.e..#",
+    "#..M.X#",
+    "#######",
+};
+
+static void test_saving_the_goddess(void)
+{
+    load(goddess_map, COUNT(goddess_map));
+    CHECK(g.foe_count == 1 && g.foes[0].kind == ENCOUNTER_EMBERS);
+    float x = g.foes[0].x, y = g.foes[0].y;
+    g.foes[0].think = 0;
+    g.walker.safe_timer = 0;
+    run(&NONE, 120);
+    CHECK(g.foes[0].x == x && g.foes[0].y == y);  // they stay by her
+
+    // Talking to her before she is safe does nothing.
+    g.walker.x = 2 * TILE + 3;
+    g.walker.y = 2 * TILE + 3;  // left of her
+    face(1, 0);
+    g.walker.safe_timer = 10;
+    run(&CONFIRM, 1);
+    CHECK(g.state == STATE_MAP);
+
+    game_start_battle(&g, 0);
+    CHECK(g.battle.enemy_count == 2 && g.battle.enemies[0].species == SPECIES_EMBER);
+    CHECK(has_msg(MSG_EMBERS_TAUNT));
+    play_messages();
+    pick(MENU_FLEE);
+    CHECK(has_msg(MSG_CANT_FLEE));
+    play_messages();
+    g.stats.atk = 99;
+    g.stats.hp = g.stats.max_hp;
+    while (g.state == STATE_BATTLE) {
+        pick(MENU_ATTACK);
+        if (g.battle.phase == PHASE_TARGET) run(&CONFIRM, 1);
+        play_messages();
+    }
+    CHECK(g.state == STATE_SCENE && g.scene == SCENE_GODDESS);
+    CHECK(g.goddess_saved);
+    CHECK(read_scene() == scene_page_count(SCENE_GODDESS));
+    CHECK(g.state == STATE_MAP);
+
+    // Now she talks.
+    g.walker.x = 2 * TILE + 3;
+    g.walker.y = 2 * TILE + 3;
+    face(1, 0);
+    run(&CONFIRM, 1);
+    CHECK(g.state == STATE_SCENE && g.scene == SCENE_GODDESS_TALK);
+    read_scene();
+    CHECK(g.state == STATE_MAP);
 }
 
 // --- Balance --------------------------------------------------------------------------
@@ -514,12 +603,16 @@ static bool auto_battle(Encounter kind, int level, int herbs, unsigned seed)
         }
         if (g.battle.phase == PHASE_TARGET) run(&CONFIRM, 1);
     }
-    return (g.state == STATE_MAP && !g.foes[0].alive) || g.state == STATE_WON;
+    return !g.foes[0].alive && (g.state == STATE_MAP || g.state == STATE_SCENE || g.state == STATE_WON);
 }
 
 static void test_balance(void)
 {
     int wins;
+    // The fire beings are the very first fight.
+    wins = 0;
+    for (unsigned i = 0; i < 20; i++) wins += auto_battle(ENCOUNTER_EMBERS, 1, 0, i);
+    CHECK(wins >= 19);
     // A new lumberjack handles the first monsters.
     wins = 0;
     for (unsigned i = 0; i < 20; i++) wins += auto_battle(ENCOUNTER_SLIMES, 1, 0, i);
@@ -544,6 +637,8 @@ int main(void)
         void (*fn)(void);
     } tests[] = {
         { "maps are valid and completable", test_maps_are_valid },
+        { "scene can be skipped", test_scene_can_be_skipped },
+        { "saving the goddess", test_saving_the_goddess },
         { "bad map is rejected", test_bad_map_is_rejected },
         { "axe chops trees", test_axe_chops_trees },
         { "rocks are too hard", test_rocks_are_too_hard },

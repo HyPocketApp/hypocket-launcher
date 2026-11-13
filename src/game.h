@@ -5,8 +5,10 @@
 // on PC and Android. main.c turns input into a GameInput, calls game_step()
 // at a fixed 60 steps per second, and draws what is in the Game.
 //
-// The player is a lumberjack. On the map (seen from above) he walks, chops
-// trees out of the way with his axe, opens chests and rests at campfires.
+// The player is a lumberjack on his way to a nearby village. On the map (seen
+// from above) he walks, chops trees out of the way with his axe, opens chests
+// and rests at campfires. On the first map he saves the Moon Goddess from
+// small fire beings; short story scenes play between the action (see Scene).
 // Touching a monster starts a turn-based battle: he picks an action, then
 // every monster still standing takes its turn. Winning gives experience and
 // levels. The last map ends with a boss.
@@ -46,6 +48,7 @@ typedef enum {
     TILE_CHEST_OPEN,
     TILE_FIRE,       // 'f' campfire: rest to heal; you come back here if you fall
     TILE_EXIT,       // 'X' path to the next map
+    TILE_GODDESS,    // 'M' the Moon Goddess; blocks, talk to her with the action
 } TileType;
 
 // --- Monsters -------------------------------------------------------------------
@@ -54,6 +57,7 @@ typedef enum {
     SPECIES_SLIME,
     SPECIES_BEETLE,
     SPECIES_WOLF,
+    SPECIES_EMBER,        // small fire being, after the Moon Goddess's power
     SPECIES_ELDER_STUMP,  // the boss
     SPECIES_COUNT,
 } Species;
@@ -75,6 +79,8 @@ typedef enum {
     ENCOUNTER_WOLF,    // 'v': one wolf
     ENCOUNTER_WOLVES,  // 'w': two wolves
     ENCOUNTER_BOSS,    // 'B': the Elder Stump; does not move
+    ENCOUNTER_EMBERS,  // 'e': fire beings attacking the goddess; do not move,
+                       //      no running away, the story goes on after it
     ENCOUNTER_COUNT,
 } Encounter;
 
@@ -141,6 +147,7 @@ typedef enum {
 // the screen shows them when the message plays, using the *_after values.
 typedef enum {
     MSG_START,           // amount = encounter
+    MSG_EMBERS_TAUNT,    // the fire beings speak, after MSG_START
     MSG_ATTACK,          // target, amount, crit
     MSG_SPLIT,           // target, amount, crit
     MSG_SPIN,            // then one MSG_SPIN_HIT per monster
@@ -200,12 +207,24 @@ typedef struct {
 
 typedef enum {
     STATE_TITLE,
+    STATE_SCENE,      // a story scene: pages of text, one at a time
     STATE_MAP,
     STATE_PAUSED,
     STATE_BATTLE,
     STATE_GAME_OVER,  // then he wakes up at the last campfire
     STATE_WON,
 } GameState;
+
+// Story scenes. The rules only know how many pages each has; the words and
+// who says them are in main.c and text.c.
+typedef enum {
+    SCENE_INTRO,         // the lumberjack sets out for the village
+    SCENE_GODDESS,       // after saving her: she is the Moon Goddess
+    SCENE_GODDESS_TALK,  // talking to her again
+    SCENE_COUNT,
+} Scene;
+
+int scene_page_count(Scene s);
 
 // Short notes shown on the map.
 typedef enum {
@@ -263,6 +282,11 @@ typedef struct {
     int foe_count;
     Stats stats;
     Battle battle;
+
+    Scene scene;
+    int scene_page;
+    GameState scene_return;  // where the game goes when the scene ends
+    bool goddess_saved;
 
     Toast toast;
     int toast_amount;

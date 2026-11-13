@@ -5,25 +5,27 @@
 //   c  chest (herbs)    A  chest (sharper axe)
 //   f  campfire (rest; you wake up here after falling in battle)
 //   X  path to the next map                  P  start
+//   M  the Moon Goddess (talk to her once she is safe)
 //
 // Monsters, which start a battle when touched:
 //   s  one slime        g  two slimes        b  a beetle and a slime
 //   v  one wolf         w  two wolves        B  the Elder Stump (boss)
+//   e  fire beings attacking the goddess (they stay put; no running away)
 //
 // A map needs one 'P' and an 'X' or a 'B', at most 64 rows and 96 columns.
 // tests/test_game.c checks that everything can be reached (trees count as
 // open, since the axe clears them).
 #include "game.h"
 
-// Map 1: the sawmill woods.
+// Map 1: the sawmill woods. The goddess is near the start, under attack.
 static const char *const level1[] = {
     "####################################",
     "#TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT#",
     "#T..P.....T.........T.......c..TTTT#",
     "#T........T....s....T..........T...#",
     "#T...f....T.........TTTTTT.....T...#",
-    "#T........TTT..........T.......T...#",
-    "#TT..................g.T.......T.X.#",
+    "#T......e.TTT..........T.......T...#",
+    "#TT.....M............g.T.......T.X.#",
     "#T....RR......T........T.......T...#",
     "#T....RR.....TTT...............T...#",
     "#T............T.....TTT........TTTT#",

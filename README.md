@@ -4,8 +4,11 @@ Um **RPG de turno** em 2D, com vista de cima, feito em C com
 [raylib](https://www.raylib.com/). Roda em **PC** (Windows, Linux e macOS) e
 **Android**.
 
-Você é um **lenhador** e sua arma é o **machado**. Monstros acordaram na
-floresta, e o Toco Ancião, uma árvore velha e brava, está por trás disso.
+Você é um **lenhador** e sua arma é o **machado**. A caminho de uma vila
+próxima, ele salva uma mulher de branco atacada por pequenos seres de fogo:
+ela é a **Deusa da Lua**, que perdeu grande parte dos seus poderes, e esses
+seres querem roubar o que resta. A história está em
+[docs/LORE.md](docs/LORE.md).
 
 - **Explorando o mapa:** ande livremente, **derrube árvores** com o machado
   para abrir caminhos, abra **baús** (ervas ou uma lâmina mais afiada) e
@@ -23,7 +26,10 @@ floresta, e o Toco Ancião, uma árvore velha e brava, está por trás disso.
   fôlego, ataque e defesa aumentam. O machado corta mais forte em coisas de
   madeira.
 - **3 mapas:** Bosque da Serraria, Vale dos Lobos e Clareira Ancestral, onde
-  o Toco Ancião espera. Os monstros são gosmas, besouros e lobos.
+  o Toco Ancião espera. Os monstros são fagulhas (os seres de fogo), gosmas,
+  besouros e lobos.
+- **Cenas de história:** telas de texto entre a ação. Enter ou toque
+  avança; X pula a cena.
 
 > Projeto independente. Não tem relação com o HyPocket nem com nenhum outro
 > jogo: código, mapas, desenhos e sons são originais. Os desenhos e sons são
@@ -102,6 +108,7 @@ gosmas, os lobos pedem alguns níveis, e o chefe vence quem chega despreparado.
 | `src/main.c` | Janela, entrada (teclado, controle, toque), desenho e sons, com raylib. |
 | `src/text.c`, `src/text.h` | Os textos do jogo em inglês e português. |
 | `tests/test_game.c` | Testes das regras. |
+| `docs/LORE.md` | A história do jogo: o que já está decidido e o que falta decidir. |
 | `android/` | Projeto Gradle que empacota o jogo como APK. |
 | `CMakeLists.txt` | Compila o jogo para PC e Android, e os testes. |
 
@@ -110,8 +117,9 @@ gosmas, os lobos pedem alguns níveis, e o chefe vence quem chega despreparado.
 Edite `src/levels.c`. Cada caractere é um quadrado de 16x16 pixels:
 `#` penhasco, `T` árvore (dá para cortar), `R` pedra, `~` água, `=` ponte,
 `c` baú com ervas, `A` baú com lâmina afiada, `f` fogueira, `X` saída,
-`P` início. Monstros: `s` gosma, `g` duas gosmas, `b` besouro e gosma,
-`v` lobo, `w` dois lobos, `B` o chefe. Rode os testes depois: eles avisam se
+`P` início, `M` a Deusa da Lua. Monstros: `s` gosma, `g` duas gosmas,
+`b` besouro e gosma, `v` lobo, `w` dois lobos, `e` seres de fogo (ficam
+parados; não dá para fugir), `B` o chefe. Rode os testes depois: eles avisam se
 algo ficou inalcançável.
 
 ### Mudar o equilíbrio

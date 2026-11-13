@@ -14,3 +14,7 @@
 - After changing the rules, the maps or the balance, run the tests (see README).
 - Battle effects are applied when a round is resolved; the screen catches up
   through the messages (`shown_hp`, `*_after` fields). Keep that split.
+- The story lives in `docs/LORE.md`. The author decides it: only put story
+  that is under "Definido" into the game, and ask before inventing more.
+- Story scenes: the page count is in `scene_page_count()` (game.c) and the
+  pages (text and speaker) are in `main.c`; keep them in sync.
