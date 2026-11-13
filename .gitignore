@@ -1,0 +1,20 @@
+# CMake builds
+build/
+build-*/
+out/
+
+# Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/app/.cxx/
+android/local.properties
+*.apk
+*.aab
+
+# Editors and systems
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
