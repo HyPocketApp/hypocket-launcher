@@ -580,9 +580,18 @@ static void draw_monster(Species sp, float cx, float cy, float s, float t, bool 
 
 // The author's sprites. Anything missing is drawn with shapes instead.
 #define MAX_GRASS 8
+#define MAX_VARIANTS 4
 static struct {
     Texture2D grass[MAX_GRASS];  // 32x32 each: one covers a block of 2x2 tiles
     int grass_count;
+    Texture2D tree[MAX_VARIANTS];  // 16x24: the top 8 rows hang over the tile above
+    int tree_count;
+    Texture2D stump;
+    Texture2D path[MAX_VARIANTS];
+    int path_count;
+    Texture2D path_edge[4][3];  // n, s, w, e; three variants each
+    Texture2D path_inner[4];  // ne, nw, se, sw
+    bool has_stump, has_path_edges;
 } art;
 
 static bool load_art_texture(const char *name, Texture2D *out)
@@ -601,12 +610,58 @@ static void load_art(void)
 {
     for (int i = 0; i < MAX_GRASS; i++)
         if (load_art_texture(TextFormat("tiles/grass_%d", i + 1), &art.grass[art.grass_count])) art.grass_count++;
+    for (int i = 0; i < MAX_VARIANTS; i++) {
+        if (load_art_texture(TextFormat("tiles/tree_%d", i + 1), &art.tree[art.tree_count])) art.tree_count++;
+        if (load_art_texture(TextFormat("tiles/path_%d", i + 1), &art.path[art.path_count])) art.path_count++;
+    }
+    art.has_stump = load_art_texture("tiles/stump", &art.stump);
+    static const char *const sides[4] = { "n", "s", "w", "e" }, *const corners[4] = { "ne", "nw", "se", "sw" };
+    art.has_path_edges = true;
+    for (int i = 0; i < 4; i++) {
+        for (int v = 0; v < 3; v++)
+            art.has_path_edges &= load_art_texture(TextFormat("tiles/path_edge_%s_%d", sides[i], v + 1), &art.path_edge[i][v]);
+        art.has_path_edges &= load_art_texture(TextFormat("tiles/path_in_%s", corners[i]), &art.path_inner[i]);
+    }
 }
 
 static void unload_art(void)
 {
     for (int i = 0; i < art.grass_count; i++) UnloadTexture(art.grass[i]);
-    art.grass_count = 0;
+    for (int i = 0; i < art.tree_count; i++) UnloadTexture(art.tree[i]);
+    for (int i = 0; i < art.path_count; i++) UnloadTexture(art.path[i]);
+    for (int i = 0; i < 4; i++) {
+        for (int v = 0; v < 3; v++)
+            if (art.path_edge[i][v].id) UnloadTexture(art.path_edge[i][v]);
+        if (art.path_inner[i].id) UnloadTexture(art.path_inner[i]);
+    }
+    if (art.has_stump) UnloadTexture(art.stump);
+    memset(&art, 0, sizeof art);
+}
+
+// Dirt path or a path out of the area; outside the map counts as path, so
+// paths leaving the area run off the edge.
+static bool pathish(const Game *g, int tx, int ty)
+{
+    if (tx < 0 || ty < 0 || tx >= g->w || ty >= g->h) return true;
+    TileType t = game_tile_at(g, tx, ty);
+    return t == TILE_PATH || t == TILE_EXIT;
+}
+
+// The dirt, with grass creeping over every side that does not continue the
+// path, and a bit of grass in the inside corner of turns.
+static void draw_path_art(const Game *g, int x, int y, int tx, int ty)
+{
+    Vector2 at = { (float)x, (float)y };
+    DrawTextureV(art.path[tile_hash(tx, ty) % (unsigned)art.path_count], at, WHITE);
+    if (!art.has_path_edges) return;
+    bool n = pathish(g, tx, ty - 1), s = pathish(g, tx, ty + 1), w = pathish(g, tx - 1, ty), e = pathish(g, tx + 1, ty);
+    bool open[4] = { !n, !s, !w, !e };
+    for (int i = 0; i < 4; i++)
+        if (open[i]) DrawTextureV(art.path_edge[i][tile_hash(tx * 4 + i, ty) % 3u], at, WHITE);
+    if (n && e && !pathish(g, tx + 1, ty - 1)) DrawTextureV(art.path_inner[0], at, WHITE);
+    if (n && w && !pathish(g, tx - 1, ty - 1)) DrawTextureV(art.path_inner[1], at, WHITE);
+    if (s && e && !pathish(g, tx + 1, ty + 1)) DrawTextureV(art.path_inner[2], at, WHITE);
+    if (s && w && !pathish(g, tx - 1, ty + 1)) DrawTextureV(art.path_inner[3], at, WHITE);
 }
 
 static void draw_grass(int x, int y, int tx, int ty)
@@ -650,12 +705,20 @@ static void draw_map(const Game *g, int cam_x, int cam_y)
                 break;
             }
             case TILE_TREE:
+                if (art.tree_count > 0) {
+                    DrawTextureV(art.tree[tile_hash(tx, ty) % (unsigned)art.tree_count], (Vector2){ (float)x, (float)(y - 8) }, WHITE);
+                    break;
+                }
                 DrawEllipse(x + 8, y + 14, 7, 2, SHADOW);
                 DrawRectangle(x + 6, y + 9, 4, 6, TRUNK);
                 DrawCircle(x + 8, y + 6, 7.5f, LEAVES);
                 DrawCircle(x + 6, y + 4, 3.5f, LEAVES_LIGHT);
                 break;
             case TILE_STUMP:
+                if (art.has_stump) {
+                    DrawTextureV(art.stump, (Vector2){ (float)x, (float)y }, WHITE);
+                    break;
+                }
                 DrawEllipse(x + 8, y + 10, 4, 3, TRUNK);
                 DrawEllipse(x + 8, y + 9, 3, 2, TRUNK_LIGHT);
                 DrawRectangle(x + 3, y + 12, 3, 1, TRUNK_LIGHT);  // a few chips
@@ -707,6 +770,10 @@ static void draw_map(const Game *g, int cam_x, int cam_y)
                 break;
             case TILE_EXIT:
             case TILE_PATH:
+                if (art.path_count > 0) {
+                    draw_path_art(g, x, y, tx, ty);
+                    break;
+                }
                 DrawRectangle(x, y + 2, TILE, TILE - 4, PATH);
                 if (tile_hash(tx, ty) % 2) DrawRectangle(x + 4 + (int)(tile_hash(tx, ty) >> 5) % 8, y + 6, 2, 1, TRUNK_LIGHT);
                 break;

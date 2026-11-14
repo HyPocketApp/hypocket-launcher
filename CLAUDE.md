@@ -27,3 +27,6 @@
   (e.g. 2048x2048 for 32x32): shrink it back by sampling cell centres.
 - Grass: `assets/tiles/grass_N.png`, 32x32, each covering 2x2 tiles, drawn by
   `tools/make_grass.py` from the author's palette (no bright corners, so no grid).
+- Trees (16x24, hang 8 px over the tile above), the stump and the dirt path
+  (fill, ragged grass edges, inside corners) come from `tools/make_tiles.py`.
+  Do not put chests, fires or doors right above a tree: its top covers them.
