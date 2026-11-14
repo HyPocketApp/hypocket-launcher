@@ -30,7 +30,16 @@ if(TIMBERHEART_GAME)
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
   FetchContent_MakeAvailable(raylib)
 
-  set(GAME_SOURCES src/main.c src/text.c)
+  # The images in assets/ are compiled into the game.
+  file(GLOB_RECURSE ASSET_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/*.png)
+  set(ASSETS_C ${CMAKE_CURRENT_BINARY_DIR}/assets_data.c)
+  add_custom_command(OUTPUT ${ASSETS_C}
+    COMMAND ${CMAKE_COMMAND} -DASSET_DIR=${CMAKE_CURRENT_SOURCE_DIR}/assets -DOUTPUT=${ASSETS_C}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_assets.cmake
+    DEPENDS ${ASSET_FILES} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_assets.cmake
+    COMMENT "Embedding the images from assets/")
+
+  set(GAME_SOURCES src/main.c src/text.c ${ASSETS_C})
   if(ANDROID)
     # Loaded by Android's NativeActivity; raylib's glue calls our main().
     add_library(timberheart SHARED ${GAME_SOURCES})

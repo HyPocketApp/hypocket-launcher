@@ -21,3 +21,8 @@
 - The script of the scenes is in `src/story.c` (speaker, English, Portuguese).
   It is the author's text: keep it word for word; only split a line into two
   pages when it does not fit the box (the game warns at start-up).
+- Sprites go in `assets/` as PNG at their real pixel size; the build embeds
+  them (`cmake/embed_assets.cmake`, `asset_find()`). Keep the shape-drawn
+  fallback for anything without an image. The author sends art upscaled
+  (e.g. 2048x2048 for 32x32): shrink it back by sampling cell centres.
+- Grass: `assets/tiles/grass_N.png`, 32x32, each covering 2x2 tiles.

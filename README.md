@@ -119,6 +119,7 @@ gosmas, os lobos pedem alguns níveis, e o chefe vence quem chega despreparado.
 | `src/main.c` | Janela, entrada (teclado, controle, toque), desenho e sons, com raylib. |
 | `src/text.c`, `src/text.h` | Os textos do jogo em inglês e português. |
 | `tests/test_game.c` | Testes das regras. |
+| `assets/` | Os sprites do autor (PNG). Entram dentro do jogo na compilação; o que ainda não tem imagem é desenhado pelo código. |
 | `docs/LORE.md` | A história do jogo: o que já está decidido e o que falta decidir. |
 | `android/` | Projeto Gradle que empacota o jogo como APK. |
 | `CMakeLists.txt` | Compila o jogo para PC e Android, e os testes. |

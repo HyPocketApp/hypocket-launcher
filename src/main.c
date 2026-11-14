@@ -4,6 +4,7 @@
 // Android, raylib's NativeActivity glue calls main() for us. Everything is
 // drawn by code (no image files) at 320x180 and scaled up to the screen.
 #include "game.h"
+#include "assets.h"
 #include "story.h"
 #include "text.h"
 
@@ -575,8 +576,50 @@ static void draw_monster(Species sp, float cx, float cy, float s, float t, bool 
 
 // --- Map ------------------------------------------------------------------------------
 
+// --- Images from assets/ ----------------------------------------------------------------
+
+// The author's sprites. Anything missing is drawn with shapes instead.
+#define MAX_GRASS 8
+static struct {
+    Texture2D grass[MAX_GRASS];  // 32x32 each: one covers a block of 2x2 tiles
+    int grass_count;
+} art;
+
+static bool load_art_texture(const char *name, Texture2D *out)
+{
+    const EmbeddedAsset *a = asset_find(name);
+    if (!a) return false;
+    Image img = LoadImageFromMemory(".png", a->data, (int)a->size);
+    if (!img.data) return false;
+    *out = LoadTextureFromImage(img);
+    UnloadImage(img);
+    SetTextureFilter(*out, TEXTURE_FILTER_POINT);
+    return out->id != 0;
+}
+
+static void load_art(void)
+{
+    for (int i = 0; i < MAX_GRASS; i++)
+        if (load_art_texture(TextFormat("tiles/grass_%d", i + 1), &art.grass[art.grass_count])) art.grass_count++;
+}
+
+static void unload_art(void)
+{
+    for (int i = 0; i < art.grass_count; i++) UnloadTexture(art.grass[i]);
+    art.grass_count = 0;
+}
+
 static void draw_grass(int x, int y, int tx, int ty)
 {
+    if (art.grass_count > 0) {
+        // Each 2x2 block of tiles shows one of the grass images, picked by
+        // place so the ground does not repeat in an obvious pattern.
+        int bx = tx >> 1, by = ty >> 1;
+        Texture2D t = art.grass[tile_hash(bx, by) % (unsigned)art.grass_count];
+        Rectangle src = { (float)((tx & 1) * TILE), (float)((ty & 1) * TILE), TILE, TILE };
+        DrawTextureRec(t, src, (Vector2){ (float)x, (float)y }, WHITE);
+        return;
+    }
     DrawRectangle(x, y, TILE, TILE, ((tx + ty) & 1) ? GRASS_A : GRASS_B);
     unsigned h = tile_hash(tx, ty);
     if (h % 3 == 0) {
@@ -1232,6 +1275,7 @@ int main(int argc, char *argv[])
     RenderTexture2D canvas = LoadRenderTexture(VIEW_W, VIEW_H);
     SetTextureFilter(canvas.texture, TEXTURE_FILTER_POINT);
     Sounds sounds = load_sounds();
+    load_art();
 
     check_story_fits();
 
@@ -1283,6 +1327,7 @@ int main(int argc, char *argv[])
     }
 
     unload_sounds(&sounds);
+    unload_art();
     UnloadRenderTexture(canvas);
     CloseWindow();
     return 0;
