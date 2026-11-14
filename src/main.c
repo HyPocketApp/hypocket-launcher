@@ -729,8 +729,7 @@ static void draw_foes(const Game *g, int cam_x, int cam_y)
         Species sp = encounter_leader(f->kind);
         float scale = sp == SPECIES_ELDER_STUMP ? 1.4f : 0.9f;
         draw_monster(sp, cx, cy - (sp == SPECIES_ELDER_STUMP ? 6 : 0), scale, g->time + i, false, f->vx < 0 ? -1 : 1);
-        if (f->kind == ENCOUNTER_SLIMES || f->kind == ENCOUNTER_WOLVES || f->kind == ENCOUNTER_BEETLE ||
-            f->kind == ENCOUNTER_EMBERS)
+        if (f->kind == ENCOUNTER_SLIMES || f->kind == ENCOUNTER_WOLVES || f->kind == ENCOUNTER_BEETLE)
             DrawText("+", (int)cx + 5, (int)cy - 12, 10, RAYWHITE);  // more than one monster
     }
 }
@@ -1167,6 +1166,26 @@ static void draw_overlay(const Game *g, bool touch)
     }
 }
 
+// In the scenes at the clearing, the camera frames the lumberjack and the
+// goddess above the dialog box, so the box does not hide them.
+static void scene_camera(const Game *g, int *cam_x, int *cam_y)
+{
+    if (g->state != STATE_SCENE || (g->scene != SCENE_CREATURES && g->scene != SCENE_GODDESS)) return;
+    float gx = -1, gy = -1;
+    for (int y = 0; y < g->h && gx < 0; y++)
+        for (int x = 0; x < g->w && gx < 0; x++)
+            if (game_tile_at(g, x, y) == TILE_GODDESS) { gx = x * TILE + TILE / 2.0f; gy = y * TILE + TILE / 2.0f; }
+    if (gx < 0) {  // she has joined: she is where she stood
+        gx = g->follower.x + WALKER_SIZE / 2.0f;
+        gy = g->follower.y + WALKER_SIZE / 2.0f;
+    }
+    float hx = g->walker.x + WALKER_SIZE / 2.0f, hy = g->walker.y + WALKER_SIZE / 2.0f;
+    float cx = (gx + hx) / 2.0f - VIEW_W / 2.0f, cy = (gy + hy) / 2.0f - 58.0f;
+    float max_x = (float)(g->w * TILE - VIEW_W), max_y = (float)(g->h * TILE - VIEW_H);
+    *cam_x = (int)fmaxf(0.0f, fminf(cx, max_x));
+    *cam_y = (int)fmaxf(0.0f, fminf(cy, max_y));
+}
+
 static void draw_game(const Game *g, const InputState *s, float chop)
 {
     ClearBackground(CLIFF_DARK);
@@ -1175,6 +1194,7 @@ static void draw_game(const Game *g, const InputState *s, float chop)
         return;
     }
     int cam_x = (int)floorf(g->camera_x), cam_y = (int)floorf(g->camera_y);
+    scene_camera(g, &cam_x, &cam_y);
     draw_map(g, cam_x, cam_y);
     draw_foes(g, cam_x, cam_y);
     if (g->state != STATE_TITLE && g->state != STATE_WON) {

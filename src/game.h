@@ -90,8 +90,9 @@ typedef enum {
     ENCOUNTER_WOLF,    // 'v': one wolf
     ENCOUNTER_WOLVES,  // 'w': two wolves
     ENCOUNTER_BOSS,    // 'B': the Elder Stump; does not move
-    ENCOUNTER_EMBERS,  // 'e': fire beings attacking the goddess; do not move,
-                       //      no running away, the story goes on after it
+    ENCOUNTER_EMBERS,  // 'e': one of the fire creatures around the goddess. They
+                       //      do not move; touching any of them is the battle
+                       //      against all three; no running away
     ENCOUNTER_COUNT,
 } Encounter;
 

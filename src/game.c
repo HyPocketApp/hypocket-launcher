@@ -799,7 +799,10 @@ static void end_battle(Game *g)
         g->walker.safe_timer = 0.5f;
         g->state = STATE_MAP;
         if (g->foes[b->foe].kind == ENCOUNTER_EMBERS && !g->goddess.joined) {
-            goddess_joins(g);
+            // The three around her are one group: they all fall back.
+            for (int i = 0; i < g->foe_count; i++)
+                if (g->foes[i].kind == ENCOUNTER_EMBERS) g->foes[i].alive = false;
+            g->goddess_saved = true;  // she gets up and joins when the scene ends
             start_scene(g, SCENE_GODDESS, STATE_MAP);
         }
         break;
@@ -1091,6 +1094,7 @@ void game_step(Game *g, const GameInput *in)
             g->events |= EVENT_CONFIRM;
             if (g->scene_return == STATE_BATTLE) game_start_battle(g, g->scene_foe);
             else g->state = g->scene_return;
+            if (g->scene == SCENE_GODDESS && !g->goddess.joined) goddess_joins(g);
         }
         break;
 

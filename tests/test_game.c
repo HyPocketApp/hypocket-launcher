@@ -177,6 +177,23 @@ static void test_maps_are_valid(void)
     // The boss waits in the last area; the goddess and the fire beings in the woods.
     CHECK(area_has(area_count() - 1, 'B'));
     CHECK(area_has(AREA_WOODS, 'M') && area_has(AREA_WOODS, 'e'));
+
+    // In the woods she is far from the entrance (out of sight when the cry
+    // plays) and has three creatures around her.
+    int count = 0;
+    const char *const *woods = area_rows(AREA_WOODS, &count);
+    int mx = -1, my = -1, ix = -1, iy = -1;
+    for (int r = 0; r < count; r++) {
+        const char *m = strchr(woods[r], 'M'), *in = strchr(woods[r], '1');
+        if (m) { mx = (int)(m - woods[r]); my = r; }
+        if (in) { ix = (int)(in - woods[r]); iy = r; }
+    }
+    CHECK(mx - ix >= VIEW_W / TILE + 2 || my - iy >= VIEW_H / TILE + 2);
+    int around = 0;
+    for (int dy = -1; dy <= 1; dy++)
+        for (int dx = -1; dx <= 1; dx++)
+            if ((dx || dy) && woods[my + dy][mx + dx] == 'e') around++;
+    CHECK(around == 3);
 }
 
 static void test_bad_map_is_rejected(void)
@@ -633,29 +650,25 @@ static void test_scene_can_be_skipped(void)
 }
 
 static const char *const goddess_map[] = {
-    "#######",
-    "#P.e..#",
-    "#..M.9#",
-    "#######",
+    "#########",
+    "#P......#",
+    "#...e...#",
+    "#..eMe..#",
+    "#......9#",
+    "#########",
 };
 
 static void test_saving_the_goddess(void)
 {
     load(goddess_map, COUNT(goddess_map));
-    CHECK(g.foe_count == 1 && g.foes[0].kind == ENCOUNTER_EMBERS);
+    // Three creatures around her, each one on the map.
+    CHECK(g.foe_count == 3);
+    for (int i = 0; i < 3; i++) CHECK(g.foes[i].kind == ENCOUNTER_EMBERS);
     float x = g.foes[0].x, y = g.foes[0].y;
     g.foes[0].think = 0;
-    g.walker.safe_timer = 0;
+    g.walker.safe_timer = 10;
     run(&NONE, 120);
     CHECK(g.foes[0].x == x && g.foes[0].y == y);  // they stay by her
-
-    // Talking to her before she is safe does nothing.
-    g.walker.x = 2 * TILE + 3;
-    g.walker.y = 2 * TILE + 3;  // left of her
-    face(1, 0);
-    g.walker.safe_timer = 10;
-    run(&CONFIRM, 1);
-    CHECK(g.state == STATE_MAP);
 
     game_start_battle(&g, 0);
     CHECK(g.battle.enemy_count == 3 && g.battle.enemies[0].species == SPECIES_EMBER);
@@ -671,18 +684,21 @@ static void test_saving_the_goddess(void)
         play_messages();
     }
     CHECK(g.state == STATE_SCENE && g.scene == SCENE_GODDESS);
-    CHECK(g.goddess_saved && g.goddess.joined);
-    CHECK(g.goddess.hp == g.goddess.max_hp && g.goddess.hp > 0);
-    CHECK(game_tile_at(&g, 3, 2) == TILE_FLOOR);  // she left her spot
+    CHECK(g.goddess_saved && !g.goddess.joined);  // still on the ground while they talk
+    CHECK(game_tile_at(&g, 4, 3) == TILE_GODDESS);
+    for (int i = 0; i < 3; i++) CHECK(!g.foes[i].alive);  // all three fell back
     CHECK(read_scene() == scene_page_count(SCENE_GODDESS));
     CHECK(g.state == STATE_MAP);
+    CHECK(g.goddess.joined);
+    CHECK(g.goddess.hp == g.goddess.max_hp && g.goddess.hp > 0);
+    CHECK(game_tile_at(&g, 4, 3) == TILE_FLOOR);  // she got up and left her spot
 
     // She follows him, on the tile he just left.
     place(1, 1);
-    run(&RIGHT, 50);
+    run(&RIGHT, 120);
     run(&NONE, 30);
     int hx = (int)(g.walker.x / TILE), hy = (int)(g.walker.y / TILE);
-    CHECK(hx == 5 && hy == 1);  // stopped by the wall
+    CHECK(hx == 7 && hy == 1);  // stopped by the wall
     CHECK((int)(g.follower.x / TILE) == hx - 1 && (int)(g.follower.y / TILE) == hy);
     CHECK(g.follower.x == g.walker.x - TILE && g.follower.y == g.walker.y);
 }

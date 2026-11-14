@@ -12,7 +12,8 @@
 // Monsters, which start a battle when touched:
 //   s  one slime        g  two slimes        b  a beetle and a slime
 //   v  one wolf         w  two wolves        B  the Elder Stump (boss)
-//   e  fire beings attacking the goddess (they stay put; no running away)
+//   e  a fire creature around the goddess: put three 'e' next to her 'M';
+//      they stay put and are one battle against all three
 //
 // An area needs a path or a 'B', at most 64 rows and 96 columns.
 // tests/test_game.c checks that everything can be reached (trees count as
@@ -36,26 +37,27 @@ static const char *const home[] = {
     "########################",
 };
 
-// The sawmill woods. The goddess is near the start, under attack.
+// The sawmill woods. The trail runs east; off it, in a clearing far from
+// the entrance, the goddess lies surrounded by three fire creatures.
 static const char *const woods[] = {
     "####################################",
     "#TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT#",
-    "1:::::::::T.........T.......c..TTTT#",
-    "#T........T....s....T..........T...#",
-    "#T...f....T.........TTTTTT.....T...#",
-    "#T......e.TTT..........T.......T...#",
-    "#TT.....M............g.T.......T...2",
-    "#T....RR......T........T.......T...#",
-    "#T....RR.....TTT...............T...#",
-    "#T............T.....TTT........TTTT#",
-    "#TTTT...~~~~~~~~~~~~=~~~~~~~~~TTTTT#",
-    "#T......~~~~~~~~~~~~=~~~~~~~~~TTTTT#",
-    "#T..c..............................#",
-    "#T..........b.........TTTT.........#",
-    "#TTTTT................T..T....A....#",
-    "#T...T......s.....RRR.T..T.........#",
-    "#T.c.T............R.R..........g...#",
-    "#T...T............RRR..............#",
+    "1::::::::::::::::::::::::::::::::::2",
+    "#T..f.............................T#",
+    "#TTTT..TTTTT.TTTTTTTTTTTT.TTTTT.TTT#",
+    "#T................................T#",
+    "#T.TT...TT.......c..TTTTT.TTTTT...T#",
+    "#T.T.....T....TT....T.........T.T.T#",
+    "#T.........s...T....T.T.......T.T.T#",
+    "#T.....RR...........T....e....T...T#",
+    "#T..TT.R.........T..T...eMe...T...T#",
+    "#T.....g....TT...T..T.R.......T..TT#",
+    "#T.TT...............T.......T.T...T#",
+    "#T..................TTTTTTTTTTT...T#",
+    "#T~~~~~~~~=~~~~~~~~~~~~~~~~~~~~~~~T#",
+    "#T~~~~~~~~=~~~~~~~~~~~~~~~~~~~~~~~T#",
+    "#T.c....s.......RR......g......A..T#",
+    "#T..................b.......s.....T#",
     "#TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT#",
     "####################################",
 };

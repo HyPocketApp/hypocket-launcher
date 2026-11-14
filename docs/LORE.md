@@ -38,11 +38,16 @@ Depois disso, a deusa **acompanha o lenhador** e **luta usando magia**.
 
 - **Cena 01** toca depois do título, na casa do lenhador (sem monstros).
 - **Cena 02** toca ao entrar no Bosque da Serraria pela primeira vez.
-- **Cena 03** toca quando o lenhador chega perto da clareira (a até 3
-  quadrados das criaturas); a batalha contra as três começa logo depois,
-  sem opção de fugir. Na batalha elas "recuam" em vez de cair.
-- **Cena 04** toca depois da vitória; em seguida a deusa passa a seguir o
-  lenhador e a lutar com ele (**Raio Lunar** e **Luz da Lua**, nomes
+- **A clareira** fica longe da entrada do bosque e fora da trilha: quem
+  ouve o grito não vê a mulher; é preciso seguir a trilha e entrar por uma
+  abertura entre as árvores. No mapa, ela está caída e as três criaturas de
+  fogo estão em volta dela (acima, à esquerda e à direita).
+- **Cena 03** toca quando o lenhador chega à entrada da clareira (a até 3
+  quadrados das criaturas); a câmera mostra os dois acima da caixa de
+  diálogo. A batalha contra as três começa logo depois, sem opção de fugir.
+  Na batalha elas "recuam" em vez de cair, e somem as três do mapa.
+- **Cena 04** toca depois da vitória, com ela ainda caída; quando a cena
+  termina, ela se levanta e passa a seguir o lenhador e a lutar com ele (**Raio Lunar** e **Luz da Lua**, nomes
   provisórios).
 
 Cada fala é uma tela; Enter ou toque avança, X pula a cena. O texto quebra
