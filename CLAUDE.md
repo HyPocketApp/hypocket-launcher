@@ -25,4 +25,5 @@
   them (`cmake/embed_assets.cmake`, `asset_find()`). Keep the shape-drawn
   fallback for anything without an image. The author sends art upscaled
   (e.g. 2048x2048 for 32x32): shrink it back by sampling cell centres.
-- Grass: `assets/tiles/grass_N.png`, 32x32, each covering 2x2 tiles.
+- Grass: `assets/tiles/grass_N.png`, 32x32, each covering 2x2 tiles, drawn by
+  `tools/make_grass.py` from the author's palette (no bright corners, so no grid).
