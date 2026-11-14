@@ -28,6 +28,7 @@ typedef enum {
     TXT_TOAST_REST,
     TXT_TOAST_TOO_HARD,
     TXT_TOAST_HOME,
+    TXT_TOAST_NOT_YET,
     // Battle menus and status
     TXT_MENU_ATTACK,
     TXT_MENU_SKILLS,

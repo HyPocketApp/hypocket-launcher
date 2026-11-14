@@ -134,7 +134,7 @@ typedef struct {
 } Ally;
 
 #define SPELL_BEAM_COST 3   // Moonbeam: magic hit on one monster
-#define SPELL_LIGHT_COST 4  // Moonlight: heals both of them
+#define SPELL_LIGHT_COST 5  // Moonlight: heals both of them
 
 // Someone walking on the map. The lumberjack and the goddess move one tile
 // at a time, up, down, left or right, like in classic RPGs.
@@ -286,6 +286,7 @@ typedef enum {
     TOAST_TOO_HARD,  // tried to chop a rock
     TOAST_MAP,       // arrived in an area; amount = area + 1
     TOAST_HOME,      // rested at home
+    TOAST_NOT_YET,   // tried to go deeper before saving the goddess
 } Toast;
 
 // Things that happened during the last step, for sounds and effects.

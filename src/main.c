@@ -516,7 +516,7 @@ static struct {
     Texture2D path_outer[4];    // ne, nw, se, sw: rounds the outside of a turn
     Texture2D bank[4][3];       // the same, for the shore of water
     Texture2D bank_inner[4], bank_outer[4];
-    Texture2D slime[2], beetle[2], wolf[2], ember[2];  // two frames each
+    Texture2D slime[2], beetle[2], wolf[2], ember[2], elder[2];  // two frames each
     Texture2D hero[3][3], goddess[3][3];  // facing s, n, e; standing and two steps
     Texture2D goddess_fallen, chest, chest_open, woodpile, fire[3];
     bool has_stump, has_path_edges, has_banks, has_house, has_bridge, has_hero, has_goddess, has_fire;
@@ -581,6 +581,7 @@ static void load_art(void)
         load_art_texture(TextFormat("monsters/beetle_%d", f + 1), &art.beetle[f]);
         load_art_texture(TextFormat("monsters/wolf_%d", f + 1), &art.wolf[f]);
         load_art_texture(TextFormat("monsters/ember_%d", f + 1), &art.ember[f]);
+        load_art_texture(TextFormat("monsters/stump_%d", f + 1), &art.elder[f]);
     }
     static const char *const dirs[3] = { "s", "n", "e" };
     art.has_hero = art.has_goddess = true;
@@ -676,13 +677,14 @@ static void unload_art(void)
 static bool draw_monster_sprite(Species sp, float cx, float cy, float s, float t, bool flash, int facing)
 {
     const Texture2D *frames = sp == SPECIES_SLIME ? art.slime : sp == SPECIES_BEETLE ? art.beetle
-                            : sp == SPECIES_WOLF ? art.wolf : sp == SPECIES_EMBER ? art.ember : NULL;
+                            : sp == SPECIES_WOLF ? art.wolf : sp == SPECIES_EMBER ? art.ember
+                            : sp == SPECIES_ELDER_STUMP ? art.elder : NULL;
     if (!frames || !frames[0].id || !frames[1].id) return false;
-    float speed = sp == SPECIES_SLIME ? 3.0f : sp == SPECIES_WOLF ? 6.0f : 8.0f;
+    float speed = sp == SPECIES_SLIME ? 3.0f : sp == SPECIES_WOLF ? 6.0f : sp == SPECIES_ELDER_STUMP ? 1.5f : 8.0f;
     Texture2D tex = frames[(int)(t * speed) & 1];
     float k = fmaxf(1.0f, roundf(s));  // whole pixels only
     bool flip = facing < 0 && sp == SPECIES_WOLF;  // drawn facing right
-    float foot = cy + 5 * s;
+    float foot = cy + (sp == SPECIES_ELDER_STUMP ? 9 : 5) * s;
     if (sp == SPECIES_EMBER) {  // it floats
         foot += sinf(t * 6.0f) * s - 2 * s;
         DrawCircle((int)cx, (int)(foot - 6 * s), 8 * s, Fade(FIRE_A, 0.2f));
@@ -902,7 +904,8 @@ static void draw_ground(const Game *g, int x, int y, int tx, int ty, TileType ti
         return;
     case TILE_BRIDGE: {
         draw_water(g, x, y, tx, ty, t);
-        bool across = wet(g, tx - 1, ty) || wet(g, tx + 1, ty);  // water left and right: walk north-south
+        // Water (not more bridge) beside it: walked north-south.
+        bool across = game_tile_at(g, tx - 1, ty) == TILE_WATER || game_tile_at(g, tx + 1, ty) == TILE_WATER;
         if (art.has_bridge) {
             art_draw_v(across ? art.bridge_v : art.bridge_h, (Vector2){ (float)x, (float)y });
             return;
@@ -1139,6 +1142,7 @@ static void draw_map_hud(const Game *g, const InputState *s)
         case TOAST_REST: msg = text_get(TXT_TOAST_REST); break;
         case TOAST_TOO_HARD: msg = text_get(TXT_TOAST_TOO_HARD); break;
         case TOAST_HOME: msg = text_get(TXT_TOAST_HOME); break;
+        case TOAST_NOT_YET: msg = text_get(TXT_TOAST_NOT_YET); break;
         case TOAST_MAP: msg = text_get((TextId)(TXT_MAP_HOME + (g->toast_amount - 1) % 4)); break;
         default: break;
         }

@@ -35,10 +35,13 @@
   Do not put chests, fires or doors right above a tree: its top covers them.
 - Pines, birches, rocks, water (frames, shores, rounded corners), bridges,
   bushes, flowers and the house come from `tools/make_props.py`; monsters
-  (slime, beetle, wolf, two frames each) from `tools/make_monsters.py`; the
+  (slime, beetle, wolf, the Elder Stump, two frames each) from
+  `tools/make_monsters.py`; the
   lumberjack and the goddess (`assets/chars/`, facing s, n, e, standing and
   two steps), the fire creatures, chests, woodpile and camp fire from
   `tools/make_characters.py`. Trees grow in groves; each area has its own mix
   of oak, pine and birch (`tree_texture()` in main.c).
+- Paths must join their area's exits edge to edge (not only at a corner) and
+  bridges need land at both ends; the "paths connect" test checks it.
 - Maps: `#` is deep forest drawn as trees. Shape areas with irregular forest
   edges, winding paths and ponds; avoid straight walls and square blocks.

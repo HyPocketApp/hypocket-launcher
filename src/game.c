@@ -20,11 +20,11 @@
 // --- Tables -------------------------------------------------------------------
 
 static const SpeciesInfo species_table[SPECIES_COUNT] = {
-    [SPECIES_SLIME] = { .max_hp = 14, .atk = 6, .def = 1, .xp = 5, .herb_drop = 20 },
-    [SPECIES_BEETLE] = { .max_hp = 22, .atk = 8, .def = 4, .xp = 8, .herb_drop = 25 },
-    [SPECIES_WOLF] = { .max_hp = 26, .atk = 11, .def = 2, .xp = 12, .herb_drop = 30 },
-    [SPECIES_EMBER] = { .max_hp = 9, .atk = 5, .def = 0, .xp = 6, .herb_drop = 40 },
-    [SPECIES_ELDER_STUMP] = { .max_hp = 260, .atk = 18, .def = 8, .xp = 100, .wooden = true },
+    [SPECIES_SLIME] = { .max_hp = 18, .atk = 9, .def = 1, .xp = 5, .herb_drop = 20 },
+    [SPECIES_BEETLE] = { .max_hp = 28, .atk = 11, .def = 4, .xp = 8, .herb_drop = 25 },
+    [SPECIES_WOLF] = { .max_hp = 32, .atk = 14, .def = 2, .xp = 12, .herb_drop = 30 },
+    [SPECIES_EMBER] = { .max_hp = 11, .atk = 8, .def = 0, .xp = 6, .herb_drop = 40 },
+    [SPECIES_ELDER_STUMP] = { .max_hp = 300, .atk = 21, .def = 8, .xp = 100, .wooden = true },
 };
 
 const SpeciesInfo *species_info(Species s) { return &species_table[s]; }
@@ -362,6 +362,14 @@ static bool meet_creatures(Game *g)
     return false;
 }
 
+// Until the goddess has joined him, the lumberjack does not go deeper into
+// the forest than her woods: only the way back home stays open.
+static bool exit_locked(const Game *g, int tx, int ty)
+{
+    if (game_tile_at(g, tx, ty) != TILE_EXIT || g->goddess.joined) return false;
+    return g->area >= AREA_WOODS && linked_area(g->area, g->links[ty][tx]) > g->area;
+}
+
 // Walks onto an exit: goes to the area on the other side.
 static bool take_exit(Game *g)
 {
@@ -399,7 +407,9 @@ static void update_walker(Game *g, const GameInput *in, float dt)
         w->face_y = dir_y;
         int tx = tile_floor(w->x + WALKER_SIZE / 2.0f) + dir_x;
         int ty = tile_floor(w->y + WALKER_SIZE / 2.0f) + dir_y;
-        if (!game_tile_blocks(game_tile_at(g, tx, ty))) {
+        if (exit_locked(g, tx, ty)) {
+            if (g->toast != TOAST_NOT_YET || g->toast_timer <= 0) show_toast(g, TOAST_NOT_YET, 0);
+        } else if (!game_tile_blocks(game_tile_at(g, tx, ty))) {
             Walker *f = &g->follower;
             f->to_x = w->x;  // she takes the tile he leaves
             f->to_y = w->y;
@@ -574,7 +584,7 @@ static void ally_act(Game *g)
         int t = b->enemies[b->ally_target].hp > 0 ? b->ally_target : first_alive(b);
         Combatant *e = &b->enemies[t];
         // Moonlight passes through armor: only half the defense counts.
-        int dmg = roll_damage(g, a->mag, species_info(e->species)->def / 2, 1.1f, NULL);
+        int dmg = roll_damage(g, a->mag, species_info(e->species)->def / 2, 1.0f, NULL);
         e->hp = e->hp > dmg ? e->hp - dmg : 0;
         push_msg(g, MSG_BEAM, -1, t, dmg, false);
         if (e->hp == 0) push_msg(g, MSG_ENEMY_DOWN, -1, t, 0, false);
@@ -582,7 +592,7 @@ static void ally_act(Game *g)
     }
     case SPELL_LIGHT: {
         a->mp -= SPELL_LIGHT_COST;
-        int heal = 14 + 3 * s->level;
+        int heal = 8 + 2 * s->level;
         s->hp = min_int(s->max_hp, s->hp + heal);
         a->hp = min_int(a->max_hp, a->hp + heal);
         push_msg(g, MSG_LIGHT, -1, -1, heal, false);

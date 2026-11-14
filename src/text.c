@@ -87,6 +87,7 @@ static const char *const english[TXT_COUNT] = {
     [TXT_MSG_ROOTS_ALLY] = "Roots squeeze the goddess: %d damage!",
     [TXT_MAP_HOME] = "The Lumberjack's Home",
     [TXT_TOAST_HOME] = "You rest at home. Fully healed.",
+    [TXT_TOAST_NOT_YET] = "Someone cried for help. Find her first.",
 };
 
 static const char *const portuguese[TXT_COUNT] = {
@@ -164,6 +165,7 @@ static const char *const portuguese[TXT_COUNT] = {
     [TXT_MSG_ROOTS_ALLY] = "Raízes apertam a deusa: %d de dano!",
     [TXT_MAP_HOME] = "Casa do Lenhador",
     [TXT_TOAST_HOME] = "Você descansa em casa. Tudo recuperado.",
+    [TXT_TOAST_NOT_YET] = "Alguém pediu socorro. Ache-a primeiro.",
 };
 
 static const char *const *current = english;

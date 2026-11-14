@@ -196,6 +196,53 @@ static void test_maps_are_valid(void)
     CHECK(around == 3);
 }
 
+// Paths and bridges: every stretch of path leads to a way out of the area
+// (no path cut off, none touching another only at a corner), and every
+// bridge has land at both ends.
+static bool pathish_char(char c) { return c == ':' || c == '=' || (c >= '1' && c <= '9'); }
+
+static void test_paths_connect(void)
+{
+    for (int i = 0; i < area_count(); i++) {
+        int h = 0;
+        const char *const *rows = area_rows(i, &h);
+        int w = (int)strlen(rows[0]);
+        static bool seen[MAX_MAP_H][MAX_MAP_W];
+        static int stack[MAX_MAP_H * MAX_MAP_W][2];
+        memset(seen, 0, sizeof seen);
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) {
+                if (!pathish_char(rows[y][x]) || seen[y][x]) continue;
+                bool exit_found = false;
+                int top = 0;
+                stack[top][0] = x, stack[top][1] = y, top++;
+                seen[y][x] = true;
+                while (top > 0) {
+                    top--;
+                    int cx = stack[top][0], cy = stack[top][1];
+                    if (rows[cy][cx] >= '1' && rows[cy][cx] <= '9') exit_found = true;
+                    static const int d[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+                    for (int k = 0; k < 4; k++) {
+                        int nx = cx + d[k][0], ny = cy + d[k][1];
+                        if (nx < 0 || ny < 0 || nx >= w || ny >= h || seen[ny][nx] || !pathish_char(rows[ny][nx])) continue;
+                        seen[ny][nx] = true;
+                        stack[top][0] = nx, stack[top][1] = ny, top++;
+                    }
+                }
+                if (!exit_found) printf("  area %d: path at %d,%d leads nowhere\n", i, x, y);
+                CHECK(exit_found);
+            }
+        for (int y = 1; y < h - 1; y++)
+            for (int x = 1; x < w - 1; x++) {
+                if (rows[y][x] != '=') continue;
+                bool across = rows[y][x - 1] == '~' || rows[y][x + 1] == '~';  // walked north-south
+                char a = across ? rows[y - 1][x] : rows[y][x - 1], b = across ? rows[y + 1][x] : rows[y][x + 1];
+                if (a == '~' || b == '~') printf("  area %d: bridge at %d,%d ends in water\n", i, x, y);
+                CHECK(a != '~' && b != '~');
+            }
+    }
+}
+
 static void test_bad_map_is_rejected(void)
 {
     static const char *const no_end[] = { "#####", "#P..#", "#####" };
@@ -312,6 +359,18 @@ static void test_walking_between_areas(void)
     CHECK(g.state == STATE_MAP);  // no cry the second time
     CHECK(game_tile_at(&g, wx + 1, wy + 1) == TILE_STUMP);
     CHECK(!g.foes[0].alive);
+
+    // Deeper into the forest only with the goddess.
+    for (int i = 0; i < g.foe_count; i++) g.foes[i].alive = false;
+    int fx, fy;
+    find_tile('2', AREA_WOODS, &fx, &fy);
+    place(fx - 1, fy);
+    run(&RIGHT, 30);
+    CHECK(g.area == AREA_WOODS);
+    CHECK(g.toast == TOAST_NOT_YET);
+    g.goddess.joined = true;
+    run(&RIGHT, 30);
+    CHECK(g.area == AREA_VALLEY);
 }
 
 static void test_home_is_a_place_to_rest(void)
@@ -502,7 +561,7 @@ static void test_defend_rests(void)
     CHECK(g.stats.sp == 3);  // 2 for defending, 1 at the end of the round
     // Halved damage: the slime's hits stay small.
     for (int i = 0; i < g.battle.msg_count; i++)
-        if (g.battle.msgs[i].type == MSG_ENEMY_ATTACK) CHECK(g.battle.msgs[i].amount <= 3);
+        if (g.battle.msgs[i].type == MSG_ENEMY_ATTACK) CHECK(g.battle.msgs[i].amount <= 4);
 }
 
 static void test_moving_the_cursor(void)
@@ -873,7 +932,7 @@ static bool auto_battle(Encounter kind, int level, int herbs, unsigned seed)
 static void test_balance(void)
 {
     int wins;
-    // The fire beings are the very first fight.
+    // The fire beings are the very first fight: always won, but it hurts.
     wins = 0;
     for (unsigned i = 0; i < 20; i++) wins += auto_battle(ENCOUNTER_EMBERS, 1, 0, i);
     CHECK(wins >= 19);
@@ -885,10 +944,13 @@ static void test_balance(void)
     wins = 0;
     for (unsigned i = 0; i < 20; i++) wins += auto_battle(ENCOUNTER_WOLVES, 4, 2, i);
     CHECK(wins >= 15);
-    // The boss is a real fight, but a prepared lumberjack wins.
+    // The boss is a real fight: alone, only a well-trained lumberjack wins.
+    wins = 0;
+    for (unsigned i = 0; i < 20; i++) wins += auto_battle(ENCOUNTER_BOSS, 9, 4, i);
+    CHECK(wins >= 17);
     wins = 0;
     for (unsigned i = 0; i < 20; i++) wins += auto_battle(ENCOUNTER_BOSS, 7, 4, i);
-    CHECK(wins >= 15);
+    CHECK(wins <= 10);
     wins = 0;
     for (unsigned i = 0; i < 20; i++) wins += auto_battle(ENCOUNTER_BOSS, 1, 0, i);
     CHECK(wins == 0);
@@ -911,6 +973,7 @@ int main(void)
         void (*fn)(void);
     } tests[] = {
         { "maps are valid and completable", test_maps_are_valid },
+        { "paths connect", test_paths_connect },
         { "scene can be skipped", test_scene_can_be_skipped },
         { "saving the goddess", test_saving_the_goddess },
         { "reaching the creatures plays their scene", test_reaching_the_creatures_plays_their_scene },

@@ -135,7 +135,9 @@ segunda coluna),
 `D` porta (descansar), `W` lenha, `:` trilha, `P` início (só na casa),
 `M` a Deusa da Lua. Os dígitos `1` a `9` são caminhos entre áreas: andar
 sobre um leva à outra área que tem o mesmo dígito, e cada dígito aparece em
-exatamente duas áreas. Monstros: `s` gosma, `g` duas gosmas,
+exatamente duas áreas. Até a deusa entrar no grupo, do bosque em diante só
+se volta para trás. As trilhas precisam chegar às saídas lado a lado (não só
+na diagonal) e as pontes precisam ter terra nas duas pontas. Monstros: `s` gosma, `g` duas gosmas,
 `b` besouro e gosma, `v` lobo, `w` dois lobos, `e` seres de fogo (ficam
 parados; não dá para fugir), `B` o chefe. Rode os testes depois: eles avisam se
 algo ficou inalcançável ou se um caminho não tem par.
