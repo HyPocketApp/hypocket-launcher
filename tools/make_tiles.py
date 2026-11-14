@@ -1,17 +1,18 @@
 """Draws the trees, the stump and the dirt path in assets/tiles/.
 
-Same palette family as the grass (tools/make_grass.py). Light comes from the
-top left. Run:  python3 tools/make_tiles.py
+Every map tile is 32x32 art pixels. Same palette family as the grass
+(tools/make_grass.py). Light comes from the top left. Run:
+    python3 tools/make_tiles.py
 
-  tree_N.png      16x24: a tree on one tile; the top 8 rows hang over the
+  tree_N.png      32x48: an oak on one tile; the top 16 rows hang over the
                   tile above, so rows of trees read as a forest
-  stump.png       16x16: a chopped tree
-  path_N.png      16x16: dirt
-  path_edge_X_N.png 16x16, transparent: grass creeping over the dirt along
+  stump.png       32x32: a chopped tree
+  path_N.png      32x32: dirt
+  path_edge_X_N.png 32x32, transparent: grass creeping over the dirt along
                   one side (n, s, w, e), drawn where the next tile is not
                   path; three variants per side so the edge does not repeat
-  path_edge_out_XY.png 16x16, transparent: rounds the outside of a turn
-  path_edge_in_XY.png 16x16, transparent: a little grass in one corner (ne, nw,
+  path_edge_out_XY.png 32x32, transparent: rounds the outside of a turn
+  path_edge_in_XY.png 32x32, transparent: a little grass in one corner (ne, nw,
                   se, sw), drawn where the path turns
 """
 import math
@@ -21,6 +22,7 @@ import random
 from PIL import Image
 
 OUT = os.path.join(os.path.dirname(__file__), '..', 'assets', 'tiles')
+T = 32  # one map tile
 
 # Grass (as in make_grass.py) for the path edges.
 G_BASE, G_SHADE, G_LIGHT, G_DARK = (92, 148, 21), (86, 140, 21), (111, 175, 24), (82, 119, 35)
@@ -31,7 +33,7 @@ L_MID = (58, 116, 30)
 L_LIGHT = (78, 142, 32)
 L_HI = (108, 170, 40)
 # Bark.
-B_DARK, B_MID, B_LIGHT = (74, 48, 30), (106, 70, 42), (138, 96, 58)
+B_OUT, B_DARK, B_MID, B_LIGHT = (52, 34, 24), (74, 48, 30), (106, 70, 42), (138, 96, 58)
 SHADOW = (0, 0, 0, 70)
 # Dirt.
 D_BASE, D_DARK, D_LIGHT = (172, 136, 88), (146, 112, 70), (190, 156, 106)
@@ -42,168 +44,216 @@ def blank(w, h):
     return Image.new('RGBA', (w, h), (0, 0, 0, 0))
 
 
-def tree(seed):
-    rng = random.Random(seed)
-    w, h = 16, 24
-    img = blank(w, h)
-    px = img.load()
-    # Shadow on the ground, under the canopy, slightly to the right.
-    for y in range(19, 24):
+def ellipse_shadow(px, w, h, cx, cy, rx, ry):
+    for y in range(h):
         for x in range(w):
-            if ((x - 9) / 7.5) ** 2 + ((y - 21.5) / 2.6) ** 2 <= 1:
+            if ((x + 0.5 - cx) / rx) ** 2 + ((y + 0.5 - cy) / ry) ** 2 <= 1:
                 px[x, y] = SHADOW
-    # Trunk with roots.
-    for y in range(14, 22):
-        for x in range(6, 10):
-            px[x, y] = (B_LIGHT if x == 6 else B_MID if x < 9 else B_DARK) + (255,)
-    for x, y in ((5, 21), (10, 21), (5, 20)):
-        px[x, y] = B_DARK + (255,)
-    px[8, 17] = B_DARK + (255,)
-    # Canopy: a union of lumps, a little different on each tree.
-    lumps = [(8, 9.5, 6.6), (4.6, 7.2, 4.2), (11.4, 7.2, 4.2), (8, 4.6, 4.4),
-             (4.2 + rng.uniform(-0.6, 0.6), 11, 3.6), (11.8 + rng.uniform(-0.6, 0.6), 11, 3.6)]
-    lumps = [(cx + rng.uniform(-0.4, 0.4), cy + rng.uniform(-0.4, 0.4), r) for cx, cy, r in lumps]
 
-    def inside(x, y):
-        return any((x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 <= r * r for cx, cy, r in lumps)
 
-    mask = {(x, y) for y in range(h) for x in range(w) if inside(x, y) and y < 17}
-    for (x, y) in mask:
-        # Distance toward the light (top left) picks the shade, with a
-        # checker dither between bands.
-        lit = ((x - 8) * 0.7 + (y - 8) * 1.0) / 9.0
-        lit += rng.uniform(-0.12, 0.12)
-        dither = ((x + y) & 1) * 0.08
-        v = lit + dither
-        c = L_HI if v < -0.75 else L_LIGHT if v < -0.2 else L_MID if v < 0.35 else L_DARK
-        px[x, y] = c + (255,)
-    # Leaf clusters: small bright arcs on the lit side, dark notches below.
-    for _ in range(5):
-        x, y = rng.randrange(3, 11), rng.randrange(2, 10)
-        if (x, y) in mask and (x + 1, y) in mask:
-            px[x, y] = L_HI + (255,)
-            px[x + 1, y] = L_LIGHT + (255,)
-            if (x, y + 1) in mask:
-                px[x, y + 1] = L_MID + (255,)
-    for _ in range(4):
-        x, y = rng.randrange(5, 14), rng.randrange(8, 15)
-        if (x, y) in mask:
-            px[x, y] = L_DARK + (255,)
-    # Outline: leaf pixels next to an empty pixel get the darkest green.
+def outline(px, mask, color):
     for (x, y) in list(mask):
         if any((x + dx, y + dy) not in mask for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
-            px[x, y] = L_OUT + (255,)
+            px[x, y] = color + (255,)
+
+
+def lumpy(lumps, w, h, keep=lambda x, y: True):
+    return {(x, y) for y in range(h) for x in range(w)
+            if keep(x, y) and any((x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 <= r * r for cx, cy, r in lumps)}
+
+
+def leaf_clusters(px, rng, mask, colors, count, area, light_dir=(0.7, 1.0), center=(16, 16), scale=18.0):
+    """Shades a canopy as many small round clusters: each one is lit on its
+    top-left and shaded on its bottom-right, so the crown reads as leaves and
+    not as one flat blob. colors: out, dark, mid, light, hi."""
+    out, dark, mid, light, hi = colors
+    # Base shading by where the pixel sits in the whole crown.
+    for (x, y) in mask:
+        lit = ((x - center[0]) * light_dir[0] + (y - center[1]) * light_dir[1]) / scale
+        lit += ((x + y) & 1) * 0.06
+        c = light if lit < -0.45 else mid if lit < 0.25 else dark
+        px[x, y] = c + (255,)
+    # Clusters.
+    x0, y0, x1, y1 = area
+    for _ in range(count):
+        cx, cy = rng.uniform(x0, x1), rng.uniform(y0, y1)
+        r = rng.uniform(2.6, 4.2)
+        lit = ((cx - center[0]) * light_dir[0] + (cy - center[1]) * light_dir[1]) / scale
+        top = hi if lit < -0.5 else light if lit < 0.3 else mid
+        for y in range(int(cy - r) - 1, int(cy + r) + 2):
+            for x in range(int(cx - r) - 1, int(cx + r) + 2):
+                if (x, y) not in mask:
+                    continue
+                dx, dy = x + 0.5 - cx, y + 0.5 - cy
+                d = math.hypot(dx, dy)
+                if d > r:
+                    continue
+                if d > r - 1.2 and dx + dy > 0.5:
+                    px[x, y] = dark + (255,)  # the shaded rim of the cluster
+                elif dx + dy < -r * 0.6:
+                    px[x, y] = top + (255,)
+                elif dx + dy < 0:
+                    px[x, y] = (light if top == hi else mid) + (255,)
+    outline(px, mask, out)
+
+
+def tree(seed):
+    rng = random.Random(seed)
+    w, h = T, 48
+    img = blank(w, h)
+    px = img.load()
+    ellipse_shadow(px, w, h, 17.5, 42.5, 15, 5)
+    # Trunk with roots spreading at the foot.
+    trunk = set()
+    for y in range(26, 44):
+        spread = max(0, y - 39)
+        for x in range(12 - spread, 20 + spread):
+            trunk.add((x, y))
+    for (x, y) in trunk:
+        c = B_LIGHT if x <= 13 else B_MID if x < 18 else B_DARK
+        if (x * 5 + y * 3) % 11 == 0 and 13 < x < 18:
+            c = B_DARK  # bark lines
+        px[x, y] = c + (255,)
+    outline(px, trunk, B_OUT)
+    # Canopy: a union of lumps, a little different on each tree.
+    lumps = [(16, 19, 13), (9.2, 14.4, 8.4), (22.8, 14.4, 8.4), (16, 9.2, 8.8),
+             (8.4 + rng.uniform(-1.2, 1.2), 22, 7.2), (23.6 + rng.uniform(-1.2, 1.2), 22, 7.2)]
+    lumps = [(cx + rng.uniform(-0.8, 0.8), cy + rng.uniform(-0.8, 0.8), r) for cx, cy, r in lumps]
+    mask = lumpy(lumps, w, h, lambda x, y: y < 33)
+    leaf_clusters(px, rng, mask, (L_OUT, L_DARK, L_MID, L_LIGHT, L_HI), 26, (4, 2, 28, 30),
+                  center=(16, 17), scale=17)
+    # A few gaps where the shade inside shows.
+    for _ in range(3):
+        x, y = rng.randrange(8, 24), rng.randrange(18, 28)
+        for dx, dy in ((0, 0), (1, 0), (0, 1)):
+            if (x + dx, y + dy) in mask:
+                px[x + dx, y + dy] = L_OUT + (255,)
     return img
 
 
 def stump():
-    img = blank(16, 16)
+    img = blank(T, T)
     px = img.load()
-    for y in range(10, 16):
-        for x in range(16):
-            if ((x - 8.5) / 6.5) ** 2 + ((y - 13) / 2.2) ** 2 <= 1:
-                px[x, y] = SHADOW
-    for y in range(8, 14):
-        for x in range(4, 12):
-            px[x, y] = (B_LIGHT if x < 6 else B_MID if x < 10 else B_DARK) + (255,)
-    for x in (3, 12):
-        px[x, 13] = B_DARK + (255,)
-    # The cut top: light rings.
-    for y in range(6, 10):
-        for x in range(4, 12):
-            if ((x - 7.5) / 4) ** 2 + ((y - 7.5) / 1.8) ** 2 <= 1:
-                px[x, y] = (214, 176, 118, 255)
-    for x, y in ((6, 7), (7, 7), (8, 8), (9, 7)):
-        px[x, y] = (184, 142, 88, 255)
-    px[7, 8] = B_DARK + (255,)
+    ellipse_shadow(px, T, T, 17, 26, 13, 4.4)
+    body = set()
+    for y in range(15, 28):
+        spread = max(0, y - 24)
+        for x in range(8 - spread, 24 + spread):
+            body.add((x, y))
+    for (x, y) in body:
+        c = B_LIGHT if x < 12 else B_MID if x < 20 else B_DARK
+        if (x * 3 + y) % 7 == 0 and 11 < x < 20:
+            c = B_DARK
+        px[x, y] = c + (255,)
+    # The cut top: rings of light wood.
+    top = set()
+    for y in range(11, 20):
+        for x in range(7, 25):
+            e = ((x + 0.5 - 16) / 8.5) ** 2 + ((y + 0.5 - 15.5) / 4) ** 2
+            if e <= 1:
+                top.add((x, y))
+                c = (214, 176, 118) if e > 0.75 or 0.3 < e < 0.45 else (196, 154, 100)
+                if e < 0.06:
+                    c = (160, 118, 72)
+                px[x, y] = c + (255,)
+    outline(px, body | top, B_OUT)
+    # A crack in the wood.
+    for x, y in ((18, 14), (19, 15), (20, 15)):
+        px[x, y] = (150, 108, 64, 255)
     # Chips on the ground.
-    for x, y in ((1, 14), (13, 12), (14, 15)):
-        px[x, y] = (200, 162, 104, 255)
+    for x, y in ((2, 28), (3, 28), (27, 24), (28, 25), (28, 30), (29, 30)):
+        px[x, y] = (210, 172, 112, 255)
     return img
 
 
 def dirt(seed):
     rng = random.Random(seed)
-    img = Image.new('RGBA', (16, 16), D_BASE + (255,))
+    img = Image.new('RGBA', (T, T), D_BASE + (255,))
     px = img.load()
-    for _ in range(14):
-        x, y = rng.randrange(16), rng.randrange(16)
-        px[x, y] = rng.choice((D_DARK, D_LIGHT)) + (255,)
-    for _ in range(rng.randrange(1, 3)):  # a pebble with its shadow
-        x, y = rng.randrange(1, 14), rng.randrange(1, 14)
-        px[x, y] = D_STONE + (255,)
-        px[x + 1, y] = D_STONE + (255,)
-        px[x, y + 1] = D_STONE_DARK + (255,)
-        px[x + 1, y + 1] = D_STONE_DARK + (255,)
+    for _ in range(46):
+        x, y = rng.randrange(T), rng.randrange(T)
+        c = rng.choice((D_DARK, D_LIGHT))
+        px[x, y] = c + (255,)
+        if rng.random() < 0.4:
+            px[(x + 1) % T, y] = c + (255,)
+    for _ in range(rng.randrange(2, 4)):  # a pebble with its shadow
+        x, y = rng.randrange(2, T - 4), rng.randrange(2, T - 4)
+        for dx, dy in ((1, 0), (0, 1), (1, 1), (2, 1)):
+            px[x + dx, y + dy] = D_STONE + (255,)
+        px[x + 1, y] = (226, 210, 176, 255)
+        for dx, dy in ((0, 2), (1, 2), (2, 2), (3, 1)):
+            px[x + dx, y + dy] = D_STONE_DARK + (255,)
     return img
 
 
 def edge(side, seed):
-    """Grass over the dirt along one side, 1 to 4 pixels deep, ragged."""
+    """Grass over the dirt along one side, 2 to 7 pixels deep, ragged."""
     rng = random.Random(seed)
-    img = blank(16, 16)
+    img = blank(T, T)
     px = img.load()
-    # Both ends are 2 deep so any variant joins any other; in between the
-    # line wanders between 1 and 4.
-    depth = [2] * 16
-    for i in range(1, 15):
+    # Both ends are 4 deep so any variant joins any other; in between the
+    # line wanders between 2 and 7.
+    depth = [4] * T
+    for i in range(1, T - 1):
         d = depth[i - 1] + rng.choice((-1, 0, 0, 0, 1))
-        d = max(1, min(4, d))
-        depth[i] = min(d, 2 + (15 - i))  # come back to 2 by the end
-    depth[15] = 2
-    for i in range(16):
+        d = max(2, min(7, d))
+        depth[i] = min(d, 4 + (T - 1 - i))  # come back to 4 by the end
+    depth[T - 1] = 4
+
+    def at(i, k):
+        if side == 'n': return i, k
+        if side == 's': return i, T - 1 - k
+        if side == 'w': return k, i
+        return T - 1 - k, i
+
+    for i in range(T):
         d = depth[i]
-        for k in range(d + 1):
-            if side == 'n': x, y = i, k
-            elif side == 's': x, y = i, 15 - k
-            elif side == 'w': x, y = k, i
-            else: x, y = 15 - k, i
+        for k in range(d + 2):
+            x, y = at(i, k)
             if k < d:
                 c = G_BASE if k < d - 1 else G_SHADE
                 px[x, y] = c + (255,)
-            else:
+            elif k == d:
                 px[x, y] = D_DARK + (255,)  # the dirt darkens along the grass
-    # A few blades poking over the edge.
-    for _ in range(3):
-        i = rng.randrange(1, 15)
+            elif i % 3:
+                px[x, y] = (160, 124, 78, 255)
+    # Blades poking over the edge.
+    for _ in range(6):
+        i = rng.randrange(2, T - 2)
         k = depth[i]
-        if side == 'n': cells = [(i, k)]
-        elif side == 's': cells = [(i, 15 - k)]
-        elif side == 'w': cells = [(k, i)]
-        else: cells = [(15 - k, i)]
-        for x, y in cells:
-            px[x, y] = G_DARK + (255,)
+        for j, c in ((0, G_DARK), (1, G_LIGHT)):
+            x, y = at(i, k + j)
+            px[x, y] = c + (255,)
     return img
 
 
 def inner(corner):
     """A little grass in one corner, for where the path turns."""
-    img = blank(16, 16)
+    img = blank(T, T)
     px = img.load()
-    shape = [(0, 0), (1, 0), (2, 0), (0, 1), (1, 1), (0, 2)]
-    for x, y in shape:
-        if 'e' in corner: x = 15 - x
-        if 's' in corner: y = 15 - y
-        px[x, y] = G_BASE + (255,)
-    for x, y in ((3, 0), (2, 1), (1, 2), (0, 3)):
-        if 'e' in corner: x = 15 - x
-        if 's' in corner: y = 15 - y
-        px[x, y] = D_DARK + (255,)
+    for y in range(8):
+        for x in range(8):
+            d = x + y
+            if d > 6:
+                continue
+            c = G_BASE if d < 4 else G_SHADE if d < 6 else D_DARK
+            xx, yy = (T - 1 - x if 'e' in corner else x), (T - 1 - y if 's' in corner else y)
+            px[xx, yy] = c + (255,)
     return img
 
 
 def outer(corner):
     """Rounds the corner where the path turns: grass outside a quarter circle."""
-    img = blank(16, 16)
+    img = blank(T, T)
     px = img.load()
-    c, radius = 8.0, 5.5
-    for y in range(8):
-        for x in range(8):
+    c, radius = 16.0, 11.0
+    for y in range(16):
+        for x in range(16):
             s = math.hypot(c - x - 0.5, c - y - 0.5) - radius
             if s <= -0.5:
                 continue
             col = G_BASE if s > 1.5 else G_SHADE if s > 0.5 else D_DARK
-            xx, yy = (15 - x if 'e' in corner else x), (15 - y if 's' in corner else y)
+            xx, yy = (T - 1 - x if 'e' in corner else x), (T - 1 - y if 's' in corner else y)
             px[xx, yy] = col + (255,)
     return img
 

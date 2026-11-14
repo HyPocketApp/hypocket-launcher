@@ -126,7 +126,7 @@ gosmas, os lobos pedem alguns níveis, e o chefe vence quem chega despreparado.
 
 ### Criar ou mudar mapas
 
-Edite `src/levels.c`. Cada caractere é um quadrado de 16x16 pixels:
+Edite `src/levels.c`. Cada caractere é um quadrado do mapa (16x16 na tela virtual, 32x32 na arte):
 `#` mata fechada (a borda do mundo; use manchas irregulares, não linhas
 retas), `T` árvore (dá para cortar), `o` arbusto (dá para cortar), `,` flores,
 `R` pedra, `~` água, `=` ponte, `c` baú com ervas, `A` baú com lâmina
@@ -148,9 +148,10 @@ uma mudança deixar o jogo fácil ou difícil demais.
 
 ## Pensado para celulares fracos
 
-O jogo desenha numa tela virtual de 320x180 e amplia a imagem para a tela
-real, só desenha o que está visível, não carrega imagens nem áudio de
-arquivos e usa OpenGL ES 2. O APK tem cerca de 4 MB.
+O jogo monta a tela em 320x180, desenha em 640x360 (a arte tem 32x32 pixels
+por quadrado do mapa) e amplia a imagem para a tela real. Só desenha o que
+está visível, não carrega imagens nem áudio de arquivos e usa OpenGL ES 2.
+O APK tem cerca de 6 MB.
 
 ## Licença
 

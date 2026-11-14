@@ -1,4 +1,5 @@
-"""Draws the grass tiles in assets/tiles/ (32x32, each covers 2x2 map tiles).
+"""Draws the grass tiles in assets/tiles/ (64x64, each covers 2x2 map tiles
+of 32x32 art pixels).
 
 Colors follow the author's grass. Design rules, so the ground does not show
 a grid: no bright corners or edges, light patches only away from the
@@ -11,7 +12,7 @@ import random
 
 from PIL import Image
 
-N = 32
+N = 64
 BASE = (92, 148, 21)
 SHADE = (86, 140, 21)    # slightly darker patches
 LIGHTER = (100, 158, 22)  # slightly lighter patches
@@ -21,7 +22,7 @@ FLOWERS = [(224, 32, 36), (226, 224, 26), (240, 144, 144), (222, 128, 32), (240,
 CENTER = (226, 224, 26)
 
 
-def smooth_noise(rng, cells=4):
+def smooth_noise(rng, cells=6):
     """Value noise on a wrapped grid of cells x cells, sampled at N x N."""
     grid = [[rng.random() for _ in range(cells)] for _ in range(cells)]
 
@@ -41,7 +42,7 @@ def smooth_noise(rng, cells=4):
 def edge_fade(x, y):
     """1 in the middle, 0 at the borders: patches never reach a block edge."""
     d = min(x, y, N - 1 - x, N - 1 - y)
-    return max(0.0, min(1.0, (d - 2) / 6))
+    return max(0.0, min(1.0, (d - 3) / 10))
 
 
 def make_tile(seed, flowers):
@@ -66,36 +67,51 @@ def make_tile(seed, flowers):
             px[cx, cy] = c + (255,)
             used.add((cx, cy))
 
-    # Grass blades: a small dark "^" with a light tip, spread over the block.
+    # Grass blades: two or three thin strokes leaning apart, dark at the
+    # root and light at the tip, spread over the block.
     placed, tries = 0, 0
-    while placed < 9 and tries < 400:
+    while placed < 30 and tries < 2000:
         tries += 1
-        x, y = rng.randrange(1, N - 3), rng.randrange(2, N - 1)
-        cells = [(x, y), (x + 1, y - 1), (x + 2, y), (x + 1, y)]
-        ring = [(x + dx, y + dy) for dx in range(-1, 4) for dy in range(-2, 2)]
+        x, y = rng.randrange(2, N - 5), rng.randrange(4, N - 2)
+        ring = [(x + dx, y + dy) for dx in range(-1, 6) for dy in range(-4, 2)]
         if not free(ring):
             continue
-        put([((x, y), DARK), ((x + 1, y - 1), DARK), ((x + 2, y), DARK), ((x + 1, y), LIGHT)])
+        tall = rng.choice((2, 3, 3))
+        cells = [((x, y), DARK), ((x, y - 1), DARK), ((x - 1 if tall == 3 else x, y - 2), LIGHT if tall == 2 else DARK)]
+        if tall == 3:
+            cells.append(((x - 1, y - 3), LIGHT))
+        cells += [((x + 2, y), DARK), ((x + 2, y - 1), DARK), ((x + 3, y - 2), LIGHT)]
+        if rng.random() < 0.5:
+            cells += [((x + 1, y), DARK), ((x + 1, y - 1), DARK), ((x + 1, y - 2), DARK), ((x + 1, y - 3), LIGHT)]
+        put(cells)
         placed += 1
     # Single light and dark specks.
-    for color, count in ((LIGHT, 7), (DARK, 5)):
+    for color, count in ((LIGHT, 26), (DARK, 18)):
         for _ in range(count):
             x, y = rng.randrange(N), rng.randrange(N)
             if (x, y) not in used:
                 put([((x, y), color)])
     # Flowers: a few small ones, away from each other.
     for i in range(flowers):
-        for _ in range(100):
-            x, y = rng.randrange(2, N - 2), rng.randrange(2, N - 2)
-            ring = [(x + dx, y + dy) for dx in range(-2, 3) for dy in range(-2, 3)]
+        for _ in range(200):
+            x, y = rng.randrange(4, N - 4), rng.randrange(4, N - 4)
+            ring = [(x + dx, y + dy) for dx in range(-3, 4) for dy in range(-3, 5)]
             if not free(ring):
                 continue
             petal = rng.choice(FLOWERS)
-            if i == 0 and rng.random() < 0.6:  # one bigger flower: a cross with a center
-                put([((x, y), CENTER), ((x - 1, y), petal), ((x + 1, y), petal),
-                     ((x, y - 1), petal), ((x, y + 1), petal), ((x + 1, y + 1), DARK)])
-            else:
-                put([((x, y), petal), ((x, y + 1), DARK)])
+            if i % 2 == 0:  # a bigger flower: four round petals and a center
+                cells = [((x, y), CENTER)]
+                for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1), (-2, 0), (2, 0), (0, -2), (0, 2),
+                               (-1, -1), (1, -1), (-1, 1), (1, 1)):
+                    if abs(dx) + abs(dy) < 3 and not (abs(dx) == 1 and abs(dy) == 1):
+                        cells.append(((x + dx, y + dy), petal))
+                cells += [((x, y + 3), DARK), ((x + 1, y + 3), DARK), ((x + 2, y + 1), DARK)]
+            else:  # a small one: a 2x2 bud on a stem, never white (it reads as noise)
+                if petal == (240, 240, 240):
+                    petal = FLOWERS[1]
+                cells = [((x, y), petal), ((x + 1, y), petal), ((x, y + 1), petal), ((x + 1, y + 1), CENTER),
+                         ((x, y + 2), DARK), ((x, y + 3), DARK)]
+            put(cells)
             break
     return img
 

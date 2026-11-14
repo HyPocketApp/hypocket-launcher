@@ -2,7 +2,8 @@
 //
 // The same file builds for PC (Windows, Linux, macOS) and Android. On
 // Android, raylib's NativeActivity glue calls main() for us. Everything is
-// drawn by code (no image files) at 320x180 and scaled up to the screen.
+// laid out on a 320x180 screen, drawn at twice that (640x360) so the art can
+// have 32x32 pixels per map tile, and scaled up to the window.
 #include "game.h"
 #include "assets.h"
 #include "story.h"
@@ -411,10 +412,15 @@ static const char *enemy_name(const Battle *b, int i)
 
 // --- Characters ---------------------------------------------------------------------
 
+static bool draw_hero_sprite(float cx, float cy, float s, int face_x, int face_y, float walk, float swing);
+static bool draw_goddess_sprite(float cx, float cy, float s, int face_x, int face_y, float walk);
+static bool draw_fallen_sprite(float cx, float cy, float s);
+
 // The lumberjack, centered at (cx, cy) with feet near cy + 7*s. `swing`
 // goes from 0 to 1 during an axe swing.
 static void draw_lumberjack(float cx, float cy, float s, int face_x, int face_y, float walk, float swing)
 {
+    if (draw_hero_sprite(cx, cy, s, face_x, face_y, walk, swing)) return;
     float bob = walk > 0 ? fabsf(sinf(walk * 0.3f)) * s : 0.0f;
     float y = cy - bob;
     DrawEllipse((int)cx, (int)(cy + 7 * s), 5 * s, 2 * s, SHADOW);
@@ -452,10 +458,11 @@ static void draw_lumberjack(float cx, float cy, float s, int face_x, int face_y,
 
 // The Moon Goddess, centered at (cx, cy) with feet near cy + 7*s: long
 // white hair, a white dress and a silver crescent, with a soft glow.
-static void draw_goddess(float cx, float cy, float s, float t)
+static void draw_goddess(float cx, float cy, float s, float t, int face_x, int face_y, float walk)
 {
     float glow = 0.18f + 0.07f * sinf(t * 2.0f);
     DrawCircle((int)cx, (int)(cy - 2 * s), 13 * s, Fade(MOON_SILVER, glow));
+    if (draw_goddess_sprite(cx, cy, s, face_x, face_y, walk)) return;
     DrawEllipse((int)cx, (int)(cy + 7 * s), 5 * s, 2 * s, SHADOW);
     // Hair falling behind her back.
     DrawRectangle((int)(cx - 4 * s), (int)(cy - 9 * s), (int)(8 * s), (int)(12 * s), MOON_HAIR);
@@ -478,6 +485,7 @@ static void draw_goddess(float cx, float cy, float s, float t)
 static void draw_goddess_fallen(float cx, float cy, float s, float t)
 {
     DrawCircle((int)cx, (int)cy, 10 * s, Fade(MOON_SILVER, 0.12f + 0.05f * sinf(t * 2.0f)));
+    if (draw_fallen_sprite(cx, cy, s)) return;
     DrawEllipse((int)cx, (int)(cy + 3 * s), 8 * s, 2 * s, SHADOW);
     DrawRectangle((int)(cx - 2 * s), (int)(cy - 1 * s), (int)(9 * s), (int)(4 * s), MOON_WHITE);  // dress
     DrawRectangle((int)(cx - 8 * s), (int)(cy - 2 * s), (int)(6 * s), (int)(5 * s), MOON_HAIR);   // hair
@@ -487,6 +495,9 @@ static void draw_goddess_fallen(float cx, float cy, float s, float t)
 // --- Images from assets/ ----------------------------------------------------------------
 
 // The author's sprites. Anything missing is drawn with shapes instead.
+// The art has ART pixels for each pixel of the 320x180 layout: a map tile
+// is 16x16 on the layout and 32x32 in its image.
+#define ART 2
 #define MAX_GRASS 8
 #define MAX_VARIANTS 4
 #define MAX_LOADED 160
@@ -495,9 +506,9 @@ typedef struct {
     int count;
 } Variants;
 static struct {
-    Texture2D grass[MAX_GRASS];  // 32x32 each: one covers a block of 2x2 tiles
+    Texture2D grass[MAX_GRASS];  // 64x64 each: one covers a block of 2x2 tiles
     int grass_count;
-    Variants oak, pine, birch;  // 16x24: the top 8 rows hang over the tile above
+    Variants oak, pine, birch;  // 32x48: the top 16 rows hang over the tile above
     Variants rock, bush, flowers, path, water;
     Texture2D stump, house, bridge_v, bridge_h;
     Texture2D path_edge[4][3];  // n, s, w, e; three variants each
@@ -505,8 +516,10 @@ static struct {
     Texture2D path_outer[4];    // ne, nw, se, sw: rounds the outside of a turn
     Texture2D bank[4][3];       // the same, for the shore of water
     Texture2D bank_inner[4], bank_outer[4];
-    Texture2D slime[2], beetle[2], wolf[2];  // two frames each
-    bool has_stump, has_path_edges, has_banks, has_house, has_bridge;
+    Texture2D slime[2], beetle[2], wolf[2], ember[2];  // two frames each
+    Texture2D hero[3][3], goddess[3][3];  // facing s, n, e; standing and two steps
+    Texture2D goddess_fallen, chest, chest_open, woodpile, fire[3];
+    bool has_stump, has_path_edges, has_banks, has_house, has_bridge, has_hero, has_goddess, has_fire;
     Texture2D loaded[MAX_LOADED];  // everything, to unload
     int loaded_count;
 } art;
@@ -567,7 +580,89 @@ static void load_art(void)
         load_art_texture(TextFormat("monsters/slime_%d", f + 1), &art.slime[f]);
         load_art_texture(TextFormat("monsters/beetle_%d", f + 1), &art.beetle[f]);
         load_art_texture(TextFormat("monsters/wolf_%d", f + 1), &art.wolf[f]);
+        load_art_texture(TextFormat("monsters/ember_%d", f + 1), &art.ember[f]);
     }
+    static const char *const dirs[3] = { "s", "n", "e" };
+    art.has_hero = art.has_goddess = true;
+    for (int d = 0; d < 3; d++)
+        for (int f = 0; f < 3; f++) {
+            art.has_hero &= load_art_texture(TextFormat("chars/hero_%s_%d", dirs[d], f + 1), &art.hero[d][f]);
+            art.has_goddess &= load_art_texture(TextFormat("chars/goddess_%s_%d", dirs[d], f + 1), &art.goddess[d][f]);
+        }
+    load_art_texture("chars/goddess_fallen", &art.goddess_fallen);
+    load_art_texture("tiles/chest", &art.chest);
+    load_art_texture("tiles/chest_open", &art.chest_open);
+    load_art_texture("tiles/woodpile", &art.woodpile);
+    art.has_fire = true;
+    for (int f = 0; f < 3; f++) art.has_fire &= load_art_texture(TextFormat("tiles/fire_%d", f + 1), &art.fire[f]);
+}
+
+// Draws an image at its own detail, top-left at (x, y) on the layout.
+static void art_draw_v(Texture2D t, Vector2 at)
+{
+    DrawTexturePro(t, (Rectangle){ 0, 0, (float)t.width, (float)t.height },
+                   (Rectangle){ at.x, at.y, t.width / (float)ART, t.height / (float)ART }, (Vector2){ 0, 0 }, 0, WHITE);
+}
+
+// Draws a figure standing with its feet on (cx, foot), `k` times its own
+// size (whole numbers only, so pixels stay square), flipped if asked.
+static void art_draw_figure(Texture2D t, float cx, float foot, float k, bool flip, Color tint)
+{
+    float w = t.width * k / ART, h = t.height * k / ART;
+    Rectangle src = { 0, 0, (float)(flip ? -t.width : t.width), (float)t.height };
+    Rectangle dst = { roundf((cx - w / 2) * ART) / ART, roundf((foot - h) * ART) / ART, w, h };
+    DrawTexturePro(t, src, dst, (Vector2){ 0, 0 }, 0, tint);
+}
+
+// Which way a person faces, as a row of art.hero / art.goddess, and the
+// frame: standing, or one of two steps while walking.
+static int facing_row(int face_x, int face_y) { return face_y < 0 && face_x == 0 ? 1 : face_x != 0 ? 2 : 0; }
+static int walk_frame(float walk) { return walk > 0 ? (sinf(walk * 0.3f) > 0 ? 1 : 2) : 0; }
+
+static bool draw_hero_sprite(float cx, float cy, float s, int face_x, int face_y, float walk, float swing)
+{
+    if (!art.has_hero) return false;
+    float k = fmaxf(1.0f, roundf(s));
+    float bob = walk > 0 ? fabsf(sinf(walk * 0.3f)) * 0.5f * s : 0.0f;
+    float y = cy - bob;
+    int row = facing_row(face_x, face_y);
+    DrawEllipse((int)cx, (int)(cy + 7 * s), 5 * s, 2 * s, SHADOW);
+    // The axe: resting upright in his hand, or swinging toward where he
+    // faces. The angle is measured from straight up, toward the front.
+    float d = face_x != 0 ? (float)face_x : 1.0f;
+    float angle = (swing > 0 ? -40.0f + swing * 160.0f : 15.0f) * DEG2RAD;
+    Vector2 hand = { cx + d * (row == 2 ? 1.5f : 4.5f) * s, y + 1.5f * s };
+    Vector2 tip = { hand.x + d * sinf(angle) * 10 * s, hand.y - cosf(angle) * 10 * s };
+    bool behind = row == 1;
+    for (int pass = 0; pass < 2; pass++) {
+        if ((pass == 0) == behind) {
+            DrawLineEx(hand, tip, fmaxf(1.0f, 1.0f * s), TRUNK_LIGHT);
+            DrawLineEx((Vector2){ hand.x + 0.5f, hand.y }, (Vector2){ tip.x + 0.5f, tip.y }, 0.5f * s, TRUNK);
+            DrawCircleV(tip, 2.5f * s, (Color){ 120, 128, 140, 255 });
+            DrawCircleV((Vector2){ tip.x + d * 0.5f * s, tip.y - 0.5f * s }, 1.8f * s, STEEL);
+        } else {
+            art_draw_figure(art.hero[row][walk_frame(walk)], cx, y + 8 * s, k, face_x < 0, WHITE);
+        }
+    }
+    return true;
+}
+
+static bool draw_goddess_sprite(float cx, float cy, float s, int face_x, int face_y, float walk)
+{
+    if (!art.has_goddess) return false;
+    float k = fmaxf(1.0f, roundf(s));
+    DrawEllipse((int)cx, (int)(cy + 7 * s), 5 * s, 2 * s, SHADOW);
+    int row = facing_row(face_x, face_y);
+    art_draw_figure(art.goddess[row][walk_frame(walk)], cx, cy + 8 * s, k, face_x < 0, WHITE);
+    return true;
+}
+
+static bool draw_fallen_sprite(float cx, float cy, float s)
+{
+    if (!art.goddess_fallen.id) return false;
+    DrawEllipse((int)cx, (int)(cy + 3 * s), 10 * s, 2 * s, SHADOW);
+    art_draw_figure(art.goddess_fallen, cx, cy + 5 * s, fmaxf(1.0f, roundf(s)), false, WHITE);
+    return true;
 }
 
 static void unload_art(void)
@@ -581,20 +676,22 @@ static void unload_art(void)
 static bool draw_monster_sprite(Species sp, float cx, float cy, float s, float t, bool flash, int facing)
 {
     const Texture2D *frames = sp == SPECIES_SLIME ? art.slime : sp == SPECIES_BEETLE ? art.beetle
-                            : sp == SPECIES_WOLF ? art.wolf : NULL;
+                            : sp == SPECIES_WOLF ? art.wolf : sp == SPECIES_EMBER ? art.ember : NULL;
     if (!frames || !frames[0].id || !frames[1].id) return false;
     float speed = sp == SPECIES_SLIME ? 3.0f : sp == SPECIES_WOLF ? 6.0f : 8.0f;
     Texture2D tex = frames[(int)(t * speed) & 1];
     float k = fmaxf(1.0f, roundf(s));  // whole pixels only
-    float w = tex.width * k, h = tex.height * k;
     bool flip = facing < 0 && sp == SPECIES_WOLF;  // drawn facing right
-    Rectangle src = { 0, 0, (float)(flip ? -tex.width : tex.width), (float)tex.height };
-    Rectangle dst = { roundf(cx - w / 2), roundf(cy + 5 * s - h), w, h };
-    DrawTexturePro(tex, src, dst, (Vector2){ 0, 0 }, 0, WHITE);
+    float foot = cy + 5 * s;
+    if (sp == SPECIES_EMBER) {  // it floats
+        foot += sinf(t * 6.0f) * s - 2 * s;
+        DrawCircle((int)cx, (int)(foot - 6 * s), 8 * s, Fade(FIRE_A, 0.2f));
+    }
+    art_draw_figure(tex, cx, foot, k, flip, WHITE);
     if (flash) {  // hit: light it up
         BeginBlendMode(BLEND_ADDITIVE);
-        DrawTexturePro(tex, src, dst, (Vector2){ 0, 0 }, 0, WHITE);
-        DrawTexturePro(tex, src, dst, (Vector2){ 0, 0 }, 0, WHITE);
+        art_draw_figure(tex, cx, foot, k, flip, WHITE);
+        art_draw_figure(tex, cx, foot, k, flip, WHITE);
         EndBlendMode();
     }
     return true;
@@ -700,8 +797,8 @@ static void draw_corners(Vector2 at, bool n, bool s, bool w, bool e, const bool 
 {
     bool ns[4] = { n, n, s, s }, we[4] = { e, w, e, w };  // ne, nw, se, sw
     for (int i = 0; i < 4; i++) {
-        if (ns[i] && we[i] && !diag[i]) DrawTextureV(inner[i], at, WHITE);
-        else if (!ns[i] && !we[i] && outer[i].id) DrawTextureV(outer[i], at, WHITE);
+        if (ns[i] && we[i] && !diag[i]) art_draw_v(inner[i], at);
+        else if (!ns[i] && !we[i] && outer[i].id) art_draw_v(outer[i], at);
     }
 }
 
@@ -719,12 +816,12 @@ static bool pathish(const Game *g, int tx, int ty)
 static void draw_path_art(const Game *g, int x, int y, int tx, int ty)
 {
     Vector2 at = { (float)x, (float)y };
-    DrawTextureV(art.path.v[tile_hash(tx, ty) % (unsigned)art.path.count], at, WHITE);
+    art_draw_v(art.path.v[tile_hash(tx, ty) % (unsigned)art.path.count], at);
     if (!art.has_path_edges) return;
     bool n = pathish(g, tx, ty - 1), s = pathish(g, tx, ty + 1), w = pathish(g, tx - 1, ty), e = pathish(g, tx + 1, ty);
     bool open[4] = { !n, !s, !w, !e };
     for (int i = 0; i < 4; i++)
-        if (open[i]) DrawTextureV(art.path_edge[i][tile_hash(tx * 4 + i, ty) % 3u], at, WHITE);
+        if (open[i]) art_draw_v(art.path_edge[i][tile_hash(tx * 4 + i, ty) % 3u], at);
     bool diag[4] = { pathish(g, tx + 1, ty - 1), pathish(g, tx - 1, ty - 1), pathish(g, tx + 1, ty + 1), pathish(g, tx - 1, ty + 1) };
     draw_corners(at, n, s, w, e, diag, art.path_inner, art.path_outer);
 }
@@ -736,8 +833,8 @@ static void draw_grass(int x, int y, int tx, int ty)
         // place so the ground does not repeat in an obvious pattern.
         int bx = tx >> 1, by = ty >> 1;
         Texture2D t = art.grass[tile_hash(bx, by) % (unsigned)art.grass_count];
-        Rectangle src = { (float)((tx & 1) * TILE), (float)((ty & 1) * TILE), TILE, TILE };
-        DrawTextureRec(t, src, (Vector2){ (float)x, (float)y }, WHITE);
+        Rectangle src = { (float)((tx & 1) * TILE * ART), (float)((ty & 1) * TILE * ART), TILE * ART, TILE * ART };
+        DrawTexturePro(t, src, (Rectangle){ x, y, TILE, TILE }, (Vector2){ 0, 0 }, 0, WHITE);
         return;
     }
     DrawRectangle(x, y, TILE, TILE, ((tx + ty) & 1) ? GRASS_A : GRASS_B);
@@ -767,12 +864,12 @@ static void draw_water(const Game *g, int x, int y, int tx, int ty, float t)
         return;
     }
     Vector2 at = { (float)x, (float)y };
-    DrawTextureV(art.water.v[(int)(t * 1.6f) % art.water.count], at, WHITE);
+    art_draw_v(art.water.v[(int)(t * 1.6f) % art.water.count], at);
     if (!art.has_banks || game_tile_at(g, tx, ty) != TILE_WATER) return;
     bool n = wet(g, tx, ty - 1), s = wet(g, tx, ty + 1), w = wet(g, tx - 1, ty), e = wet(g, tx + 1, ty);
     bool open[4] = { !n, !s, !w, !e };
     for (int i = 0; i < 4; i++)
-        if (open[i]) DrawTextureV(art.bank[i][tile_hash(tx * 4 + i, ty) % 3u], at, WHITE);
+        if (open[i]) art_draw_v(art.bank[i][tile_hash(tx * 4 + i, ty) % 3u], at);
     bool diag[4] = { wet(g, tx + 1, ty - 1), wet(g, tx - 1, ty - 1), wet(g, tx + 1, ty + 1), wet(g, tx - 1, ty + 1) };
     draw_corners(at, n, s, w, e, diag, art.bank_inner, art.bank_outer);
 }
@@ -807,7 +904,7 @@ static void draw_ground(const Game *g, int x, int y, int tx, int ty, TileType ti
         draw_water(g, x, y, tx, ty, t);
         bool across = wet(g, tx - 1, ty) || wet(g, tx + 1, ty);  // water left and right: walk north-south
         if (art.has_bridge) {
-            DrawTextureV(across ? art.bridge_v : art.bridge_h, (Vector2){ (float)x, (float)y }, WHITE);
+            art_draw_v(across ? art.bridge_v : art.bridge_h, (Vector2){ (float)x, (float)y });
             return;
         }
         DrawRectangle(x + 1, y, TILE - 2, TILE, PLANK);
@@ -827,7 +924,7 @@ static void draw_ground(const Game *g, int x, int y, int tx, int ty, TileType ti
         }
     } else if (tile == TILE_FLOWERS) {
         if (art.flowers.count > 0) {
-            DrawTextureV(art.flowers.v[tile_hash(tx, ty) % (unsigned)art.flowers.count], (Vector2){ (float)x, (float)y }, WHITE);
+            art_draw_v(art.flowers.v[tile_hash(tx, ty) % (unsigned)art.flowers.count], (Vector2){ (float)x, (float)y });
         } else {
             DrawRectangle(x + 4, y + 5, 2, 2, FLOWER);
             DrawRectangle(x + 10, y + 9, 2, 2, FLOWER);
@@ -840,7 +937,7 @@ static void draw_house_tile(const Game *g, int x, int y, int tx, int ty, TileTyp
 {
     if (art.has_house) {
         if (is_house(game_tile_at(g, tx - 1, ty)) || is_house(game_tile_at(g, tx, ty - 1))) return;
-        DrawTextureV(art.house, (Vector2){ (float)(x - 2), (float)(y - 24) }, WHITE);
+        art_draw_v(art.house, (Vector2){ (float)(x - 2), (float)(y - 24) });
         float k = fmodf(t * 0.5f, 1.0f);  // smoke from the chimney
         for (int i = 0; i < 2; i++) {
             float kk = fmodf(k + i * 0.5f, 1.0f);
@@ -872,7 +969,7 @@ static void draw_object(const Game *g, int x, int y, int tx, int ty, TileType ti
     case TILE_TREE: {
         const Texture2D *tex = tree_texture(g, tx, ty);
         if (tex) {
-            DrawTextureV(*tex, (Vector2){ (float)x, (float)(y - 8) }, WHITE);
+            art_draw_v(*tex, (Vector2){ (float)x, (float)(y - 8) });
             break;
         }
         DrawEllipse(x + 8, y + 14, 7, 2, SHADOW);
@@ -883,7 +980,7 @@ static void draw_object(const Game *g, int x, int y, int tx, int ty, TileType ti
     }
     case TILE_STUMP:
         if (art.has_stump) {
-            DrawTextureV(art.stump, (Vector2){ (float)x, (float)y }, WHITE);
+            art_draw_v(art.stump, (Vector2){ (float)x, (float)y });
             break;
         }
         DrawEllipse(x + 8, y + 10, 4, 3, TRUNK);
@@ -891,7 +988,7 @@ static void draw_object(const Game *g, int x, int y, int tx, int ty, TileType ti
         break;
     case TILE_ROCK:
         if (art.rock.count > 0) {
-            DrawTextureV(art.rock.v[tile_hash(tx, ty) % (unsigned)art.rock.count], (Vector2){ (float)x, (float)y }, WHITE);
+            art_draw_v(art.rock.v[tile_hash(tx, ty) % (unsigned)art.rock.count], (Vector2){ (float)x, (float)y });
             break;
         }
         DrawEllipse(x + 8, y + 13, 7, 2, SHADOW);
@@ -903,7 +1000,7 @@ static void draw_object(const Game *g, int x, int y, int tx, int ty, TileType ti
             // Berries on one bush in four.
             unsigned h = tile_hash(tx, ty);
             int v = art.bush.count > 1 && h % 4 == 0 ? 1 : 0;
-            DrawTextureV(art.bush.v[v], (Vector2){ (float)x, (float)y }, WHITE);
+            art_draw_v(art.bush.v[v], (Vector2){ (float)x, (float)y });
             break;
         }
         DrawEllipse(x + 8, y + 13, 7, 2, SHADOW);
@@ -912,6 +1009,11 @@ static void draw_object(const Game *g, int x, int y, int tx, int ty, TileType ti
         break;
     case TILE_CHEST:
     case TILE_CHEST_AXE:
+        if (art.chest.id) {
+            DrawEllipse(x + 8, y + 14, 7, 2, SHADOW);
+            art_draw_v(art.chest, (Vector2){ x, y });
+            break;
+        }
         DrawEllipse(x + 8, y + 14, 7, 2, SHADOW);
         DrawRectangle(x + 2, y + 5, 12, 9, PLANK_DARK);
         DrawRectangle(x + 3, y + 6, 10, 3, PLANK);
@@ -919,12 +1021,23 @@ static void draw_object(const Game *g, int x, int y, int tx, int ty, TileType ti
         DrawRectangle(x + 7, y + 8, 2, 3, GOLDEN);
         break;
     case TILE_CHEST_OPEN:
+        if (art.chest_open.id) {
+            DrawEllipse(x + 8, y + 14, 7, 2, SHADOW);
+            art_draw_v(art.chest_open, (Vector2){ x, y });
+            break;
+        }
         DrawEllipse(x + 8, y + 14, 7, 2, SHADOW);
         DrawRectangle(x + 2, y + 3, 12, 3, PLANK);
         DrawRectangle(x + 2, y + 7, 12, 7, PLANK_DARK);
         DrawRectangle(x + 3, y + 8, 10, 2, INK);
         break;
     case TILE_FIRE: {
+        if (art.has_fire) {
+            float f = sinf(t * 12.0f + tx);
+            DrawCircle(x + 8, y + 9, 7 + f * 0.5f, Fade(FIRE_A, 0.22f));
+            art_draw_v(art.fire[(int)(t * 8.0f + tx) % 3], (Vector2){ x, y });
+            break;
+        }
         DrawCircle(x + 8, y + 11, 6, Fade(INK, 0.35f));  // ring of ash
         for (int i = 0; i < 6; i++) {                     // ring of stones
             float a = i * 1.047f;
@@ -948,6 +1061,11 @@ static void draw_object(const Game *g, int x, int y, int tx, int ty, TileType ti
         draw_house_tile(g, x, y, tx, ty, tile, t);
         break;
     case TILE_WOODPILE:
+        if (art.woodpile.id) {
+            DrawEllipse(x + 8, y + 14, 8, 2, SHADOW);
+            art_draw_v(art.woodpile, (Vector2){ x, y });
+            break;
+        }
         DrawEllipse(x + 8, y + 14, 8, 2, SHADOW);
         for (int r = 0; r < 3; r++)
             for (int c = 0; c < 3 - r; c++) {
@@ -1104,7 +1222,7 @@ static void draw_battle_background(const Game *g)
         // The ground and two rows of the area's trees, at twice the size;
         // the far row fades into the sky.
         for (int i = 0; i * 64 < VIEW_W; i++)
-            DrawTexturePro(art.grass[tile_hash(i, 7) % (unsigned)art.grass_count], (Rectangle){ 0, 0, 32, 20 },
+            DrawTexturePro(art.grass[tile_hash(i, 7) % (unsigned)art.grass_count], (Rectangle){ 0, 0, 32 * ART, 20 * ART },
                            (Rectangle){ i * 64.0f, 78, 64, 40 }, (Vector2){ 0, 0 }, 0, WHITE);
         for (int row = 0; row < 2; row++) {
             Color tint = row == 0 ? (Color){ 150, 176, 196, 255 } : (Color){ 214, 226, 220, 255 };
@@ -1113,7 +1231,7 @@ static void draw_battle_background(const Game *g)
                 const Texture2D *t = tree_texture(g, i * 2 + row * 37, row * 9);
                 if (!t) continue;
                 float x = i * 22.0f + row * 11 + (float)(tile_hash(i, row) % 5);
-                DrawTexturePro(*t, (Rectangle){ 0, 0, 16, 24 }, (Rectangle){ x, 36.0f + row * 6, 32, 48 }, (Vector2){ 0, 0 }, 0, tint);
+                DrawTexturePro(*t, (Rectangle){ 0, 0, 16 * ART, 24 * ART }, (Rectangle){ x, 36.0f + row * 6, 32, 48 }, (Vector2){ 0, 0 }, 0, tint);
             }
         }
         return;
@@ -1194,7 +1312,7 @@ static void draw_battle(const Game *g, const InputState *s)
             DrawRectangle(14, 96, 26, 6, MOON_WHITE);  // she fell
             DrawRectangle(10, 94, 8, 8, MOON_SHADE);
         } else if (!her_hurt) {
-            draw_goddess(26 + (casting ? sinf(fminf(b->msg_timer * 6.0f, PI)) * 8.0f : 0.0f), 86, 2.0f, g->time * (casting ? 4.0f : 1.0f));
+            draw_goddess(26 + (casting ? sinf(fminf(b->msg_timer * 6.0f, PI)) * 8.0f : 0.0f), 86, 2.0f, g->time * (casting ? 4.0f : 1.0f), 1, 0, 0);
         }
         if (b->ally_defending) DrawCircleLines(26, 78, 18, Fade(MOON_SILVER, 0.8f));
         if (m && m->type == MSG_LIGHT) {
@@ -1363,7 +1481,7 @@ static void draw_portrait(Speaker who, float t)
 {
     switch (who) {
     case SPEAKER_HERO: draw_lumberjack(40, 94, 3.0f, 1, 0, 0, 0); break;
-    case SPEAKER_WOMAN: draw_goddess(40, 92, 3.0f, t); break;
+    case SPEAKER_WOMAN: draw_goddess(40, 92, 3.0f, t, 0, 1, 0); break;
     case SPEAKER_CREATURE_1:
     case SPEAKER_CREATURE_2:
     case SPEAKER_CREATURE_3: draw_monster(SPECIES_EMBER, 40, 96, 3.0f, t + who, false, 1); break;
@@ -1490,11 +1608,11 @@ static void draw_game(const Game *g, const InputState *s, float chop)
         bool with_her = g->goddess.joined;
         float fx = f->x + WALKER_SIZE / 2.0f - cam_x, fy = f->y + WALKER_SIZE / 2.0f - cam_y - 2;
         fy -= f->walk_anim > 0 ? fabsf(sinf(f->walk_anim * 0.3f)) : 0.0f;
-        if (with_her && f->y < w->y) draw_goddess(fx, fy, 1.0f, g->time);  // behind him
+        if (with_her && f->y < w->y) draw_goddess(fx, fy, 1.0f, g->time, f->face_x, f->face_y, f->walk_anim);  // behind him
         if (!blink)
             draw_lumberjack(w->x + WALKER_SIZE / 2.0f - cam_x, w->y + WALKER_SIZE / 2.0f - cam_y - 2, 1.0f,
                             w->face_x, w->face_y, w->walk_anim, chop);
-        if (with_her && f->y >= w->y) draw_goddess(fx, fy, 1.0f, g->time);
+        if (with_her && f->y >= w->y) draw_goddess(fx, fy, 1.0f, g->time, f->face_x, f->face_y, f->walk_anim);
         if (g->state == STATE_MAP || g->state == STATE_PAUSED) draw_map_hud(g, s);
     }
     draw_overlay(g, s->touch_ui);
@@ -1515,7 +1633,9 @@ int main(int argc, char *argv[])
     SetTargetFPS(60);
     text_init();
 
-    RenderTexture2D canvas = LoadRenderTexture(VIEW_W, VIEW_H);
+    // The picture is laid out at 320x180 and drawn at ART times that.
+    RenderTexture2D canvas = LoadRenderTexture(VIEW_W * ART, VIEW_H * ART);
+    Camera2D layout = { .zoom = (float)ART };
     SetTextureFilter(canvas.texture, TEXTURE_FILTER_POINT);
     Sounds sounds = load_sounds();
     load_art();
@@ -1558,12 +1678,14 @@ int main(int argc, char *argv[])
         }
 
         BeginTextureMode(canvas);
+        BeginMode2D(layout);
         draw_game(&game, &input, chop);
+        EndMode2D();
         EndTextureMode();
 
         BeginDrawing();
         ClearBackground(BLACK);
-        Rectangle src = { 0, 0, (float)VIEW_W, -(float)VIEW_H };
+        Rectangle src = { 0, 0, (float)canvas.texture.width, -(float)canvas.texture.height };
         Rectangle dst = { view.x, view.y, VIEW_W * view.scale, VIEW_H * view.scale };
         DrawTexturePro(canvas.texture, src, dst, (Vector2){ 0, 0 }, 0.0f, WHITE);
         EndDrawing();
