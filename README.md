@@ -127,8 +127,11 @@ gosmas, os lobos pedem alguns níveis, e o chefe vence quem chega despreparado.
 ### Criar ou mudar mapas
 
 Edite `src/levels.c`. Cada caractere é um quadrado de 16x16 pixels:
-`#` penhasco, `T` árvore (dá para cortar), `R` pedra, `~` água, `=` ponte,
-`c` baú com ervas, `A` baú com lâmina afiada, `f` fogueira, `H` casa,
+`#` mata fechada (a borda do mundo; use manchas irregulares, não linhas
+retas), `T` árvore (dá para cortar), `o` arbusto (dá para cortar), `,` flores,
+`R` pedra, `~` água, `=` ponte, `c` baú com ervas, `A` baú com lâmina
+afiada, `f` fogueira, `H` casa (um bloco de 4x3 com a porta em baixo, na
+segunda coluna),
 `D` porta (descansar), `W` lenha, `:` trilha, `P` início (só na casa),
 `M` a Deusa da Lua. Os dígitos `1` a `9` são caminhos entre áreas: andar
 sobre um leva à outra área que tem o mesmo dígito, e cada dígito aparece em

@@ -23,8 +23,6 @@
 #define GRASS_B (Color){ 98, 160, 76, 255 }
 #define GRASS_TUFT (Color){ 76, 136, 64, 255 }
 #define FLOWER (Color){ 250, 236, 140, 255 }
-#define CLIFF (Color){ 120, 110, 100, 255 }
-#define CLIFF_TOP (Color){ 156, 146, 130, 255 }
 #define CLIFF_DARK (Color){ 84, 76, 70, 255 }
 #define TRUNK (Color){ 112, 76, 48, 255 }
 #define TRUNK_LIGHT (Color){ 176, 132, 86, 255 }
@@ -486,11 +484,128 @@ static void draw_goddess_fallen(float cx, float cy, float s, float t)
     DrawRectangle((int)(cx - 6 * s), (int)(cy - 1 * s), (int)(3 * s), (int)(3 * s), MOON_SKIN);   // face
 }
 
+// --- Images from assets/ ----------------------------------------------------------------
+
+// The author's sprites. Anything missing is drawn with shapes instead.
+#define MAX_GRASS 8
+#define MAX_VARIANTS 4
+#define MAX_LOADED 160
+typedef struct {
+    Texture2D v[MAX_VARIANTS];
+    int count;
+} Variants;
+static struct {
+    Texture2D grass[MAX_GRASS];  // 32x32 each: one covers a block of 2x2 tiles
+    int grass_count;
+    Variants oak, pine, birch;  // 16x24: the top 8 rows hang over the tile above
+    Variants rock, bush, flowers, path, water;
+    Texture2D stump, house, bridge_v, bridge_h;
+    Texture2D path_edge[4][3];  // n, s, w, e; three variants each
+    Texture2D path_inner[4];    // ne, nw, se, sw: grass in the inside of a turn
+    Texture2D path_outer[4];    // ne, nw, se, sw: rounds the outside of a turn
+    Texture2D bank[4][3];       // the same, for the shore of water
+    Texture2D bank_inner[4], bank_outer[4];
+    Texture2D slime[2], beetle[2], wolf[2];  // two frames each
+    bool has_stump, has_path_edges, has_banks, has_house, has_bridge;
+    Texture2D loaded[MAX_LOADED];  // everything, to unload
+    int loaded_count;
+} art;
+
+static bool load_art_texture(const char *name, Texture2D *out)
+{
+    const EmbeddedAsset *a = asset_find(name);
+    if (!a || art.loaded_count >= MAX_LOADED) return false;
+    Image img = LoadImageFromMemory(".png", a->data, (int)a->size);
+    if (!img.data) return false;
+    *out = LoadTextureFromImage(img);
+    UnloadImage(img);
+    if (out->id == 0) return false;
+    SetTextureFilter(*out, TEXTURE_FILTER_POINT);
+    art.loaded[art.loaded_count++] = *out;
+    return true;
+}
+
+// Loads name_1, name_2, ... while they exist.
+static void load_variants(Variants *v, const char *name)
+{
+    for (int i = 0; i < MAX_VARIANTS; i++)
+        if (load_art_texture(TextFormat("%s_%d", name, i + 1), &v->v[v->count])) v->count++;
+}
+
+// Loads a set of edges (name_n_1 .. name_e_3), inner corners (name_in_ne ..)
+// and outer corners (name_out_ne ..; these may be missing).
+static bool load_edges(const char *name, Texture2D edges[4][3], Texture2D inner[4], Texture2D outer[4])
+{
+    static const char *const sides[4] = { "n", "s", "w", "e" }, *const corners[4] = { "ne", "nw", "se", "sw" };
+    bool ok = true;
+    for (int i = 0; i < 4; i++) {
+        for (int v = 0; v < 3; v++) ok &= load_art_texture(TextFormat("%s_%s_%d", name, sides[i], v + 1), &edges[i][v]);
+        ok &= load_art_texture(TextFormat("%s_in_%s", name, corners[i]), &inner[i]);
+        load_art_texture(TextFormat("%s_out_%s", name, corners[i]), &outer[i]);
+    }
+    return ok;
+}
+
+static void load_art(void)
+{
+    for (int i = 0; i < MAX_GRASS; i++)
+        if (load_art_texture(TextFormat("tiles/grass_%d", i + 1), &art.grass[art.grass_count])) art.grass_count++;
+    load_variants(&art.oak, "tiles/tree");
+    load_variants(&art.pine, "tiles/pine");
+    load_variants(&art.birch, "tiles/birch");
+    load_variants(&art.rock, "tiles/rock");
+    load_variants(&art.bush, "tiles/bush");
+    load_variants(&art.flowers, "tiles/flowers");
+    load_variants(&art.path, "tiles/path");
+    load_variants(&art.water, "tiles/water");
+    art.has_stump = load_art_texture("tiles/stump", &art.stump);
+    art.has_house = load_art_texture("tiles/house", &art.house);
+    art.has_bridge = load_art_texture("tiles/bridge_v", &art.bridge_v) && load_art_texture("tiles/bridge_h", &art.bridge_h);
+    art.has_path_edges = load_edges("tiles/path_edge", art.path_edge, art.path_inner, art.path_outer);
+    art.has_banks = load_edges("tiles/bank", art.bank, art.bank_inner, art.bank_outer);
+    for (int f = 0; f < 2; f++) {
+        load_art_texture(TextFormat("monsters/slime_%d", f + 1), &art.slime[f]);
+        load_art_texture(TextFormat("monsters/beetle_%d", f + 1), &art.beetle[f]);
+        load_art_texture(TextFormat("monsters/wolf_%d", f + 1), &art.wolf[f]);
+    }
+}
+
+static void unload_art(void)
+{
+    for (int i = 0; i < art.loaded_count; i++) UnloadTexture(art.loaded[i]);
+    memset(&art, 0, sizeof art);
+}
+
+// A monster from its sprite, standing on (cx, cy + 5 * s). False if there
+// is no sprite for it.
+static bool draw_monster_sprite(Species sp, float cx, float cy, float s, float t, bool flash, int facing)
+{
+    const Texture2D *frames = sp == SPECIES_SLIME ? art.slime : sp == SPECIES_BEETLE ? art.beetle
+                            : sp == SPECIES_WOLF ? art.wolf : NULL;
+    if (!frames || !frames[0].id || !frames[1].id) return false;
+    float speed = sp == SPECIES_SLIME ? 3.0f : sp == SPECIES_WOLF ? 6.0f : 8.0f;
+    Texture2D tex = frames[(int)(t * speed) & 1];
+    float k = fmaxf(1.0f, roundf(s));  // whole pixels only
+    float w = tex.width * k, h = tex.height * k;
+    bool flip = facing < 0 && sp == SPECIES_WOLF;  // drawn facing right
+    Rectangle src = { 0, 0, (float)(flip ? -tex.width : tex.width), (float)tex.height };
+    Rectangle dst = { roundf(cx - w / 2), roundf(cy + 5 * s - h), w, h };
+    DrawTexturePro(tex, src, dst, (Vector2){ 0, 0 }, 0, WHITE);
+    if (flash) {  // hit: light it up
+        BeginBlendMode(BLEND_ADDITIVE);
+        DrawTexturePro(tex, src, dst, (Vector2){ 0, 0 }, 0, WHITE);
+        DrawTexturePro(tex, src, dst, (Vector2){ 0, 0 }, 0, WHITE);
+        EndBlendMode();
+    }
+    return true;
+}
+
 // A monster centered at (cx, cy). `s` is the size (1 on the map).
 static void draw_monster(Species sp, float cx, float cy, float s, float t, bool flash, int facing)
 {
     Color f = RAYWHITE;
     DrawEllipse((int)cx, (int)(cy + 6 * s), 7 * s, 2 * s, SHADOW);
+    if (draw_monster_sprite(sp, cx, cy, s, t, flash, facing)) return;
     switch (sp) {
     case SPECIES_SLIME: {
         float wob = sinf(t * 5.0f);
@@ -576,66 +691,18 @@ static void draw_monster(Species sp, float cx, float cy, float s, float t, bool 
 
 // --- Map ------------------------------------------------------------------------------
 
-// --- Images from assets/ ----------------------------------------------------------------
-
-// The author's sprites. Anything missing is drawn with shapes instead.
-#define MAX_GRASS 8
-#define MAX_VARIANTS 4
-static struct {
-    Texture2D grass[MAX_GRASS];  // 32x32 each: one covers a block of 2x2 tiles
-    int grass_count;
-    Texture2D tree[MAX_VARIANTS];  // 16x24: the top 8 rows hang over the tile above
-    int tree_count;
-    Texture2D stump;
-    Texture2D path[MAX_VARIANTS];
-    int path_count;
-    Texture2D path_edge[4][3];  // n, s, w, e; three variants each
-    Texture2D path_inner[4];  // ne, nw, se, sw
-    bool has_stump, has_path_edges;
-} art;
-
-static bool load_art_texture(const char *name, Texture2D *out)
+// The corners of a patch of dirt or water. n, s, w, e: whether the patch
+// goes on that way; diag: whether it goes on to the ne, nw, se, sw. Where it
+// stops on two sides the corner is rounded; where it goes on both ways but
+// not across, a little of the land shows in the inside corner.
+static void draw_corners(Vector2 at, bool n, bool s, bool w, bool e, const bool diag[4], const Texture2D inner[4],
+                         const Texture2D outer[4])
 {
-    const EmbeddedAsset *a = asset_find(name);
-    if (!a) return false;
-    Image img = LoadImageFromMemory(".png", a->data, (int)a->size);
-    if (!img.data) return false;
-    *out = LoadTextureFromImage(img);
-    UnloadImage(img);
-    SetTextureFilter(*out, TEXTURE_FILTER_POINT);
-    return out->id != 0;
-}
-
-static void load_art(void)
-{
-    for (int i = 0; i < MAX_GRASS; i++)
-        if (load_art_texture(TextFormat("tiles/grass_%d", i + 1), &art.grass[art.grass_count])) art.grass_count++;
-    for (int i = 0; i < MAX_VARIANTS; i++) {
-        if (load_art_texture(TextFormat("tiles/tree_%d", i + 1), &art.tree[art.tree_count])) art.tree_count++;
-        if (load_art_texture(TextFormat("tiles/path_%d", i + 1), &art.path[art.path_count])) art.path_count++;
-    }
-    art.has_stump = load_art_texture("tiles/stump", &art.stump);
-    static const char *const sides[4] = { "n", "s", "w", "e" }, *const corners[4] = { "ne", "nw", "se", "sw" };
-    art.has_path_edges = true;
+    bool ns[4] = { n, n, s, s }, we[4] = { e, w, e, w };  // ne, nw, se, sw
     for (int i = 0; i < 4; i++) {
-        for (int v = 0; v < 3; v++)
-            art.has_path_edges &= load_art_texture(TextFormat("tiles/path_edge_%s_%d", sides[i], v + 1), &art.path_edge[i][v]);
-        art.has_path_edges &= load_art_texture(TextFormat("tiles/path_in_%s", corners[i]), &art.path_inner[i]);
+        if (ns[i] && we[i] && !diag[i]) DrawTextureV(inner[i], at, WHITE);
+        else if (!ns[i] && !we[i] && outer[i].id) DrawTextureV(outer[i], at, WHITE);
     }
-}
-
-static void unload_art(void)
-{
-    for (int i = 0; i < art.grass_count; i++) UnloadTexture(art.grass[i]);
-    for (int i = 0; i < art.tree_count; i++) UnloadTexture(art.tree[i]);
-    for (int i = 0; i < art.path_count; i++) UnloadTexture(art.path[i]);
-    for (int i = 0; i < 4; i++) {
-        for (int v = 0; v < 3; v++)
-            if (art.path_edge[i][v].id) UnloadTexture(art.path_edge[i][v]);
-        if (art.path_inner[i].id) UnloadTexture(art.path_inner[i]);
-    }
-    if (art.has_stump) UnloadTexture(art.stump);
-    memset(&art, 0, sizeof art);
 }
 
 // Dirt path or a path out of the area; outside the map counts as path, so
@@ -652,16 +719,14 @@ static bool pathish(const Game *g, int tx, int ty)
 static void draw_path_art(const Game *g, int x, int y, int tx, int ty)
 {
     Vector2 at = { (float)x, (float)y };
-    DrawTextureV(art.path[tile_hash(tx, ty) % (unsigned)art.path_count], at, WHITE);
+    DrawTextureV(art.path.v[tile_hash(tx, ty) % (unsigned)art.path.count], at, WHITE);
     if (!art.has_path_edges) return;
     bool n = pathish(g, tx, ty - 1), s = pathish(g, tx, ty + 1), w = pathish(g, tx - 1, ty), e = pathish(g, tx + 1, ty);
     bool open[4] = { !n, !s, !w, !e };
     for (int i = 0; i < 4; i++)
         if (open[i]) DrawTextureV(art.path_edge[i][tile_hash(tx * 4 + i, ty) % 3u], at, WHITE);
-    if (n && e && !pathish(g, tx + 1, ty - 1)) DrawTextureV(art.path_inner[0], at, WHITE);
-    if (n && w && !pathish(g, tx - 1, ty - 1)) DrawTextureV(art.path_inner[1], at, WHITE);
-    if (s && e && !pathish(g, tx + 1, ty + 1)) DrawTextureV(art.path_inner[2], at, WHITE);
-    if (s && w && !pathish(g, tx - 1, ty + 1)) DrawTextureV(art.path_inner[3], at, WHITE);
+    bool diag[4] = { pathish(g, tx + 1, ty - 1), pathish(g, tx - 1, ty - 1), pathish(g, tx + 1, ty + 1), pathish(g, tx - 1, ty + 1) };
+    draw_corners(at, n, s, w, e, diag, art.path_inner, art.path_outer);
 }
 
 static void draw_grass(int x, int y, int tx, int ty)
@@ -685,141 +750,234 @@ static void draw_grass(int x, int y, int tx, int ty)
     if (h % 19 == 0) DrawRectangle(x + 4 + (int)(h >> 5) % 8, y + 3 + (int)(h >> 9) % 9, 2, 2, FLOWER);
 }
 
+static bool wet(const Game *g, int tx, int ty)
+{
+    TileType t = game_tile_at(g, tx, ty);
+    return t == TILE_WATER || t == TILE_BRIDGE;
+}
+
+// Open water, with a shore on every side that is land.
+static void draw_water(const Game *g, int x, int y, int tx, int ty, float t)
+{
+    if (art.water.count == 0) {
+        DrawRectangle(x, y, TILE, TILE, WATER);
+        float w = sinf(t * 2.0f + tx * 0.9f + ty * 0.6f);
+        DrawRectangle(x + 2 + (int)(w * 2), y + 4, 5, 1, WATER_LIGHT);
+        DrawRectangle(x + 8 - (int)(w * 2), y + 11, 5, 1, WATER_LIGHT);
+        return;
+    }
+    Vector2 at = { (float)x, (float)y };
+    DrawTextureV(art.water.v[(int)(t * 1.6f) % art.water.count], at, WHITE);
+    if (!art.has_banks || game_tile_at(g, tx, ty) != TILE_WATER) return;
+    bool n = wet(g, tx, ty - 1), s = wet(g, tx, ty + 1), w = wet(g, tx - 1, ty), e = wet(g, tx + 1, ty);
+    bool open[4] = { !n, !s, !w, !e };
+    for (int i = 0; i < 4; i++)
+        if (open[i]) DrawTextureV(art.bank[i][tile_hash(tx * 4 + i, ty) % 3u], at, WHITE);
+    bool diag[4] = { wet(g, tx + 1, ty - 1), wet(g, tx - 1, ty - 1), wet(g, tx + 1, ty + 1), wet(g, tx - 1, ty + 1) };
+    draw_corners(at, n, s, w, e, diag, art.bank_inner, art.bank_outer);
+}
+
+// Trees grow in groves of one kind, and each area has its own mix:
+// out of 10, how many oaks and pines (the rest are birches).
+static const Texture2D *tree_texture(const Game *g, int tx, int ty)
+{
+    static const unsigned char mix[][2] = {
+        [AREA_HOME] = { 6, 1 }, [AREA_WOODS] = { 5, 3 }, [AREA_VALLEY] = { 3, 6 }, [AREA_CLEARING] = { 7, 2 },
+    };
+    int area = g->area >= 0 && g->area < (int)(sizeof mix / sizeof mix[0]) ? g->area : 0;
+    unsigned h = tile_hash(tx, ty);
+    int gx = (tx + (int)(h & 3) + 64) / 4, gy = (ty + (int)((h >> 2) & 3) + 64) / 4;
+    unsigned roll = tile_hash(gx + 101 * area, gy * 7 + 3) % 10u;
+    const Variants *v = roll < mix[area][0] ? &art.oak : roll < (unsigned)(mix[area][0] + mix[area][1]) ? &art.pine : &art.birch;
+    if (v->count == 0) v = &art.oak;
+    if (v->count == 0) return NULL;
+    return &v->v[(h >> 5) % (unsigned)v->count];
+}
+
+static bool is_house(TileType t) { return t == TILE_HOUSE || t == TILE_DOOR; }
+
+// The ground: grass, dirt, water and flowers.
+static void draw_ground(const Game *g, int x, int y, int tx, int ty, TileType tile, float t)
+{
+    switch (tile) {
+    case TILE_WATER:
+        draw_water(g, x, y, tx, ty, t);
+        return;
+    case TILE_BRIDGE: {
+        draw_water(g, x, y, tx, ty, t);
+        bool across = wet(g, tx - 1, ty) || wet(g, tx + 1, ty);  // water left and right: walk north-south
+        if (art.has_bridge) {
+            DrawTextureV(across ? art.bridge_v : art.bridge_h, (Vector2){ (float)x, (float)y }, WHITE);
+            return;
+        }
+        DrawRectangle(x + 1, y, TILE - 2, TILE, PLANK);
+        for (int i = 3; i < TILE; i += 4) DrawRectangle(x + 1, y + i, TILE - 2, 1, PLANK_DARK);
+        return;
+    }
+    default:
+        break;
+    }
+    draw_grass(x, y, tx, ty);
+    if (tile == TILE_PATH || tile == TILE_EXIT) {
+        if (art.path.count > 0) {
+            draw_path_art(g, x, y, tx, ty);
+        } else {
+            DrawRectangle(x, y + 2, TILE, TILE - 4, PATH);
+            if (tile_hash(tx, ty) % 2) DrawRectangle(x + 4 + (int)(tile_hash(tx, ty) >> 5) % 8, y + 6, 2, 1, TRUNK_LIGHT);
+        }
+    } else if (tile == TILE_FLOWERS) {
+        if (art.flowers.count > 0) {
+            DrawTextureV(art.flowers.v[tile_hash(tx, ty) % (unsigned)art.flowers.count], (Vector2){ (float)x, (float)y }, WHITE);
+        } else {
+            DrawRectangle(x + 4, y + 5, 2, 2, FLOWER);
+            DrawRectangle(x + 10, y + 9, 2, 2, FLOWER);
+        }
+    }
+}
+
+// The house as one picture, from its top-left tile; or tile by tile.
+static void draw_house_tile(const Game *g, int x, int y, int tx, int ty, TileType tile, float t)
+{
+    if (art.has_house) {
+        if (is_house(game_tile_at(g, tx - 1, ty)) || is_house(game_tile_at(g, tx, ty - 1))) return;
+        DrawTextureV(art.house, (Vector2){ (float)(x - 2), (float)(y - 24) }, WHITE);
+        float k = fmodf(t * 0.5f, 1.0f);  // smoke from the chimney
+        for (int i = 0; i < 2; i++) {
+            float kk = fmodf(k + i * 0.5f, 1.0f);
+            DrawCircle(x + 51 + (int)(kk * 6), y - 26 - (int)(kk * 14), 2 + kk * 3, Fade(RAYWHITE, 0.45f * (1 - kk)));
+        }
+        return;
+    }
+    bool roof = !is_house(game_tile_at(g, tx, ty - 1));
+    if (roof) {
+        DrawRectangle(x - 1, y - 4, TILE + 2, TILE + 4, ROOF);
+        for (int i = 0; i < TILE; i += 4) DrawRectangle(x - 1, y - 4 + i, TILE + 2, 1, ROOF_DARK);
+        DrawRectangle(x - 1, y + TILE - 2, TILE + 2, 2, ROOF_DARK);
+    } else {
+        DrawRectangle(x, y, TILE, TILE, TRUNK_LIGHT);
+        for (int i = 3; i < TILE; i += 4) DrawRectangle(x, y + i, TILE, 1, TRUNK);
+        if (tile == TILE_DOOR) {
+            DrawRectangle(x + 3, y + 2, 10, 14, PLANK_DARK);
+            DrawRectangle(x + 4, y + 3, 8, 13, TRUNK);
+        }
+    }
+}
+
+// Things standing on the ground: trees, rocks, the house... Drawn after all
+// of the ground, row by row, so tall things cover what is behind them.
+static void draw_object(const Game *g, int x, int y, int tx, int ty, TileType tile, float t)
+{
+    switch (tile) {
+    case TILE_WALL:  // the edge of the world: deep forest
+    case TILE_TREE: {
+        const Texture2D *tex = tree_texture(g, tx, ty);
+        if (tex) {
+            DrawTextureV(*tex, (Vector2){ (float)x, (float)(y - 8) }, WHITE);
+            break;
+        }
+        DrawEllipse(x + 8, y + 14, 7, 2, SHADOW);
+        DrawRectangle(x + 6, y + 9, 4, 6, TRUNK);
+        DrawCircle(x + 8, y + 6, 7.5f, LEAVES);
+        DrawCircle(x + 6, y + 4, 3.5f, LEAVES_LIGHT);
+        break;
+    }
+    case TILE_STUMP:
+        if (art.has_stump) {
+            DrawTextureV(art.stump, (Vector2){ (float)x, (float)y }, WHITE);
+            break;
+        }
+        DrawEllipse(x + 8, y + 10, 4, 3, TRUNK);
+        DrawEllipse(x + 8, y + 9, 3, 2, TRUNK_LIGHT);
+        break;
+    case TILE_ROCK:
+        if (art.rock.count > 0) {
+            DrawTextureV(art.rock.v[tile_hash(tx, ty) % (unsigned)art.rock.count], (Vector2){ (float)x, (float)y }, WHITE);
+            break;
+        }
+        DrawEllipse(x + 8, y + 13, 7, 2, SHADOW);
+        DrawEllipse(x + 8, y + 9, 7, 6, ROCK_DARK);
+        DrawEllipse(x + 7, y + 8, 6, 5, ROCK);
+        break;
+    case TILE_BUSH:
+        if (art.bush.count > 0) {
+            // Berries on one bush in four.
+            unsigned h = tile_hash(tx, ty);
+            int v = art.bush.count > 1 && h % 4 == 0 ? 1 : 0;
+            DrawTextureV(art.bush.v[v], (Vector2){ (float)x, (float)y }, WHITE);
+            break;
+        }
+        DrawEllipse(x + 8, y + 13, 7, 2, SHADOW);
+        DrawCircle(x + 8, y + 9, 6, LEAVES);
+        DrawCircle(x + 6, y + 7, 3, LEAVES_LIGHT);
+        break;
+    case TILE_CHEST:
+    case TILE_CHEST_AXE:
+        DrawEllipse(x + 8, y + 14, 7, 2, SHADOW);
+        DrawRectangle(x + 2, y + 5, 12, 9, PLANK_DARK);
+        DrawRectangle(x + 3, y + 6, 10, 3, PLANK);
+        DrawRectangle(x + 3, y + 10, 10, 3, PLANK);
+        DrawRectangle(x + 7, y + 8, 2, 3, GOLDEN);
+        break;
+    case TILE_CHEST_OPEN:
+        DrawEllipse(x + 8, y + 14, 7, 2, SHADOW);
+        DrawRectangle(x + 2, y + 3, 12, 3, PLANK);
+        DrawRectangle(x + 2, y + 7, 12, 7, PLANK_DARK);
+        DrawRectangle(x + 3, y + 8, 10, 2, INK);
+        break;
+    case TILE_FIRE: {
+        DrawCircle(x + 8, y + 11, 6, Fade(INK, 0.35f));  // ring of ash
+        for (int i = 0; i < 6; i++) {                     // ring of stones
+            float a = i * 1.047f;
+            DrawCircle(x + 8 + (int)(cosf(a) * 6), y + 11 + (int)(sinf(a) * 3), 1.6f, ROCK);
+        }
+        DrawRectangle(x + 3, y + 11, 10, 2, TRUNK);
+        DrawRectangle(x + 5, y + 10, 6, 2, TRUNK_LIGHT);
+        float f = sinf(t * 12.0f + tx) * 1.0f;
+        DrawCircle(x + 8, y + 9, 6 + f * 0.5f, Fade(FIRE_A, 0.25f));
+        DrawTriangle((Vector2){ x + 8.0f + f, y + 2.0f }, (Vector2){ x + 4.0f, y + 11.0f },
+                     (Vector2){ x + 12.0f, y + 11.0f }, FIRE_A);
+        DrawTriangle((Vector2){ x + 8.0f - f, y + 6.0f }, (Vector2){ x + 6.0f, y + 11.0f },
+                     (Vector2){ x + 10.0f, y + 11.0f }, FIRE_B);
+        break;
+    }
+    case TILE_GODDESS:
+        draw_goddess_fallen(x + 8.0f, y + 9.0f, 1.0f, t);
+        break;
+    case TILE_HOUSE:
+    case TILE_DOOR:
+        draw_house_tile(g, x, y, tx, ty, tile, t);
+        break;
+    case TILE_WOODPILE:
+        DrawEllipse(x + 8, y + 14, 8, 2, SHADOW);
+        for (int r = 0; r < 3; r++)
+            for (int c = 0; c < 3 - r; c++) {
+                int lx = x + 3 + c * 5 + r * 2, ly = y + 11 - r * 4;
+                DrawCircle(lx, ly, 2.5f, TRUNK_LIGHT);
+                DrawCircle(lx, ly, 1.0f, TRUNK);
+            }
+        break;
+    default:
+        break;
+    }
+}
+
 static void draw_map(const Game *g, int cam_x, int cam_y)
 {
     int x0 = (int)floorf(cam_x / (float)TILE), x1 = (cam_x + VIEW_W) / TILE + 1;
     int y0 = (int)floorf(cam_y / (float)TILE), y1 = (cam_y + VIEW_H) / TILE + 1;
     float t = g->time;
-    for (int ty = y0; ty <= y1; ty++) {
-        for (int tx = x0; tx <= x1; tx++) {
-            int x = tx * TILE - cam_x, y = ty * TILE - cam_y;
+    for (int ty = y0; ty <= y1; ty++)
+        for (int tx = x0; tx <= x1; tx++)
+            draw_ground(g, tx * TILE - cam_x, ty * TILE - cam_y, tx, ty, game_tile_at(g, tx, ty), t);
+    // Objects reach up into the row above, and the house up to 4 tiles left
+    // and 3 up from where it is drawn: start a little outside the view.
+    for (int ty = y0 - 3; ty <= y1 + 1; ty++)
+        for (int tx = x0 - 4; tx <= x1; tx++) {
             TileType tile = game_tile_at(g, tx, ty);
-            if (tile != TILE_WALL && tile != TILE_WATER) draw_grass(x, y, tx, ty);
-            switch (tile) {
-            case TILE_WALL: {
-                DrawRectangle(x, y, TILE, TILE, CLIFF);
-                unsigned h = tile_hash(tx, ty);
-                DrawRectangle(x + (int)(h % 10), y + 3 + (int)((h >> 4) % 8), 4, 2, CLIFF_DARK);
-                if (game_tile_at(g, tx, ty - 1) != TILE_WALL) DrawRectangle(x, y, TILE, 3, CLIFF_TOP);
-                if (game_tile_at(g, tx, ty + 1) != TILE_WALL) DrawRectangle(x, y + TILE - 3, TILE, 3, CLIFF_DARK);
-                break;
-            }
-            case TILE_TREE:
-                if (art.tree_count > 0) {
-                    DrawTextureV(art.tree[tile_hash(tx, ty) % (unsigned)art.tree_count], (Vector2){ (float)x, (float)(y - 8) }, WHITE);
-                    break;
-                }
-                DrawEllipse(x + 8, y + 14, 7, 2, SHADOW);
-                DrawRectangle(x + 6, y + 9, 4, 6, TRUNK);
-                DrawCircle(x + 8, y + 6, 7.5f, LEAVES);
-                DrawCircle(x + 6, y + 4, 3.5f, LEAVES_LIGHT);
-                break;
-            case TILE_STUMP:
-                if (art.has_stump) {
-                    DrawTextureV(art.stump, (Vector2){ (float)x, (float)y }, WHITE);
-                    break;
-                }
-                DrawEllipse(x + 8, y + 10, 4, 3, TRUNK);
-                DrawEllipse(x + 8, y + 9, 3, 2, TRUNK_LIGHT);
-                DrawRectangle(x + 3, y + 12, 3, 1, TRUNK_LIGHT);  // a few chips
-                DrawRectangle(x + 11, y + 13, 2, 1, TRUNK_LIGHT);
-                break;
-            case TILE_ROCK:
-                DrawEllipse(x + 8, y + 13, 7, 2, SHADOW);
-                DrawEllipse(x + 8, y + 9, 7, 6, ROCK_DARK);
-                DrawEllipse(x + 7, y + 8, 6, 5, ROCK);
-                DrawRectangle(x + 4, y + 6, 3, 1, Fade(RAYWHITE, 0.5f));
-                break;
-            case TILE_WATER: {
-                DrawRectangle(x, y, TILE, TILE, WATER);
-                float w = sinf(t * 2.0f + tx * 0.9f + ty * 0.6f);
-                DrawRectangle(x + 2 + (int)(w * 2), y + 4, 5, 1, WATER_LIGHT);
-                DrawRectangle(x + 8 - (int)(w * 2), y + 11, 5, 1, WATER_LIGHT);
-                break;
-            }
-            case TILE_BRIDGE:
-                DrawRectangle(x, y, TILE, TILE, WATER);
-                DrawRectangle(x + 1, y, TILE - 2, TILE, PLANK);
-                for (int i = 3; i < TILE; i += 4) DrawRectangle(x + 1, y + i, TILE - 2, 1, PLANK_DARK);
-                break;
-            case TILE_CHEST:
-            case TILE_CHEST_AXE:
-                DrawRectangle(x + 2, y + 5, 12, 9, PLANK_DARK);
-                DrawRectangle(x + 3, y + 6, 10, 3, PLANK);
-                DrawRectangle(x + 3, y + 10, 10, 3, PLANK);
-                DrawRectangle(x + 7, y + 8, 2, 3, GOLDEN);
-                break;
-            case TILE_CHEST_OPEN:
-                DrawRectangle(x + 2, y + 3, 12, 3, PLANK);
-                DrawRectangle(x + 2, y + 7, 12, 7, PLANK_DARK);
-                DrawRectangle(x + 3, y + 8, 10, 2, INK);
-                break;
-            case TILE_FIRE: {
-                DrawRectangle(x + 3, y + 11, 10, 2, TRUNK);
-                DrawRectangle(x + 5, y + 10, 6, 2, TRUNK_LIGHT);
-                float f = sinf(t * 12.0f + tx) * 1.0f;
-                DrawCircle(x + 8, y + 9, 6 + f * 0.5f, Fade(FIRE_A, 0.25f));
-                DrawTriangle((Vector2){ x + 8.0f + f, y + 2.0f }, (Vector2){ x + 4.0f, y + 11.0f },
-                             (Vector2){ x + 12.0f, y + 11.0f }, FIRE_A);
-                DrawTriangle((Vector2){ x + 8.0f - f, y + 6.0f }, (Vector2){ x + 6.0f, y + 11.0f },
-                             (Vector2){ x + 10.0f, y + 11.0f }, FIRE_B);
-                break;
-            }
-            case TILE_GODDESS:
-                draw_goddess_fallen(x + 8.0f, y + 9.0f, 1.0f, t);
-                break;
-            case TILE_EXIT:
-            case TILE_PATH:
-                if (art.path_count > 0) {
-                    draw_path_art(g, x, y, tx, ty);
-                    break;
-                }
-                DrawRectangle(x, y + 2, TILE, TILE - 4, PATH);
-                if (tile_hash(tx, ty) % 2) DrawRectangle(x + 4 + (int)(tile_hash(tx, ty) >> 5) % 8, y + 6, 2, 1, TRUNK_LIGHT);
-                break;
-            case TILE_HOUSE:
-            case TILE_DOOR: {
-                TileType above = game_tile_at(g, tx, ty - 1);
-                bool roof = above != TILE_HOUSE && above != TILE_DOOR;
-                if (roof) {
-                    DrawRectangle(x - 1, y - 4, TILE + 2, TILE + 4, ROOF);
-                    for (int i = 0; i < TILE; i += 4) DrawRectangle(x - 1, y - 4 + i, TILE + 2, 1, ROOF_DARK);
-                    DrawRectangle(x - 1, y + TILE - 2, TILE + 2, 2, ROOF_DARK);
-                    TileType right = game_tile_at(g, tx + 1, ty);
-                    if (right != TILE_HOUSE && right != TILE_DOOR) {  // chimney with a wisp of smoke
-                        DrawRectangle(x + 8, y - 9, 5, 7, CLIFF_DARK);
-                        float k = fmodf(t * 0.6f, 1.0f);
-                        DrawCircle(x + 11 + (int)(k * 4), y - 11 - (int)(k * 10), 2 + k * 2, Fade(RAYWHITE, 0.5f * (1 - k)));
-                    }
-                } else {
-                    DrawRectangle(x, y, TILE, TILE, TRUNK_LIGHT);
-                    for (int i = 3; i < TILE; i += 4) DrawRectangle(x, y + i, TILE, 1, TRUNK);
-                    if (tile == TILE_DOOR) {
-                        DrawRectangle(x + 3, y + 2, 10, 14, PLANK_DARK);
-                        DrawRectangle(x + 4, y + 3, 8, 13, TRUNK);
-                        DrawRectangle(x + 10, y + 9, 1, 2, GOLDEN);
-                    } else if (game_tile_at(g, tx, ty + 1) == TILE_HOUSE || game_tile_at(g, tx, ty + 1) == TILE_DOOR || tx % 2) {
-                        DrawRectangle(x + 4, y + 4, 8, 7, PLANK_DARK);  // window with a warm light
-                        DrawRectangle(x + 5, y + 5, 6, 5, FIRE_B);
-                        DrawRectangle(x + 7, y + 5, 1, 5, PLANK_DARK);
-                    }
-                }
-                break;
-            }
-            case TILE_WOODPILE:
-                DrawEllipse(x + 8, y + 14, 8, 2, SHADOW);
-                for (int r = 0; r < 3; r++)
-                    for (int c = 0; c < 3 - r; c++) {
-                        int lx = x + 3 + c * 5 + r * 2, ly = y + 11 - r * 4;
-                        DrawCircle(lx, ly, 2.5f, TRUNK_LIGHT);
-                        DrawCircle(lx, ly, 1.0f, TRUNK);
-                    }
-                break;
-            default:
-                break;
-            }
+            bool far = ty < y0 || tx < x0 || ty > y1;
+            if (far && !is_house(tile) && !(ty == y1 + 1 && tx >= x0)) continue;
+            draw_object(g, tx * TILE - cam_x, ty * TILE - cam_y, tx, ty, tile, t);
         }
-    }
 }
 
 static Species encounter_leader(Encounter e)
@@ -942,6 +1100,24 @@ static void draw_battle_background(const Game *g)
     Color top = boss ? (Color){ 40, 36, 60, 255 } : (Color){ 110, 160, 200, 255 };
     Color bottom = boss ? (Color){ 70, 90, 70, 255 } : (Color){ 170, 210, 190, 255 };
     DrawRectangleGradientV(0, 0, VIEW_W, PANEL_Y, top, bottom);
+    if (art.grass_count > 0 && art.oak.count > 0) {
+        // The ground and two rows of the area's trees, at twice the size;
+        // the far row fades into the sky.
+        for (int i = 0; i * 64 < VIEW_W; i++)
+            DrawTexturePro(art.grass[tile_hash(i, 7) % (unsigned)art.grass_count], (Rectangle){ 0, 0, 32, 20 },
+                           (Rectangle){ i * 64.0f, 78, 64, 40 }, (Vector2){ 0, 0 }, 0, WHITE);
+        for (int row = 0; row < 2; row++) {
+            Color tint = row == 0 ? (Color){ 150, 176, 196, 255 } : (Color){ 214, 226, 220, 255 };
+            if (boss) tint = row == 0 ? (Color){ 70, 70, 100, 255 } : (Color){ 120, 130, 140, 255 };
+            for (int i = -1; i < 16; i++) {
+                const Texture2D *t = tree_texture(g, i * 2 + row * 37, row * 9);
+                if (!t) continue;
+                float x = i * 22.0f + row * 11 + (float)(tile_hash(i, row) % 5);
+                DrawTexturePro(*t, (Rectangle){ 0, 0, 16, 24 }, (Rectangle){ x, 36.0f + row * 6, 32, 48 }, (Vector2){ 0, 0 }, 0, tint);
+            }
+        }
+        return;
+    }
     for (int i = 0; i < 12; i++) {
         float x = i * 30.0f + (i % 3) * 7;
         DrawRectangle((int)x + 6, 40, 5, 40, Fade(BARK_DARK, 0.6f));

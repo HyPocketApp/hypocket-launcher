@@ -57,6 +57,8 @@ typedef enum {
     TILE_DOOR,       // 'D' its door: rest at home
     TILE_PATH,       // ':' dirt path
     TILE_WOODPILE,   // 'W' stacked firewood, blocks
+    TILE_BUSH,       // 'o' bush, blocks until cut
+    TILE_FLOWERS,    // ',' flowers on the grass
 } TileType;
 
 // The areas, in the order of areas_rows() (levels.c).

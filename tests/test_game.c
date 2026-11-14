@@ -101,7 +101,7 @@ static bool map_is_completable(const Game *m)
             int nx = x + dirs[i][0], ny = y + dirs[i][1];
             if (nx < 0 || ny < 0 || nx >= m->w || ny >= m->h || seen[ny][nx]) continue;
             TileType t = game_tile_at(m, nx, ny);
-            if (t != TILE_TREE && game_tile_blocks(t)) continue;
+            if (t != TILE_TREE && t != TILE_BUSH && game_tile_blocks(t)) continue;
             seen[ny][nx] = true;
             queue[tail++] = ny * MAX_MAP_W + nx;
         }

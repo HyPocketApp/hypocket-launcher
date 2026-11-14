@@ -30,3 +30,10 @@
 - Trees (16x24, hang 8 px over the tile above), the stump and the dirt path
   (fill, ragged grass edges, inside corners) come from `tools/make_tiles.py`.
   Do not put chests, fires or doors right above a tree: its top covers them.
+- Pines, birches, rocks, water (frames, shores, rounded corners), bridges,
+  bushes, flowers and the house come from `tools/make_props.py`; monsters
+  (slime, beetle, wolf, two frames each) from `tools/make_monsters.py`,
+  written as letter grids. Trees grow in groves; each area has its own mix
+  of oak, pine and birch (`tree_texture()` in main.c).
+- Maps: `#` is deep forest drawn as trees. Shape areas with irregular forest
+  edges, winding paths and ponds; avoid straight walls and square blocks.

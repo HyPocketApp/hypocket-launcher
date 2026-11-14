@@ -69,7 +69,7 @@ bool game_tile_blocks(TileType t)
 {
     return t == TILE_WALL || t == TILE_TREE || t == TILE_ROCK || t == TILE_WATER || t == TILE_CHEST ||
            t == TILE_CHEST_AXE || t == TILE_CHEST_OPEN || t == TILE_FIRE || t == TILE_GODDESS || t == TILE_HOUSE ||
-           t == TILE_DOOR || t == TILE_WOODPILE;
+           t == TILE_DOOR || t == TILE_WOODPILE || t == TILE_BUSH;
 }
 
 static bool foe_blocked_by(TileType t) { return game_tile_blocks(t) || t == TILE_EXIT || t == TILE_BRIDGE; }
@@ -178,6 +178,8 @@ bool area_load_rows(Game *g, const char *const *rows, int row_count)
             case 'D': t = TILE_DOOR; break;
             case ':': t = TILE_PATH; break;
             case 'W': t = TILE_WOODPILE; break;
+            case 'o': t = TILE_BUSH; break;
+            case ',': t = TILE_FLOWERS; break;
             case 'P':
                 g->start_x = tx * TILE + (TILE - WALKER_SIZE) / 2.0f;
                 g->start_y = ty * TILE + (TILE - WALKER_SIZE) / 2.0f;
@@ -308,6 +310,10 @@ static void map_action(Game *g)
     switch (game_tile_at(g, tx, ty)) {
     case TILE_TREE:
         g->tiles[ty][tx] = TILE_STUMP;
+        g->events |= EVENT_CHOP;
+        break;
+    case TILE_BUSH:
+        g->tiles[ty][tx] = TILE_FLOOR;
         g->events |= EVENT_CHOP;
         break;
     case TILE_ROCK:

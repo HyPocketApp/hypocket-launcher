@@ -10,7 +10,8 @@ top left. Run:  python3 tools/make_tiles.py
   path_edge_X_N.png 16x16, transparent: grass creeping over the dirt along
                   one side (n, s, w, e), drawn where the next tile is not
                   path; three variants per side so the edge does not repeat
-  path_in_XY.png  16x16, transparent: a little grass in one corner (ne, nw,
+  path_edge_out_XY.png 16x16, transparent: rounds the outside of a turn
+  path_edge_in_XY.png 16x16, transparent: a little grass in one corner (ne, nw,
                   se, sw), drawn where the path turns
 """
 import math
@@ -191,6 +192,22 @@ def inner(corner):
     return img
 
 
+def outer(corner):
+    """Rounds the corner where the path turns: grass outside a quarter circle."""
+    img = blank(16, 16)
+    px = img.load()
+    c, radius = 8.0, 5.5
+    for y in range(8):
+        for x in range(8):
+            s = math.hypot(c - x - 0.5, c - y - 0.5) - radius
+            if s <= -0.5:
+                continue
+            col = G_BASE if s > 1.5 else G_SHADE if s > 0.5 else D_DARK
+            xx, yy = (15 - x if 'e' in corner else x), (15 - y if 's' in corner else y)
+            px[xx, yy] = col + (255,)
+    return img
+
+
 def save(img, name):
     img.save(os.path.join(OUT, name + '.png'), optimize=True)
 
@@ -209,7 +226,8 @@ def main():
         for v in range(1, 4):
             save(edge(side, seed + v), 'path_edge_%s_%d' % (side, v))
     for corner in ('ne', 'nw', 'se', 'sw'):
-        save(inner(corner), 'path_in_' + corner)
+        save(inner(corner), 'path_edge_in_' + corner)
+        save(outer(corner), 'path_edge_out_' + corner)
     print('wrote trees, stump and path to', os.path.normpath(OUT))
 
 
