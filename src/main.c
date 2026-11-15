@@ -5,6 +5,7 @@
 // laid out on a 320x180 screen, drawn at twice that (640x360) so the art can
 // have 32x32 pixels per map tile, and scaled up to the window.
 #include "game.h"
+#include "save.h"
 #include "assets.h"
 #include "story.h"
 #include "text.h"
@@ -13,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define COUNT(a) (int)(sizeof(a) / sizeof((a)[0]))
 
@@ -196,12 +198,29 @@ static Rectangle menu_entry_rect(int i)
 }
 
 // The title menu: entries in a box in the middle of the screen.
-#define TITLE_MENU_Y 80
+#define TITLE_MENU_Y 70
 #define TITLE_LINE 16
 
 static Rectangle title_entry_rect(int i)
 {
     return (Rectangle){ 100, (float)(TITLE_MENU_Y + 4 + i * TITLE_LINE), 120, TITLE_LINE };
+}
+
+// The load page: saves in rows of two lines, LOAD_ROWS at a time, and Back
+// under them. load_first is the first save shown.
+#define LOAD_Y 62
+#define LOAD_ROW 22
+#define LOAD_ROWS 4
+static int load_first = 0;
+
+static Rectangle load_row_rect(int row)
+{
+    return (Rectangle){ 44, (float)(LOAD_Y + 4 + row * LOAD_ROW), 232, LOAD_ROW };
+}
+
+static Rectangle load_back_rect(void)
+{
+    return (Rectangle){ 44, (float)(LOAD_Y + 4 + LOAD_ROWS * LOAD_ROW + 2), 232, 14 };
 }
 
 // Where each monster stands, and how big it is drawn.
@@ -285,8 +304,12 @@ static void poll_touch(InputState *s, View v, const Game *g)
             } else {
                 s->confirm = true;  // tap to skip a message
             }
+        } else if (g->state == STATE_TITLE && g->title_page == PAGE_LOAD) {
+            for (int i = 0; i < LOAD_ROWS && load_first + i < g->save_count; i++)
+                if (CheckCollisionPointRec(p, load_row_rect(i))) s->pick = load_first + i + 1;
+            if (CheckCollisionPointRec(p, load_back_rect())) s->pick = g->save_count + 1;
         } else if (g->state == STATE_TITLE) {
-            int n = g->title_options ? OPTION_COUNT : TITLE_COUNT;
+            int n = g->title_page == PAGE_OPTIONS ? OPTION_COUNT : TITLE_COUNT;
             for (int i = 0; i < n; i++)
                 if (CheckCollisionPointRec(p, title_entry_rect(i))) s->pick = i + 1;
         } else {
@@ -1633,6 +1656,66 @@ static void check_story_fits(void)
 
 // --- Screens ----------------------------------------------------------------------------
 
+// The saves on disk, newest first, for the load page.
+static SaveInfo *saves = NULL;
+static int save_total = 0;
+
+static void refresh_saves(void)
+{
+    free(saves);
+    saves = save_list(&save_total);
+}
+
+// The load page: each save shows its number, level, area and when it was
+// saved.
+static void draw_load_page(const Game *g, bool touch)
+{
+    int n = save_total;
+    if (g->title_cursor < n) {  // keep the chosen save in view
+        if (g->title_cursor < load_first) load_first = g->title_cursor;
+        if (g->title_cursor >= load_first + LOAD_ROWS) load_first = g->title_cursor - LOAD_ROWS + 1;
+    }
+    if (load_first > n - LOAD_ROWS) load_first = n - LOAD_ROWS;
+    if (load_first < 0) load_first = 0;
+
+    draw_text_centered(text_get(TXT_LOAD_GAME), LOAD_Y - 12, 10, Fade(RAYWHITE, 0.8f));
+    draw_box((Rectangle){ 40, LOAD_Y, 240, LOAD_ROWS * LOAD_ROW + 26 });
+    for (int i = 0; i < LOAD_ROWS && load_first + i < n; i++) {
+        const SaveInfo *sv = &saves[load_first + i];
+        Rectangle r = load_row_rect(i);
+        bool on = g->title_cursor == load_first + i;
+        if (on) DrawRectangleRec(r, Fade(PANEL_EDGE, 0.2f));
+        if (i > 0) DrawRectangle((int)r.x + 4, (int)r.y, (int)r.width - 8, 1, Fade(PANEL_EDGE, 0.25f));
+        int x = (int)r.x + 12, right = (int)(r.x + r.width) - 6;
+        draw_text_shadow(TextFormat(text_get(TXT_SAVE_NAME), sv->slot), x, (int)r.y + 2, 10, on ? GOLDEN : RAYWHITE);
+        const char *lv = TextFormat(text_get(TXT_LEVEL_LONG), sv->level);
+        draw_text_shadow(lv, right - MeasureText(lv, 10), (int)r.y + 2, 10, on ? GOLDEN : RAYWHITE);
+        if (sv->area >= 0 && sv->area <= 3)
+            draw_text_shadow(text_get((TextId)(TXT_MAP_HOME + sv->area)), x, (int)r.y + 12, 10, Fade(RAYWHITE, 0.6f));
+        time_t when = (time_t)sv->saved_at;
+        struct tm *tm = localtime(&when);
+        char date[32] = "";
+        if (tm) strftime(date, sizeof date, text_is_portuguese() ? "%d/%m/%Y %H:%M" : "%Y-%m-%d %H:%M", tm);
+        draw_text_shadow(date, right - MeasureText(date, 10), (int)r.y + 12, 10, Fade(RAYWHITE, 0.6f));
+        if (on && !touch) DrawTriangle((Vector2){ r.x + 3, r.y + 3 }, (Vector2){ r.x + 3, r.y + 11 }, (Vector2){ r.x + 8, r.y + 7 }, GOLDEN);
+    }
+    // Little arrows when there are more saves above or below.
+    float ax = 288;
+    if (load_first > 0)
+        DrawTriangle((Vector2){ ax, LOAD_Y + 6 }, (Vector2){ ax - 4, LOAD_Y + 11 }, (Vector2){ ax + 4, LOAD_Y + 11 }, GOLDEN);
+    if (load_first + LOAD_ROWS < n) {
+        float by = LOAD_Y + 4 + LOAD_ROWS * LOAD_ROW;
+        DrawTriangle((Vector2){ ax - 4, by - 4 }, (Vector2){ ax, by + 1 }, (Vector2){ ax + 4, by - 4 }, GOLDEN);
+    }
+    Rectangle r = load_back_rect();
+    bool on = g->title_cursor == n;
+    if (on) DrawRectangleRec(r, Fade(PANEL_EDGE, 0.2f));
+    const char *back = text_get(TXT_BACK);
+    int bx = (int)(r.x + (r.width - MeasureText(back, 10)) / 2);
+    draw_text_shadow(back, bx, (int)r.y + 2, 10, on ? GOLDEN : RAYWHITE);
+    if (on && !touch) DrawTriangle((Vector2){ (float)bx - 9, r.y + 2 }, (Vector2){ (float)bx - 9, r.y + 10 }, (Vector2){ (float)bx - 4, r.y + 6 }, GOLDEN);
+}
+
 // The title screen: the name, the lumberjack and the goddess on either side,
 // and the menu between them.
 static void draw_title(const Game *g, bool touch)
@@ -1640,20 +1723,27 @@ static void draw_title(const Game *g, bool touch)
     DrawRectangle(0, 0, VIEW_W, VIEW_H, Fade(INK, 0.5f));
     DrawRectangleGradientV(0, 0, VIEW_W, 70, Fade(INK, 0.6f), Fade(INK, 0.0f));
     DrawRectangleGradientV(0, 140, VIEW_W, 40, Fade(INK, 0.0f), Fade(INK, 0.7f));
-    draw_text_centered("TIMBERHEART", 24, 30, GOLDEN);
-    DrawRectangle(96, 56, 128, 1, Fade(GOLDEN, 0.6f));
+    draw_text_centered("TIMBERHEART", 14, 30, GOLDEN);
+    DrawRectangle(96, 46, 128, 1, Fade(GOLDEN, 0.6f));
+    if (g->title_page == PAGE_LOAD) {
+        draw_load_page(g, touch);
+        return;
+    }
     float swing = fmodf(g->time, 3.0f) < 0.4f ? fmodf(g->time, 3.0f) / 0.4f : 0;
     draw_lumberjack(58, 112, 2.0f, 1, 0, 0, swing);
     draw_goddess(262, 112 + sinf(g->time * 2.0f), 2.0f, g->time, -1, 0, 0);
 
-    int count = g->title_options ? OPTION_COUNT : TITLE_COUNT;
-    if (g->title_options) draw_text_centered(text_get(TXT_OPTIONS), TITLE_MENU_Y - 14, 10, Fade(RAYWHITE, 0.8f));
+    bool options = g->title_page == PAGE_OPTIONS;
+    int count = options ? OPTION_COUNT : TITLE_COUNT;
+    if (options) draw_text_centered(text_get(TXT_OPTIONS), TITLE_MENU_Y - 14, 10, Fade(RAYWHITE, 0.8f));
     draw_box((Rectangle){ 96, TITLE_MENU_Y, 128, (float)(count * TITLE_LINE + 8) });
     for (int i = 0; i < count; i++) {
         const char *label;
-        if (!g->title_options) {
-            static const TextId labels[TITLE_COUNT] = { TXT_NEW_GAME, TXT_OPTIONS, TXT_QUIT };
+        bool enabled = true;
+        if (!options) {
+            static const TextId labels[TITLE_COUNT] = { TXT_NEW_GAME, TXT_LOAD_GAME, TXT_OPTIONS, TXT_QUIT };
             label = text_get(labels[i]);
+            enabled = i != TITLE_LOAD || g->save_count > 0;
         } else if (i == OPTION_LANGUAGE) {
             label = TextFormat("%s: %s", text_get(TXT_LANGUAGE_LABEL), text_get(TXT_LANGUAGE));
         } else if (i == OPTION_SOUND) {
@@ -1665,7 +1755,7 @@ static void draw_title(const Game *g, bool touch)
         bool on = g->title_cursor == i;
         int w = MeasureText(label, 10), x = (int)(r.x + (r.width - w) / 2), y = (int)r.y + 3;
         if (on) DrawRectangleRec((Rectangle){ r.x - 2, r.y, r.width + 4, r.height }, Fade(PANEL_EDGE, 0.2f));
-        draw_text_shadow(label, x, y, 10, on ? GOLDEN : RAYWHITE);
+        draw_text_shadow(label, x, y, 10, !enabled ? DISABLED : on ? GOLDEN : RAYWHITE);
         if (on && !touch) {  // a little arrow that bobs
             int bob = (int)(fmodf(g->time * 2.0f, 1.0f) < 0.5f);
             DrawTriangle((Vector2){ (float)(x - 9 + bob), (float)y }, (Vector2){ (float)(x - 9 + bob), (float)(y + 8) },
@@ -1761,6 +1851,32 @@ static void draw_game(const Game *g, const InputState *s, float chop)
 
 // --- Main loop ----------------------------------------------------------------------------
 
+// Where the saves go: the app's own storage on Android; elsewhere the
+// user's data folder.
+#if defined(PLATFORM_ANDROID)
+#include <android_native_app_glue.h>
+struct android_app *GetAndroidApp(void);  // from raylib
+#endif
+static const char *saves_folder(void)
+{
+    static char path[512];
+#if defined(PLATFORM_ANDROID)
+    struct android_app *app = GetAndroidApp();
+    snprintf(path, sizeof path, "%s", app && app->activity && app->activity->internalDataPath ? app->activity->internalDataPath : ".");
+#elif defined(_WIN32)
+    const char *base = getenv("APPDATA");
+    snprintf(path, sizeof path, "%s/Timberheart", base ? base : ".");
+#elif defined(__APPLE__)
+    const char *home = getenv("HOME");
+    snprintf(path, sizeof path, "%s/Library/Application Support/Timberheart", home ? home : ".");
+#else
+    const char *data = getenv("XDG_DATA_HOME"), *home = getenv("HOME");
+    if (data && *data) snprintf(path, sizeof path, "%s/timberheart", data);
+    else snprintf(path, sizeof path, "%s/.local/share/timberheart", home ? home : ".");
+#endif
+    return path;
+}
+
 int main(int argc, char *argv[])
 {
     SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_RESIZABLE);
@@ -1782,6 +1898,12 @@ int main(int argc, char *argv[])
     load_art();
 
     check_story_fits();
+    save_set_dir(saves_folder());
+    {
+        bool pt = text_is_portuguese();
+        if (settings_read(&pt, &sound_on)) text_set_portuguese(pt);
+    }
+    refresh_saves();
 
     static Game game;
     game_init(&game);
@@ -1804,7 +1926,7 @@ int main(int argc, char *argv[])
 
         // Esc or the Android back button on the title screen closes the game.
         // (On the options page it goes back to the menu instead.)
-        if (game.state == STATE_TITLE && !game.title_options && (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_BACK)))
+        if (game.state == STATE_TITLE && game.title_page == PAGE_MAIN && (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_BACK)))
             quit = true;
 
         // Fixed steps keep the game the same at any frame rate.
@@ -1814,11 +1936,24 @@ int main(int argc, char *argv[])
         while (accumulator >= STEP_DT) {
             bool on_map = game.state == STATE_MAP;
             take_presses(&input, &in);
+            if (game.state == STATE_TITLE) game.save_count = save_total;
             game_step(&game, &in);
             if (on_map && in.confirm_pressed) chop = 0.01f;  // swing the axe
-            if (game.events & EVENT_LANGUAGE) text_set_portuguese(!text_is_portuguese());
-            if (game.events & EVENT_SOUND) sound_on = !sound_on;
+            if (game.events & (EVENT_LANGUAGE | EVENT_SOUND)) {
+                if (game.events & EVENT_LANGUAGE) text_set_portuguese(!text_is_portuguese());
+                if (game.events & EVENT_SOUND) sound_on = !sound_on;
+                settings_write(text_is_portuguese(), sound_on);
+            }
             if (game.events & EVENT_QUIT) quit = true;
+            if (game.events & EVENT_SAVE) {
+                if (!save_write(&game)) TraceLog(LOG_WARNING, "could not save the game in %s", save_dir());
+                refresh_saves();
+            }
+            if ((game.events & EVENT_LOAD) && game.title_cursor < save_total) {
+                if (save_read(saves[game.title_cursor].slot, &game)) game_loaded(&game);
+                else game.events |= EVENT_DENIED;
+            }
+            if (game.state == STATE_TITLE && game.title_page != PAGE_LOAD) load_first = 0;
             play_events(&sounds, game.events);
             accumulator -= STEP_DT;
         }
@@ -1837,6 +1972,7 @@ int main(int argc, char *argv[])
         EndDrawing();
     }
 
+    free(saves);
     unload_sounds(&sounds);
     unload_art();
     UnloadRenderTexture(canvas);

@@ -17,6 +17,9 @@ typedef enum {
     TXT_NEW_GAME,       // title menu
     TXT_OPTIONS,
     TXT_QUIT,
+    TXT_LOAD_GAME,
+    TXT_SAVE_NAME,      // %d: the game's number
+    TXT_LEVEL_LONG,     // %d
     TXT_LANGUAGE,       // the name of the language, in itself
     TXT_LANGUAGE_LABEL,
     TXT_SOUND_LABEL,

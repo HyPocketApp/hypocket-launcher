@@ -238,7 +238,7 @@ static void rest(Game *g, Toast toast)
     g->respawn_area = g->area;
     g->respawn_x = g->walker.x;
     g->respawn_y = g->walker.y;
-    g->events |= EVENT_REST;
+    g->events |= EVENT_REST | EVENT_SAVE;  // resting saves the game
     show_toast(g, toast, 0);
 }
 
@@ -1057,6 +1057,7 @@ void game_new(Game *g)
     g->heard_cry = false;
     g->creatures_met = false;
     g->elder_woke = false;
+    g->save_slot = 0;
     g->stats.level = 1;
     g->stats.hp = g->stats.max_hp = 40;
     g->stats.sp = g->stats.max_sp = 8;
@@ -1085,12 +1086,15 @@ static bool menu_pressed(const Game *g, const GameInput *in)
     return g->state_timer <= 0 && (in->confirm_pressed || in->pause_pressed || in->pick || in->target_pick);
 }
 
-// The title menu: New game, Options, Quit. The options page only sends
-// events; the language and the sound belong to the front end.
+// The title menu: New game, Load game, Options, Quit. The load page lists
+// the saves (the front end reads them; the rules only know how many), with
+// Back as the last entry. The options page only sends events: the language
+// and the sound belong to the front end.
 static void title_step(Game *g, const GameInput *in)
 {
     if (g->state_timer > 0) return;
-    int count = g->title_options ? OPTION_COUNT : TITLE_COUNT;
+    int count = g->title_page == PAGE_OPTIONS ? OPTION_COUNT
+              : g->title_page == PAGE_LOAD ? g->save_count + 1 : TITLE_COUNT;
     if (in->nav_y) {
         g->title_cursor = wrap(g->title_cursor + in->nav_y, count);
         g->events |= EVENT_CURSOR;
@@ -1100,11 +1104,14 @@ static void title_step(Game *g, const GameInput *in)
         g->title_cursor = in->pick - 1;
         choose = true;
     }
-    if (g->title_options) {
-        if (in->cancel_pressed || (choose && g->title_cursor == OPTION_BACK)) {
-            g->title_options = false;
-            g->title_cursor = TITLE_OPTIONS;
+    if (g->title_page != PAGE_MAIN) {
+        int back = g->title_page == PAGE_OPTIONS ? OPTION_BACK : g->save_count;
+        if (in->cancel_pressed || (choose && g->title_cursor == back)) {
+            g->title_cursor = g->title_page == PAGE_OPTIONS ? TITLE_OPTIONS : TITLE_LOAD;
+            g->title_page = PAGE_MAIN;
             g->events |= EVENT_CURSOR;
+        } else if (g->title_page == PAGE_LOAD) {
+            if (choose) g->events |= EVENT_LOAD | EVENT_CONFIRM;
         } else if ((choose || in->nav_x) && g->title_cursor == OPTION_LANGUAGE) {
             g->events |= EVENT_LANGUAGE | EVENT_CURSOR;
         } else if ((choose || in->nav_x) && g->title_cursor == OPTION_SOUND) {
@@ -1113,17 +1120,38 @@ static void title_step(Game *g, const GameInput *in)
         return;
     }
     if (!choose) return;
-    if (g->title_cursor == TITLE_NEW) {
+    switch (g->title_cursor) {
+    case TITLE_NEW:
         game_new(g);
         start_scene(g, SCENE_INTRO, STATE_MAP);
+        g->events |= EVENT_CONFIRM | EVENT_SAVE;  // a new save, at home
+        break;
+    case TITLE_LOAD:
+        if (g->save_count == 0) { g->events |= EVENT_DENIED; break; }
+        g->title_page = PAGE_LOAD;
+        g->title_cursor = 0;
         g->events |= EVENT_CONFIRM;
-    } else if (g->title_cursor == TITLE_OPTIONS) {
-        g->title_options = true;
+        break;
+    case TITLE_OPTIONS:
+        g->title_page = PAGE_OPTIONS;
         g->title_cursor = OPTION_LANGUAGE;
         g->events |= EVENT_CONFIRM;
-    } else {
+        break;
+    default:
         g->events |= EVENT_QUIT;
+        break;
     }
+}
+
+void game_loaded(Game *g)
+{
+    g->state = STATE_MAP;
+    g->state_timer = MENU_DELAY;
+    g->title_page = PAGE_MAIN;
+    g->title_cursor = 0;
+    g->events = 0;
+    memset(&g->battle, 0, sizeof g->battle);
+    if (g->area >= 0) show_toast(g, TOAST_MAP, g->area + 1);
 }
 
 void game_step(Game *g, const GameInput *in)

@@ -22,9 +22,15 @@ seres querem roubar o que resta. A história está em
   monstros atacam os dois; se ela cair, volta a levantar depois da luta.
 - **Explorando o mapa:** ande um quadrado por vez (para cima, para baixo e para os lados), como nos RPGs clássicos, **derrube árvores** com o machado
   para abrir caminhos, abra **baús** (ervas ou uma lâmina mais afiada) e
-  **descanse nas fogueiras** (ou na porta de casa) para recuperar tudo. Se
-  você cair numa batalha, acorda no último lugar em que descansou, sem perder
-  nada.
+  **descanse nas fogueiras** (ou na porta de casa) para recuperar tudo e
+  **salvar o jogo**. Se você cair numa batalha, acorda no último lugar em
+  que descansou, sem perder nada.
+- **Jogos salvos:** cada "Novo jogo" cria um jogo salvo novo, sem limite.
+  "Carregar jogo" lista todos, do mais recente para o mais antigo, com
+  nível, área e data. Os arquivos ficam em `~/.local/share/timberheart` no
+  Linux, `%APPDATA%\Timberheart` no Windows e na memória interna do app no
+  Android (`src/save.c`). Um jogo salvo guarda o estado inteiro do jogo, então
+  uma versão nova que mude o que é guardado não abre os saves antigos.
 - **Batalhas por turno:** ao tocar num monstro, começa uma batalha. Você
   escolhe uma ação e depois cada monstro age:
   - **Machadada:** um golpe simples (às vezes crítico).

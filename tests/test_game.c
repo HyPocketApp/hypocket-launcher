@@ -1,8 +1,10 @@
 // Tests for the game rules (game.c, levels.c). They need no window or GPU.
 #include "game.h"
+#include "save.h"
 #include "story.h"
 
 #include <math.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -304,7 +306,7 @@ static void test_campfire_heals_and_saves(void)
     CHECK(!(run(&CONFIRM, 1) & EVENT_REST));  // no action while walking
     run(&NONE, 30);
     face(0, 1);
-    CHECK(run(&CONFIRM, 1) & EVENT_REST);
+    CHECK(run(&CONFIRM, 1) & EVENT_SAVE);
     CHECK(g.stats.hp == g.stats.max_hp && g.stats.sp == g.stats.max_sp);
     CHECK(g.respawn_x == g.walker.x);
 }
@@ -685,26 +687,91 @@ static int read_scene(void)
 
 static void test_title_menu(void)
 {
-    static const GameInput DOWN_KEY = { .nav_y = 1 }, RIGHT_KEY = { .nav_x = 1 }, BACK = { .cancel_pressed = true };
+    static const GameInput RIGHT_KEY = { .nav_x = 1 };
     game_init(&g);
     run(&NONE, 30);
-    run(&DOWN_KEY, 1);
-    CHECK(g.title_cursor == TITLE_OPTIONS && (g.events & EVENT_CURSOR));
+    run(&DOWN, 1);
+    CHECK(g.title_cursor == TITLE_LOAD && (g.events & EVENT_CURSOR));
+    CHECK(run(&CONFIRM, 1) & EVENT_DENIED);  // nothing saved yet
+    g.save_count = 3;
     run(&CONFIRM, 1);
-    CHECK(g.title_options && g.title_cursor == OPTION_LANGUAGE);
-    run(&RIGHT_KEY, 1);
-    CHECK(g.events & EVENT_LANGUAGE);
-    run(&DOWN_KEY, 1);
+    CHECK(g.title_page == PAGE_LOAD && g.title_cursor == 0);
+    run(&DOWN, 1);
+    CHECK(run(&CONFIRM, 1) & EVENT_LOAD);
+    CHECK(g.title_cursor == 1);  // the second save in the list
+    run(&DOWN, 2);
+    run(&CONFIRM, 1);  // the last entry is Back
+    CHECK(g.title_page == PAGE_MAIN && g.title_cursor == TITLE_LOAD);
+    run(&DOWN, 1);
     run(&CONFIRM, 1);
-    CHECK(g.events & EVENT_SOUND);
-    run(&BACK, 1);
-    CHECK(!g.title_options && g.title_cursor == TITLE_OPTIONS && g.state == STATE_TITLE);
-    run(&DOWN_KEY, 1);
-    run(&CONFIRM, 1);
-    CHECK(g.events & EVENT_QUIT);
+    CHECK(g.title_page == PAGE_OPTIONS && g.title_cursor == OPTION_LANGUAGE);
+    CHECK(run(&RIGHT_KEY, 1) & EVENT_LANGUAGE);
+    run(&DOWN, 1);
+    CHECK(run(&CONFIRM, 1) & EVENT_SOUND);
+    run(&CANCEL, 1);
+    CHECK(g.title_page == PAGE_MAIN && g.title_cursor == TITLE_OPTIONS && g.state == STATE_TITLE);
+    run(&DOWN, 1);
+    CHECK(run(&CONFIRM, 1) & EVENT_QUIT);
     GameInput tap = { .pick = TITLE_NEW + 1 };  // touch: tap "New game"
-    run(&tap, 1);
-    CHECK(g.state == STATE_SCENE && g.scene == SCENE_INTRO);
+    CHECK(run(&tap, 1) & EVENT_SAVE);
+    CHECK(g.state == STATE_SCENE && g.scene == SCENE_INTRO && g.save_slot == 0);
+}
+
+// Saves: one file per game, as many as wanted, listed newest first, and a
+// loaded game is back where it was saved.
+static void test_saves(void)
+{
+    save_set_dir("test_saves/a/b");
+    int count;
+    SaveInfo *old = save_list(&count);
+    for (int i = 0; i < count; i++) {
+        char path[256];
+        snprintf(path, sizeof path, "test_saves/a/b/game_%d.sav", old[i].slot);
+        remove(path);
+    }
+    free(old);
+
+    for (int i = 0; i < 40; i++) {  // no limit
+        game_new(&g);
+        g.stats.level = 1 + i % 9;
+        CHECK(save_write(&g));
+        CHECK(g.save_slot == i + 1);
+    }
+    SaveInfo *list = save_list(&count);
+    CHECK(count == 40);
+    free(list);
+
+    game_new(&g);
+    game_enter_area(&g, AREA_WOODS, 0);
+    g.save_slot = 7;
+    g.stats.level = 5;
+    g.goddess.joined = true;
+    g.elder_woke = true;
+    float x = g.walker.x;
+    CHECK(save_write(&g));
+    list = save_list(&count);
+    CHECK(count == 40 && list[0].slot == 7 && list[0].level == 5 && list[0].area == AREA_WOODS);
+    free(list);
+
+    game_init(&g);
+    CHECK(save_read(7, &g));
+    game_loaded(&g);
+    CHECK(g.state == STATE_MAP && g.area == AREA_WOODS && g.stats.level == 5 && g.walker.x == x);
+    CHECK(g.goddess.joined && g.elder_woke && g.save_slot == 7);
+    CHECK(!save_read(99, &g));
+
+    // A damaged file is not listed or loaded.
+    FILE *f = fopen("test_saves/a/b/game_3.sav", "r+b");
+    CHECK(f != NULL);
+    if (f) { fputs("XXXX", f); fclose(f); }
+    CHECK(!save_read(3, &g));
+    list = save_list(&count);
+    CHECK(count == 39);
+    free(list);
+
+    bool pt = false, sound = true;
+    CHECK(settings_write(true, false));
+    CHECK(settings_read(&pt, &sound) && pt && !sound);
 }
 
 static void test_title_starts_game(void)
@@ -1051,6 +1118,7 @@ int main(void)
         { "beating the boss wins", test_beating_the_boss_wins },
         { "title starts game", test_title_starts_game },
         { "title menu", test_title_menu },
+        { "saves", test_saves },
         { "balance", test_balance },
     };
     int count = COUNT(tests);

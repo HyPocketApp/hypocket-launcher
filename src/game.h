@@ -312,10 +312,13 @@ enum {
     EVENT_LANGUAGE = 1 << 17,  // title options: switch the language
     EVENT_SOUND = 1 << 18,     // title options: turn the sound on or off
     EVENT_QUIT = 1 << 19,      // title menu: close the game
+    EVENT_SAVE = 1 << 20,      // write the game to its save (save_slot 0: a new one)
+    EVENT_LOAD = 1 << 21,      // title: load the save at title_cursor in the list
 };
 
 // The title menu, and its options page.
-typedef enum { TITLE_NEW, TITLE_OPTIONS, TITLE_QUIT, TITLE_COUNT } TitleItem;
+typedef enum { TITLE_NEW, TITLE_LOAD, TITLE_OPTIONS, TITLE_QUIT, TITLE_COUNT } TitleItem;
+typedef enum { PAGE_MAIN, PAGE_LOAD, PAGE_OPTIONS } TitlePage;
 typedef enum { OPTION_LANGUAGE, OPTION_SOUND, OPTION_BACK, OPTION_COUNT } OptionItem;
 
 typedef struct {
@@ -331,8 +334,10 @@ typedef struct {
 typedef struct {
     GameState state;
     float state_timer;
-    int title_cursor;    // TitleItem, or OptionItem on the options page
-    bool title_options;  // the title menu shows the options page
+    int title_page;      // TitlePage
+    int title_cursor;    // TitleItem, a save in the list, or an OptionItem
+    int save_count;      // saves on disk, set by the front end for the title
+    int save_slot;       // this game's save number; 0 until first saved
 
     int area;   // index into the area list, -1 for a map loaded by hand
     int w, h;   // map size in tiles
@@ -387,6 +392,7 @@ bool area_load_rows(Game *g, const char *const *rows, int row_count);
 
 void game_init(Game *g);       // title screen
 void game_new(Game *g);        // a new lumberjack at home
+void game_loaded(Game *g);     // after reading a save: back on the map
 // Goes to an area, arriving by the exit with digit `link`, or at its start
 // ('P') when link is 0.
 void game_enter_area(Game *g, int area, int link);
