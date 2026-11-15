@@ -25,6 +25,11 @@ seres querem roubar o que resta. A história está em
   **descanse nas fogueiras** (ou na porta de casa) para recuperar tudo e
   **salvar o jogo**. Se você cair numa batalha, acorda no último lugar em
   que descansou, sem perder nada.
+- **Música:** o tema de flauta toca no menu e explorando; "Conflito na
+  Névoa" toca nas batalhas e nas cenas de tensão (a deusa sendo atacada e o
+  Toco Ancião acordando). Uma passa para a outra aos poucos. As duas são do
+  autor do jogo, em `assets/music/` (OGG, convertidas dos originais em M4A),
+  e vão embutidas no programa como as imagens.
 - **Jogos salvos:** cada "Novo jogo" cria um jogo salvo novo, sem limite.
   "Carregar jogo" lista todos, do mais recente para o mais antigo, com
   nível, área e data. Os arquivos ficam em `~/.local/share/timberheart` no

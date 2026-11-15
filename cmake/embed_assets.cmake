@@ -1,8 +1,8 @@
-# Turns every PNG under ASSET_DIR into a C array in OUTPUT, so the game
-# carries its images inside the program on every platform (no file paths,
+# Turns every PNG and OGG under ASSET_DIR into a C array in OUTPUT, so the game
+# carries its images and music inside the program on every platform (no file paths,
 # no Android asset manager). Run by the build when an image changes.
 #   cmake -DASSET_DIR=<dir> -DOUTPUT=<file.c> -P embed_assets.cmake
-file(GLOB_RECURSE files RELATIVE "${ASSET_DIR}" "${ASSET_DIR}/*.png")
+file(GLOB_RECURSE files RELATIVE "${ASSET_DIR}" "${ASSET_DIR}/*.png" "${ASSET_DIR}/*.ogg")
 list(SORT files)
 set(arrays "")
 set(table "")
@@ -11,7 +11,7 @@ foreach(f IN LISTS files)
   file(READ "${ASSET_DIR}/${f}" hex HEX)
   file(SIZE "${ASSET_DIR}/${f}" size)
   string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," bytes "${hex}")
-  string(REGEX REPLACE "\\.png$" "" name "${f}")
+  string(REGEX REPLACE "\\.(png|ogg)$" "" name "${f}")
   string(APPEND arrays "static const unsigned char asset_${i}[] = {${bytes}};\n")
   string(APPEND table "    { \"${name}\", asset_${i}, ${size} },\n")
   math(EXPR i "${i} + 1")

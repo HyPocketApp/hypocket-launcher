@@ -31,7 +31,7 @@ if(TIMBERHEART_GAME)
   FetchContent_MakeAvailable(raylib)
 
   # The images in assets/ are compiled into the game.
-  file(GLOB_RECURSE ASSET_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/*.png)
+  file(GLOB_RECURSE ASSET_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/*.png ${CMAKE_CURRENT_SOURCE_DIR}/assets/*.ogg)
   set(ASSETS_C ${CMAKE_CURRENT_BINARY_DIR}/assets_data.c)
   add_custom_command(OUTPUT ${ASSETS_C}
     COMMAND ${CMAKE_COMMAND} -DASSET_DIR=${CMAKE_CURRENT_SOURCE_DIR}/assets -DOUTPUT=${ASSETS_C}

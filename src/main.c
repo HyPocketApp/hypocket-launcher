@@ -165,6 +165,84 @@ static void unload_sounds(Sounds *s)
     CloseAudioDevice();
 }
 
+// --- Music ----------------------------------------------------------------------
+// Two pieces, from assets/music: the flute theme of this part of the forest,
+// and "Conflito na Névoa" for battles and tense scenes. One fades into the
+// other when the moment changes.
+
+enum { MUSIC_FLUTE, MUSIC_CONFLICT, MUSIC_COUNT };
+#define MUSIC_VOLUME 0.55f  // under the sound effects
+#define MUSIC_FADE_IN 1.2f  // seconds
+#define MUSIC_FADE_OUT 0.8f
+
+static struct {
+    Music m;
+    bool loaded, playing, started;
+    float vol;  // 0 to 1, fading
+} music[MUSIC_COUNT];
+
+static void load_music(void)
+{
+    if (!IsAudioDeviceReady()) return;
+    static const char *const names[MUSIC_COUNT] = { "music/flute", "music/conflict" };
+    for (int i = 0; i < MUSIC_COUNT; i++) {
+        const EmbeddedAsset *a = asset_find(names[i]);
+        if (!a) continue;
+        music[i].m = LoadMusicStreamFromMemory(".ogg", a->data, (int)a->size);
+        music[i].loaded = IsMusicValid(music[i].m);
+        if (music[i].loaded) music[i].m.looping = true;
+    }
+}
+
+// Which piece fits the moment, or -1 for none.
+static int music_for(const Game *g)
+{
+    switch (g->state) {
+    case STATE_BATTLE: return MUSIC_CONFLICT;
+    case STATE_SCENE:  // reaching the goddess under attack, and the Elder Stump waking
+        return g->scene == SCENE_CREATURES || g->scene == SCENE_ELDER ? MUSIC_CONFLICT : MUSIC_FLUTE;
+    case STATE_GAME_OVER: return -1;
+    default: return MUSIC_FLUTE;
+    }
+}
+
+static void update_music(const Game *g, float dt)
+{
+    int want = sound_on ? music_for(g) : -1;
+    float master = MUSIC_VOLUME * (g->state == STATE_PAUSED ? 0.4f : 1.0f);
+    for (int i = 0; i < MUSIC_COUNT; i++) {
+        if (!music[i].loaded) continue;
+        bool on = i == want;
+        if (on && !music[i].playing) {
+            // The battle music starts over each time; the theme goes on
+            // from where it stopped.
+            if (i == MUSIC_CONFLICT || !music[i].started) {
+                StopMusicStream(music[i].m);
+                PlayMusicStream(music[i].m);
+            } else {
+                ResumeMusicStream(music[i].m);
+            }
+            music[i].playing = music[i].started = true;
+        }
+        if (!music[i].playing) continue;
+        music[i].vol = on ? fminf(1.0f, music[i].vol + dt / MUSIC_FADE_IN) : fmaxf(0.0f, music[i].vol - dt / MUSIC_FADE_OUT);
+        if (!on && music[i].vol <= 0.0f) {
+            PauseMusicStream(music[i].m);
+            music[i].playing = false;
+            continue;
+        }
+        SetMusicVolume(music[i].m, music[i].vol * master);
+        UpdateMusicStream(music[i].m);
+    }
+}
+
+static void unload_music(void)
+{
+    for (int i = 0; i < MUSIC_COUNT; i++)
+        if (music[i].loaded) UnloadMusicStream(music[i].m);
+    memset(music, 0, sizeof music);
+}
+
 // --- Screen scaling -----------------------------------------------------------------
 
 // Where the virtual 320x180 picture sits in the window.
@@ -1895,6 +1973,7 @@ int main(int argc, char *argv[])
     Camera2D layout = { .zoom = (float)ART };
     SetTextureFilter(canvas.texture, TEXTURE_FILTER_POINT);
     Sounds sounds = load_sounds();
+    load_music();
     load_art();
 
     check_story_fits();
@@ -1957,6 +2036,7 @@ int main(int argc, char *argv[])
             play_events(&sounds, game.events);
             accumulator -= STEP_DT;
         }
+        update_music(&game, frame);
 
         BeginTextureMode(canvas);
         BeginMode2D(layout);
@@ -1973,6 +2053,7 @@ int main(int argc, char *argv[])
     }
 
     free(saves);
+    unload_music();
     unload_sounds(&sounds);
     unload_art();
     UnloadRenderTexture(canvas);
