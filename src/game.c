@@ -779,7 +779,12 @@ static void play_msg(Game *g, const BattleMsg *m)
     b->ally_shown_mp = m->ally_mp_after;
     if (m->target >= 0 && m->target < b->enemy_count) {
         Combatant *e = &b->enemies[m->target];
-        if (m->enemy_hp_after < e->shown_hp) { g->events |= EVENT_HIT; e->flash = 0.4f; }
+        if (m->enemy_hp_after < e->shown_hp) {
+            g->events |= EVENT_HIT;
+            if (m->type == MSG_ATTACK || m->type == MSG_SPLIT || m->type == MSG_SPIN_HIT) g->events |= EVENT_AXE;
+            if (m->type == MSG_BEAM) g->events |= EVENT_MOONBEAM;
+            e->flash = 0.4f;
+        }
         e->shown_hp = m->enemy_hp_after;
         if (m->type == MSG_ENEMY_DOWN) { e->shown_alive = false; g->events |= EVENT_DEFEATED; }
     }

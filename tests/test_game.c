@@ -887,6 +887,26 @@ static void test_waking_the_elder_stump(void)
     CHECK(g.state == STATE_BATTLE && g.battle.enemies[0].species == SPECIES_ELDER_STUMP);
 }
 
+// The axe and the Moon Beam have sounds of their own.
+static void test_battle_sound_events(void)
+{
+    memset(&g, 0, sizeof g);
+    game_new(&g);
+    g.goddess.joined = true;
+    g.goddess.hp = g.goddess.max_hp = 40;
+    g.goddess.mp = g.goddess.max_mp = 30;
+    g.stats.hp = g.stats.max_hp = 500;  // he will not fall
+    game_enter_area(&g, AREA_VALLEY, 0);
+    g.state = STATE_MAP;
+    game_start_battle(&g, 0);
+    unsigned seen = 0;
+    for (int i = 0; i < 3000 && g.state == STATE_BATTLE; i++)
+        seen |= run(i % 8 ? &NONE : &CONFIRM, 1);  // always the first entry: Attack, Moon Beam
+    CHECK(seen & EVENT_AXE);
+    CHECK(seen & EVENT_MOONBEAM);
+    CHECK(seen & EVENT_VICTORY);
+}
+
 static void test_story_is_complete(void)
 {
     for (int sc = 0; sc < SCENE_COUNT; sc++) {
@@ -1119,6 +1139,7 @@ int main(void)
         { "title starts game", test_title_starts_game },
         { "title menu", test_title_menu },
         { "saves", test_saves },
+        { "battle sound events", test_battle_sound_events },
         { "balance", test_balance },
     };
     int count = COUNT(tests);

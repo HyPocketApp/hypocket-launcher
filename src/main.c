@@ -79,6 +79,7 @@
 enum {
     SND_CHOP, SND_CHEST, SND_REST, SND_ENCOUNTER, SND_CURSOR, SND_CONFIRM, SND_DENIED, SND_HIT,
     SND_HURT, SND_HEAL, SND_DEFEATED, SND_VICTORY, SND_LEVEL_UP, SND_FLEE, SND_DOWN, SND_EXIT, SND_BUMP,
+    SND_AXE, SND_MOONBEAM,
     SND_COUNT,
 };
 
@@ -86,6 +87,22 @@ typedef struct {
     Sound s[SND_COUNT];
     bool ready;
 } Sounds;
+
+// A recorded sound from assets/sfx, at `volume`; false when it is missing.
+static bool load_sfx(Sound *out, const char *name, float volume)
+{
+    const EmbeddedAsset *a = asset_find(name);
+    if (!a) return false;
+    Wave w = LoadWaveFromMemory(".ogg", a->data, (int)a->size);
+    if (!IsWaveValid(w)) return false;
+    Sound snd = LoadSoundFromWave(w);
+    UnloadWave(w);
+    if (!IsSoundValid(snd)) return false;
+    SetSoundVolume(snd, volume);
+    UnloadSound(*out);  // the beep it replaces
+    *out = snd;
+    return true;
+}
 
 // Makes a short beep that slides from f0 to f1 Hz. With steps > 1 the pitch
 // jumps in that many steps instead of sliding (an arpeggio). `noisy` adds a
@@ -138,6 +155,15 @@ static Sounds load_sounds(void)
     s.s[SND_DOWN] = make_tone(330, 82, 0.80f, 0.18f, 4, false);
     s.s[SND_EXIT] = make_tone(392, 784, 0.25f, 0.12f, 2, false);
     s.s[SND_BUMP] = make_tone(160, 140, 0.08f, 0.20f, 0, true);
+    s.s[SND_AXE] = make_tone(300, 90, 0.14f, 0.24f, 0, true);
+    s.s[SND_MOONBEAM] = make_tone(880, 1760, 0.30f, 0.14f, 0, false);
+    // Recorded sounds by the game's author, where there are any; the beeps
+    // stay for the rest.
+    load_sfx(&s.s[SND_CHEST], "sfx/chest", 0.9f);
+    load_sfx(&s.s[SND_VICTORY], "sfx/victory", 0.8f);
+    load_sfx(&s.s[SND_AXE], "sfx/axe", 0.55f);
+    load_sfx(&s.s[SND_CHOP], "sfx/axe", 0.45f);  // chopping trees on the map
+    load_sfx(&s.s[SND_MOONBEAM], "sfx/moonbeam", 0.7f);
     s.ready = true;
     return s;
 }
@@ -153,7 +179,9 @@ static void play_events(const Sounds *s, unsigned ev)
         { EVENT_DENIED, SND_DENIED }, { EVENT_HIT, SND_HIT }, { EVENT_HURT, SND_HURT }, { EVENT_HEAL, SND_HEAL },
         { EVENT_DEFEATED, SND_DEFEATED }, { EVENT_VICTORY, SND_VICTORY }, { EVENT_LEVEL_UP, SND_LEVEL_UP },
         { EVENT_FLEE, SND_FLEE }, { EVENT_PLAYER_DOWN, SND_DOWN }, { EVENT_EXIT, SND_EXIT }, { EVENT_BUMP, SND_BUMP },
+        { EVENT_AXE, SND_AXE }, { EVENT_MOONBEAM, SND_MOONBEAM },
     };
+    if (ev & (EVENT_AXE | EVENT_MOONBEAM)) ev &= ~(unsigned)EVENT_HIT;  // their own sound instead
     for (int i = 0; i < (int)(sizeof map / sizeof map[0]); i++)
         if (ev & map[i].event) PlaySound(s->s[map[i].sound]);
 }

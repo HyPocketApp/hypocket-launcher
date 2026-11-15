@@ -314,6 +314,8 @@ enum {
     EVENT_QUIT = 1 << 19,      // title menu: close the game
     EVENT_SAVE = 1 << 20,      // write the game to its save (save_slot 0: a new one)
     EVENT_LOAD = 1 << 21,      // title: load the save at title_cursor in the list
+    EVENT_AXE = 1 << 22,       // the lumberjack's axe hit a monster
+    EVENT_MOONBEAM = 1 << 23,  // the goddess's Moon Beam hit a monster
 };
 
 // The title menu, and its options page.

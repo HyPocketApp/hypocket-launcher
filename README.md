@@ -30,6 +30,9 @@ seres querem roubar o que resta. A história está em
   Toco Ancião acordando). Uma passa para a outra aos poucos. As duas são do
   autor do jogo, em `assets/music/` (OGG, convertidas dos originais em M4A),
   e vão embutidas no programa como as imagens.
+- **Efeitos sonoros:** baú abrindo, machadada (golpes do lenhador e
+  árvores cortadas), Raio Lunar e vitória são gravações do autor do jogo, em
+  `assets/sfx/`. Os outros sons ainda são bipes gerados pelo código.
 - **Jogos salvos:** cada "Novo jogo" cria um jogo salvo novo, sem limite.
   "Carregar jogo" lista todos, do mais recente para o mais antigo, com
   nível, área e data. Os arquivos ficam em `~/.local/share/timberheart` no
