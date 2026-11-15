@@ -13,10 +13,15 @@ __declspec(dllimport) unsigned short __stdcall GetUserDefaultUILanguage(void);
 #endif
 
 static const char *const english[TXT_COUNT] = {
-    [TXT_PRESS_TO_PLAY] = "Press Enter to play",
-    [TXT_TAP_TO_PLAY] = "Tap to play",
+    [TXT_NEW_GAME] = "New game",
+    [TXT_OPTIONS] = "Options",
+    [TXT_QUIT] = "Quit",
+    [TXT_LANGUAGE] = "English",
+    [TXT_LANGUAGE_LABEL] = "Language",
+    [TXT_SOUND_LABEL] = "Sound",
+    [TXT_ON] = "On",
+    [TXT_OFF] = "Off",
     [TXT_CONTROLS] = "WASD: walk   Space: act   X: back   P: pause",
-    [TXT_GOAL] = "Clear the way with your axe and calm the Elder Stump",
     [TXT_PAUSED] = "Paused",
     [TXT_PRESS_TO_CONTINUE] = "Press Enter to continue",
     [TXT_TAP_TO_CONTINUE] = "Tap to continue",
@@ -91,10 +96,15 @@ static const char *const english[TXT_COUNT] = {
 };
 
 static const char *const portuguese[TXT_COUNT] = {
-    [TXT_PRESS_TO_PLAY] = "Aperte Enter para jogar",
-    [TXT_TAP_TO_PLAY] = "Toque para jogar",
+    [TXT_NEW_GAME] = "Novo jogo",
+    [TXT_OPTIONS] = "Opções",
+    [TXT_QUIT] = "Sair",
+    [TXT_LANGUAGE] = "Português",
+    [TXT_LANGUAGE_LABEL] = "Idioma",
+    [TXT_SOUND_LABEL] = "Som",
+    [TXT_ON] = "Ligado",
+    [TXT_OFF] = "Desligado",
     [TXT_CONTROLS] = "WASD: andar   Espaço: agir   X: voltar   P: pausa",
-    [TXT_GOAL] = "Abra caminho com o machado e acalme o Toco Ancião",
     [TXT_PAUSED] = "Pausado",
     [TXT_PRESS_TO_CONTINUE] = "Aperte Enter para continuar",
     [TXT_TAP_TO_CONTINUE] = "Toque para continuar",
@@ -197,6 +207,8 @@ void text_init(void)
 }
 
 bool text_is_portuguese(void) { return current == portuguese; }
+
+void text_set_portuguese(bool on) { current = on ? portuguese : english; }
 
 const char *text_get(TextId id)
 {

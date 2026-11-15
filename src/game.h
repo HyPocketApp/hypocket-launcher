@@ -309,7 +309,14 @@ enum {
     EVENT_PLAYER_DOWN = 1 << 14,
     EVENT_EXIT = 1 << 15,
     EVENT_BUMP = 1 << 16,      // swung the axe at something that does not break
+    EVENT_LANGUAGE = 1 << 17,  // title options: switch the language
+    EVENT_SOUND = 1 << 18,     // title options: turn the sound on or off
+    EVENT_QUIT = 1 << 19,      // title menu: close the game
 };
+
+// The title menu, and its options page.
+typedef enum { TITLE_NEW, TITLE_OPTIONS, TITLE_QUIT, TITLE_COUNT } TitleItem;
+typedef enum { OPTION_LANGUAGE, OPTION_SOUND, OPTION_BACK, OPTION_COUNT } OptionItem;
 
 typedef struct {
     float move_x, move_y;  // direction on the map, each from -1 to 1
@@ -324,6 +331,8 @@ typedef struct {
 typedef struct {
     GameState state;
     float state_timer;
+    int title_cursor;    // TitleItem, or OptionItem on the options page
+    bool title_options;  // the title menu shows the options page
 
     int area;   // index into the area list, -1 for a map loaded by hand
     int w, h;   // map size in tiles

@@ -6,10 +6,7 @@
 
 typedef enum {
     // Screens
-    TXT_PRESS_TO_PLAY,
-    TXT_TAP_TO_PLAY,
     TXT_CONTROLS,
-    TXT_GOAL,
     TXT_PAUSED,
     TXT_PRESS_TO_CONTINUE,
     TXT_TAP_TO_CONTINUE,
@@ -17,6 +14,14 @@ typedef enum {
     TXT_WAKE_UP,
     TXT_WON,
     TXT_WON_2,
+    TXT_NEW_GAME,       // title menu
+    TXT_OPTIONS,
+    TXT_QUIT,
+    TXT_LANGUAGE,       // the name of the language, in itself
+    TXT_LANGUAGE_LABEL,
+    TXT_SOUND_LABEL,
+    TXT_ON,
+    TXT_OFF,
     // Map
     TXT_LEVEL_SHORT,    // %d: level
     TXT_MAP_HOME,       // the four area names stay in this order
@@ -93,5 +98,6 @@ typedef enum {
 void text_init(void);  // picks the language of the system
 const char *text_get(TextId id);
 bool text_is_portuguese(void);
+void text_set_portuguese(bool on);
 
 #endif

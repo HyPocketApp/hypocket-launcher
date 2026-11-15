@@ -683,6 +683,30 @@ static int read_scene(void)
     return pages;
 }
 
+static void test_title_menu(void)
+{
+    static const GameInput DOWN_KEY = { .nav_y = 1 }, RIGHT_KEY = { .nav_x = 1 }, BACK = { .cancel_pressed = true };
+    game_init(&g);
+    run(&NONE, 30);
+    run(&DOWN_KEY, 1);
+    CHECK(g.title_cursor == TITLE_OPTIONS && (g.events & EVENT_CURSOR));
+    run(&CONFIRM, 1);
+    CHECK(g.title_options && g.title_cursor == OPTION_LANGUAGE);
+    run(&RIGHT_KEY, 1);
+    CHECK(g.events & EVENT_LANGUAGE);
+    run(&DOWN_KEY, 1);
+    run(&CONFIRM, 1);
+    CHECK(g.events & EVENT_SOUND);
+    run(&BACK, 1);
+    CHECK(!g.title_options && g.title_cursor == TITLE_OPTIONS && g.state == STATE_TITLE);
+    run(&DOWN_KEY, 1);
+    run(&CONFIRM, 1);
+    CHECK(g.events & EVENT_QUIT);
+    GameInput tap = { .pick = TITLE_NEW + 1 };  // touch: tap "New game"
+    run(&tap, 1);
+    CHECK(g.state == STATE_SCENE && g.scene == SCENE_INTRO);
+}
+
 static void test_title_starts_game(void)
 {
     game_init(&g);
@@ -1026,6 +1050,7 @@ int main(void)
         { "losing wakes at the campfire", test_losing_wakes_at_campfire },
         { "beating the boss wins", test_beating_the_boss_wins },
         { "title starts game", test_title_starts_game },
+        { "title menu", test_title_menu },
         { "balance", test_balance },
     };
     int count = COUNT(tests);

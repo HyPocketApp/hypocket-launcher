@@ -1085,6 +1085,47 @@ static bool menu_pressed(const Game *g, const GameInput *in)
     return g->state_timer <= 0 && (in->confirm_pressed || in->pause_pressed || in->pick || in->target_pick);
 }
 
+// The title menu: New game, Options, Quit. The options page only sends
+// events; the language and the sound belong to the front end.
+static void title_step(Game *g, const GameInput *in)
+{
+    if (g->state_timer > 0) return;
+    int count = g->title_options ? OPTION_COUNT : TITLE_COUNT;
+    if (in->nav_y) {
+        g->title_cursor = wrap(g->title_cursor + in->nav_y, count);
+        g->events |= EVENT_CURSOR;
+    }
+    bool choose = in->confirm_pressed;
+    if (in->pick >= 1 && in->pick <= count) {
+        g->title_cursor = in->pick - 1;
+        choose = true;
+    }
+    if (g->title_options) {
+        if (in->cancel_pressed || (choose && g->title_cursor == OPTION_BACK)) {
+            g->title_options = false;
+            g->title_cursor = TITLE_OPTIONS;
+            g->events |= EVENT_CURSOR;
+        } else if ((choose || in->nav_x) && g->title_cursor == OPTION_LANGUAGE) {
+            g->events |= EVENT_LANGUAGE | EVENT_CURSOR;
+        } else if ((choose || in->nav_x) && g->title_cursor == OPTION_SOUND) {
+            g->events |= EVENT_SOUND | EVENT_CURSOR;
+        }
+        return;
+    }
+    if (!choose) return;
+    if (g->title_cursor == TITLE_NEW) {
+        game_new(g);
+        start_scene(g, SCENE_INTRO, STATE_MAP);
+        g->events |= EVENT_CONFIRM;
+    } else if (g->title_cursor == TITLE_OPTIONS) {
+        g->title_options = true;
+        g->title_cursor = OPTION_LANGUAGE;
+        g->events |= EVENT_CONFIRM;
+    } else {
+        g->events |= EVENT_QUIT;
+    }
+}
+
 void game_step(Game *g, const GameInput *in)
 {
     const float dt = STEP_DT;
@@ -1095,11 +1136,7 @@ void game_step(Game *g, const GameInput *in)
 
     switch (g->state) {
     case STATE_TITLE:
-        if (menu_pressed(g, in)) {
-            game_new(g);
-            start_scene(g, SCENE_INTRO, STATE_MAP);
-            g->events |= EVENT_CONFIRM;
-        }
+        title_step(g, in);
         break;
 
     case STATE_SCENE:

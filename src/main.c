@@ -140,9 +140,11 @@ static Sounds load_sounds(void)
     return s;
 }
 
+static bool sound_on = true;  // the title's Options page turns it off
+
 static void play_events(const Sounds *s, unsigned ev)
 {
-    if (!s->ready) return;
+    if (!s->ready || !sound_on) return;
     static const struct { unsigned event; int sound; } map[] = {
         { EVENT_CHOP, SND_CHOP }, { EVENT_CHEST, SND_CHEST }, { EVENT_REST, SND_REST },
         { EVENT_ENCOUNTER, SND_ENCOUNTER }, { EVENT_CURSOR, SND_CURSOR }, { EVENT_CONFIRM, SND_CONFIRM },
@@ -191,6 +193,15 @@ static Vector2 to_virtual(View v, Vector2 p)
 static Rectangle menu_entry_rect(int i)
 {
     return (Rectangle){ MENU_X, (float)(MENU_TOP + i * MENU_LINE), MENU_W, MENU_LINE };
+}
+
+// The title menu: entries in a box in the middle of the screen.
+#define TITLE_MENU_Y 80
+#define TITLE_LINE 16
+
+static Rectangle title_entry_rect(int i)
+{
+    return (Rectangle){ 100, (float)(TITLE_MENU_Y + 4 + i * TITLE_LINE), 120, TITLE_LINE };
 }
 
 // Where each monster stands, and how big it is drawn.
@@ -274,6 +285,10 @@ static void poll_touch(InputState *s, View v, const Game *g)
             } else {
                 s->confirm = true;  // tap to skip a message
             }
+        } else if (g->state == STATE_TITLE) {
+            int n = g->title_options ? OPTION_COUNT : TITLE_COUNT;
+            for (int i = 0; i < n; i++)
+                if (CheckCollisionPointRec(p, title_entry_rect(i))) s->pick = i + 1;
         } else {
             s->confirm = true;  // tap anywhere on other screens
         }
@@ -1109,6 +1124,19 @@ static bool elder_harassed(const Game *g)
     return !g->elder_woke && g->goddess.joined;
 }
 
+// A fire creature floating by the Elder Stump; `flying` ones are high up,
+// with their shadow on the ground far below.
+static void draw_ember_at(float x, float y, float t, bool flying)
+{
+    float bob = roundf(sinf(t * 6.0f) * 1.5f);
+    DrawEllipse((int)x, (int)(y + (flying ? 22 : 6)), 4, 1.5f, SHADOW);
+    if (!art.ember[0].id) { draw_monster(SPECIES_EMBER, x, y + bob, 0.9f, t, false, 1); return; }
+    BeginBlendMode(BLEND_ADDITIVE);  // warm light around it
+    DrawCircleGradient((Vector2){ x, y + bob - 2 }, 9, Fade(FIRE_A, 0.35f), Fade(FIRE_A, 0.0f));
+    EndBlendMode();
+    art_draw_figure(art.ember[(int)(t * 8.0f) & 1], x, y + bob + 5, 1, false, WHITE);
+}
+
 static void draw_foe(const Game *g, int i, int cam_x, int cam_y)
 {
     const Foe *f = &g->foes[i];
@@ -1118,22 +1146,25 @@ static void draw_foe(const Game *g, int i, int cam_x, int cam_y)
     if (sp == SPECIES_ELDER_STUMP) {
         float t = g->time;
         bool harassed = elder_harassed(g);
-        // Three fire creatures dart at him from around; those behind him
-        // are drawn first.
-        for (int pass = 0; pass < 2 && harassed; pass++)
-            for (int k = 0; k < 3; k++) {
-                float a = k * 2.094f + t * 0.6f;
-                if ((sinf(a) < 0) != (pass == 0)) continue;
-                float r = 22.0f - 7.0f * fmaxf(0.0f, sinf(t * 5.0f + k * 2.1f));
-                draw_monster(SPECIES_EMBER, cx + cosf(a) * r, cy - 2 + sinf(a) * r * 0.45f, 0.9f, t + k, false, 1);
-            }
+        // Three fire creatures attack him: one on each side and one from
+        // above. Each darts in until it touches him and backs off again, and
+        // never goes over him, so his face stays in view.
+        static const struct { float x, y, dx, dy; } spot[3] = {
+            { -24, 0, 7, 0 }, { 24, -2, -7, 0 }, { 13, -26, -3, 5 },
+        };
+        DrawEllipse((int)cx, (int)(cy + 6), 10, 3, SHADOW);
         if (elder_asleep(g) && art.elder_sleep.id) {
-            DrawEllipse((int)cx, (int)(cy + 6), 10, 3, SHADOW);
             art_draw_figure(art.elder_sleep, cx, cy - 6 + 9 * 1.4f, 1, false, WHITE);
             float z = fmodf(t * 0.7f, 1.0f);  // snoring
-            DrawText("z", (int)(cx + 8 + z * 6), (int)(cy - 22 - z * 10), 10, Fade(RAYWHITE, 1 - z));
+            DrawText("z", (int)(cx - 14 - z * 6), (int)(cy - 26 - z * 10), 10, Fade(RAYWHITE, 1 - z));
         } else {
-            draw_monster(sp, cx, cy - 6, 1.4f, t + i, false, 1);
+            if (!draw_monster_sprite(sp, cx, cy - 6, 1.4f, t + i, false, 1)) draw_monster(sp, cx, cy - 6, 1.4f, t + i, false, 1);
+        }
+        for (int k = 0; harassed && k < 3; k++) {
+            float lunge = fmaxf(0.0f, sinf(t * 4.0f + k * 2.1f));
+            lunge *= lunge;  // quick in, slow out
+            float ex = roundf(cx + spot[k].x + spot[k].dx * lunge), ey = roundf(cy + spot[k].y + spot[k].dy * lunge);
+            draw_ember_at(ex, ey, t + k * 0.4f, spot[k].y < -10);
         }
         return;
     }
@@ -1602,17 +1633,54 @@ static void check_story_fits(void)
 
 // --- Screens ----------------------------------------------------------------------------
 
+// The title screen: the name, the lumberjack and the goddess on either side,
+// and the menu between them.
+static void draw_title(const Game *g, bool touch)
+{
+    DrawRectangle(0, 0, VIEW_W, VIEW_H, Fade(INK, 0.5f));
+    DrawRectangleGradientV(0, 0, VIEW_W, 70, Fade(INK, 0.6f), Fade(INK, 0.0f));
+    DrawRectangleGradientV(0, 140, VIEW_W, 40, Fade(INK, 0.0f), Fade(INK, 0.7f));
+    draw_text_centered("TIMBERHEART", 24, 30, GOLDEN);
+    DrawRectangle(96, 56, 128, 1, Fade(GOLDEN, 0.6f));
+    float swing = fmodf(g->time, 3.0f) < 0.4f ? fmodf(g->time, 3.0f) / 0.4f : 0;
+    draw_lumberjack(58, 112, 2.0f, 1, 0, 0, swing);
+    draw_goddess(262, 112 + sinf(g->time * 2.0f), 2.0f, g->time, -1, 0, 0);
+
+    int count = g->title_options ? OPTION_COUNT : TITLE_COUNT;
+    if (g->title_options) draw_text_centered(text_get(TXT_OPTIONS), TITLE_MENU_Y - 14, 10, Fade(RAYWHITE, 0.8f));
+    draw_box((Rectangle){ 96, TITLE_MENU_Y, 128, (float)(count * TITLE_LINE + 8) });
+    for (int i = 0; i < count; i++) {
+        const char *label;
+        if (!g->title_options) {
+            static const TextId labels[TITLE_COUNT] = { TXT_NEW_GAME, TXT_OPTIONS, TXT_QUIT };
+            label = text_get(labels[i]);
+        } else if (i == OPTION_LANGUAGE) {
+            label = TextFormat("%s: %s", text_get(TXT_LANGUAGE_LABEL), text_get(TXT_LANGUAGE));
+        } else if (i == OPTION_SOUND) {
+            label = TextFormat("%s: %s", text_get(TXT_SOUND_LABEL), text_get(sound_on ? TXT_ON : TXT_OFF));
+        } else {
+            label = text_get(TXT_BACK);
+        }
+        Rectangle r = title_entry_rect(i);
+        bool on = g->title_cursor == i;
+        int w = MeasureText(label, 10), x = (int)(r.x + (r.width - w) / 2), y = (int)r.y + 3;
+        if (on) DrawRectangleRec((Rectangle){ r.x - 2, r.y, r.width + 4, r.height }, Fade(PANEL_EDGE, 0.2f));
+        draw_text_shadow(label, x, y, 10, on ? GOLDEN : RAYWHITE);
+        if (on && !touch) {  // a little arrow that bobs
+            int bob = (int)(fmodf(g->time * 2.0f, 1.0f) < 0.5f);
+            DrawTriangle((Vector2){ (float)(x - 9 + bob), (float)y }, (Vector2){ (float)(x - 9 + bob), (float)(y + 8) },
+                         (Vector2){ (float)(x - 4 + bob), (float)(y + 4) }, GOLDEN);
+        }
+    }
+    if (!touch) draw_text_centered(text_get(TXT_CONTROLS), 164, 10, Fade(RAYWHITE, 0.7f));
+}
+
 static void draw_overlay(const Game *g, bool touch)
 {
     TextId press = touch ? TXT_TAP_TO_CONTINUE : TXT_PRESS_TO_CONTINUE;
     switch (g->state) {
     case STATE_TITLE:
-        DrawRectangle(0, 0, VIEW_W, VIEW_H, Fade(INK, 0.55f));
-        draw_text_centered("TIMBERHEART", 30, 30, GOLDEN);
-        draw_lumberjack(160, 92, 2.0f, 1, 0, 0, fmodf(g->time, 3.0f) < 0.4f ? fmodf(g->time, 3.0f) / 0.4f : 0);
-        draw_text_centered(text_get(TXT_GOAL), 112, 10, RAYWHITE);
-        draw_text_centered(text_get(touch ? TXT_TAP_TO_PLAY : TXT_PRESS_TO_PLAY), 132, 10, GOLDEN);
-        if (!touch) draw_text_centered(text_get(TXT_CONTROLS), 160, 10, Fade(RAYWHITE, 0.8f));
+        draw_title(g, touch);
         break;
     case STATE_PAUSED:
         DrawRectangle(0, 0, VIEW_W, VIEW_H, Fade(INK, 0.5f));
@@ -1735,7 +1803,9 @@ int main(int argc, char *argv[])
         read_keys(&input, &in);
 
         // Esc or the Android back button on the title screen closes the game.
-        if (game.state == STATE_TITLE && (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_BACK))) quit = true;
+        // (On the options page it goes back to the menu instead.)
+        if (game.state == STATE_TITLE && !game.title_options && (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_BACK)))
+            quit = true;
 
         // Fixed steps keep the game the same at any frame rate.
         float frame = fminf(GetFrameTime(), 0.1f);
@@ -1746,6 +1816,9 @@ int main(int argc, char *argv[])
             take_presses(&input, &in);
             game_step(&game, &in);
             if (on_map && in.confirm_pressed) chop = 0.01f;  // swing the axe
+            if (game.events & EVENT_LANGUAGE) text_set_portuguese(!text_is_portuguese());
+            if (game.events & EVENT_SOUND) sound_on = !sound_on;
+            if (game.events & EVENT_QUIT) quit = true;
             play_events(&sounds, game.events);
             accumulator -= STEP_DT;
         }
