@@ -344,19 +344,24 @@ static void map_action(Game *g)
 }
 
 // Reaching the fire creatures (within 3 tiles) plays their scene, then the
-// battle. Returns true when it started.
+// battle; so does reaching the sleeping Elder Stump (within 4), where the
+// creatures that fled wake him. Returns true when a scene started.
 static bool meet_creatures(Game *g)
 {
-    if (g->creatures_met) return false;
     int wx = tile_floor(g->walker.x + WALKER_SIZE / 2.0f), wy = tile_floor(g->walker.y + WALKER_SIZE / 2.0f);
     for (int i = 0; i < g->foe_count; i++) {
         const Foe *f = &g->foes[i];
-        if (!f->alive || f->kind != ENCOUNTER_EMBERS) continue;
+        if (!f->alive) continue;
+        bool embers = f->kind == ENCOUNTER_EMBERS && !g->creatures_met;
+        bool elder = f->kind == ENCOUNTER_BOSS && !g->elder_woke;
+        if (!embers && !elder) continue;
         int fx = tile_floor(f->x + WALKER_SIZE / 2.0f), fy = tile_floor(f->y + WALKER_SIZE / 2.0f);
-        if (abs(fx - wx) > 3 || abs(fy - wy) > 3) continue;
-        g->creatures_met = true;
+        int reach = elder ? 4 : 3;
+        if (abs(fx - wx) > reach || abs(fy - wy) > reach) continue;
+        if (embers) g->creatures_met = true;
+        else g->elder_woke = true;
         g->scene_foe = i;
-        start_scene(g, SCENE_CREATURES, STATE_BATTLE);
+        start_scene(g, embers ? SCENE_CREATURES : SCENE_ELDER, STATE_BATTLE);
         return true;
     }
     return false;
@@ -1051,6 +1056,7 @@ void game_new(Game *g)
     g->goddess_saved = false;
     g->heard_cry = false;
     g->creatures_met = false;
+    g->elder_woke = false;
     g->stats.level = 1;
     g->stats.hp = g->stats.max_hp = 40;
     g->stats.sp = g->stats.max_sp = 8;

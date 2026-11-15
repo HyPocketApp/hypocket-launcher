@@ -356,10 +356,14 @@ static void take_presses(InputState *s, GameInput *in)
 
 // --- Drawing helpers ------------------------------------------------------------------
 
+// How opaque the panels and text are: below 1 while the map panel lets the
+// lumberjack show through.
+static float ui_alpha = 1.0f;
+
 static void draw_text_shadow(const char *text, int x, int y, int size, Color color)
 {
-    DrawText(text, x + 1, y + 1, size, INK);
-    DrawText(text, x, y, size, color);
+    DrawText(text, x + 1, y + 1, size, Fade(INK, ui_alpha));
+    DrawText(text, x, y, size, Fade(color, ui_alpha * color.a / 255.0f));
 }
 
 static void draw_text_centered(const char *text, int y, int size, Color color)
@@ -369,16 +373,16 @@ static void draw_text_centered(const char *text, int y, int size, Color color)
 
 static void draw_box(Rectangle r)
 {
-    DrawRectangleRec(r, PANEL);
-    DrawRectangleLinesEx(r, 1, PANEL_EDGE);
+    DrawRectangleRec(r, Fade(PANEL, ui_alpha * PANEL.a / 255.0f));
+    DrawRectangleLinesEx(r, 1, Fade(PANEL_EDGE, ui_alpha));
 }
 
 static void draw_bar(int x, int y, int w, int value, int max, Color c)
 {
-    DrawRectangle(x, y, w, 4, (Color){ 0, 0, 0, 140 });
+    DrawRectangle(x, y, w, 4, Fade(BLACK, 0.55f * ui_alpha));
     int fill = max > 0 ? w * value / max : 0;
-    DrawRectangle(x, y, fill, 4, c);
-    DrawRectangle(x, y, fill, 1, Fade(RAYWHITE, 0.35f));
+    DrawRectangle(x, y, fill, 4, Fade(c, ui_alpha));
+    DrawRectangle(x, y, fill, 1, Fade(RAYWHITE, 0.35f * ui_alpha));
 }
 
 static unsigned tile_hash(int tx, int ty)
@@ -517,6 +521,7 @@ static struct {
     Texture2D bank[4][3];       // the same, for the shore of water
     Texture2D bank_inner[4], bank_outer[4];
     Texture2D slime[2], beetle[2], wolf[2], ember[2], elder[2];  // two frames each
+    Texture2D elder_sleep;
     Texture2D hero[3][3], goddess[3][3];  // facing s, n, e; standing and two steps
     Texture2D goddess_fallen, chest, chest_open, woodpile, fire[3];
     bool has_stump, has_path_edges, has_banks, has_house, has_bridge, has_hero, has_goddess, has_fire;
@@ -591,6 +596,7 @@ static void load_art(void)
             art.has_goddess &= load_art_texture(TextFormat("chars/goddess_%s_%d", dirs[d], f + 1), &art.goddess[d][f]);
         }
     load_art_texture("chars/goddess_fallen", &art.goddess_fallen);
+    load_art_texture("monsters/stump_sleep", &art.elder_sleep);
     load_art_texture("tiles/chest", &art.chest);
     load_art_texture("tiles/chest_open", &art.chest_open);
     load_art_texture("tiles/woodpile", &art.woodpile);
@@ -1082,7 +1088,85 @@ static void draw_object(const Game *g, int x, int y, int tx, int ty, TileType ti
     }
 }
 
-static void draw_map(const Game *g, int cam_x, int cam_y)
+static Species encounter_leader(Encounter e)
+{
+    Species party[MAX_BATTLE_ENEMIES];
+    encounter_party(e, party);
+    return party[0];
+}
+
+// The Elder Stump sleeps, with the fire creatures attacking him, until his
+// scene; in it he wakes on the third page and they run on the fourth.
+static bool elder_asleep(const Game *g)
+{
+    if (g->state == STATE_SCENE && g->scene == SCENE_ELDER) return g->scene_page < 2;
+    return !g->elder_woke;
+}
+
+static bool elder_harassed(const Game *g)
+{
+    if (g->state == STATE_SCENE && g->scene == SCENE_ELDER) return g->scene_page < 3;
+    return !g->elder_woke && g->goddess.joined;
+}
+
+static void draw_foe(const Game *g, int i, int cam_x, int cam_y)
+{
+    const Foe *f = &g->foes[i];
+    float cx = f->x + WALKER_SIZE / 2.0f - cam_x, cy = f->y + WALKER_SIZE / 2.0f - cam_y;
+    if (cx < -32 || cy < -48 || cx > VIEW_W + 32 || cy > VIEW_H + 32) return;
+    Species sp = encounter_leader(f->kind);
+    if (sp == SPECIES_ELDER_STUMP) {
+        float t = g->time;
+        bool harassed = elder_harassed(g);
+        // Three fire creatures dart at him from around; those behind him
+        // are drawn first.
+        for (int pass = 0; pass < 2 && harassed; pass++)
+            for (int k = 0; k < 3; k++) {
+                float a = k * 2.094f + t * 0.6f;
+                if ((sinf(a) < 0) != (pass == 0)) continue;
+                float r = 22.0f - 7.0f * fmaxf(0.0f, sinf(t * 5.0f + k * 2.1f));
+                draw_monster(SPECIES_EMBER, cx + cosf(a) * r, cy - 2 + sinf(a) * r * 0.45f, 0.9f, t + k, false, 1);
+            }
+        if (elder_asleep(g) && art.elder_sleep.id) {
+            DrawEllipse((int)cx, (int)(cy + 6), 10, 3, SHADOW);
+            art_draw_figure(art.elder_sleep, cx, cy - 6 + 9 * 1.4f, 1, false, WHITE);
+            float z = fmodf(t * 0.7f, 1.0f);  // snoring
+            DrawText("z", (int)(cx + 8 + z * 6), (int)(cy - 22 - z * 10), 10, Fade(RAYWHITE, 1 - z));
+        } else {
+            draw_monster(sp, cx, cy - 6, 1.4f, t + i, false, 1);
+        }
+        return;
+    }
+    draw_monster(sp, cx, cy, 0.9f, g->time + i, false, f->vx < 0 ? -1 : 1);
+    if (f->kind == ENCOUNTER_SLIMES || f->kind == ENCOUNTER_WOLVES || f->kind == ENCOUNTER_BEETLE)
+        DrawText("+", (int)cx + 5, (int)cy - 12, 10, RAYWHITE);  // more than one monster
+}
+
+// The row of tiles something standing at top-left y is on.
+static int row_of(float y) { return (int)floorf((y + WALKER_SIZE / 2.0f) / TILE); }
+
+// Monsters, the goddess and the lumberjack standing on one row of tiles.
+// They are drawn with the row's objects, so a tree or the house in front
+// (lower on the screen) covers them, and they cover what is behind.
+static void draw_actors_in_row(const Game *g, int row, int cam_x, int cam_y, float chop)
+{
+    for (int i = 0; i < g->foe_count; i++)
+        if (g->foes[i].alive && row_of(g->foes[i].y) == row) draw_foe(g, i, cam_x, cam_y);
+    if (g->state == STATE_TITLE || g->state == STATE_WON) return;
+    const Walker *w = &g->walker, *f = &g->follower;
+    bool with_her = g->goddess.joined;
+    bool blink = g->state != STATE_SCENE && w->safe_timer > 0 && w->safe_timer < 1.9f && fmodf(w->safe_timer, 0.2f) < 0.1f;
+    float fx = f->x + WALKER_SIZE / 2.0f - cam_x, fy = f->y + WALKER_SIZE / 2.0f - cam_y - 2;
+    fy -= f->walk_anim > 0 ? fabsf(sinf(f->walk_anim * 0.3f)) : 0.0f;
+    bool her_here = with_her && row_of(f->y) == row, him_here = !blink && row_of(w->y) == row;
+    if (her_here && f->y < w->y) draw_goddess(fx, fy, 1.0f, g->time, f->face_x, f->face_y, f->walk_anim);  // behind him
+    if (him_here)
+        draw_lumberjack(w->x + WALKER_SIZE / 2.0f - cam_x, w->y + WALKER_SIZE / 2.0f - cam_y - 2, 1.0f,
+                        w->face_x, w->face_y, w->walk_anim, chop);
+    if (her_here && f->y >= w->y) draw_goddess(fx, fy, 1.0f, g->time, f->face_x, f->face_y, f->walk_anim);
+}
+
+static void draw_map(const Game *g, int cam_x, int cam_y, float chop)
 {
     int x0 = (int)floorf(cam_x / (float)TILE), x1 = (cam_x + VIEW_W) / TILE + 1;
     int y0 = (int)floorf(cam_y / (float)TILE), y1 = (cam_y + VIEW_H) / TILE + 1;
@@ -1092,47 +1176,29 @@ static void draw_map(const Game *g, int cam_x, int cam_y)
             draw_ground(g, tx * TILE - cam_x, ty * TILE - cam_y, tx, ty, game_tile_at(g, tx, ty), t);
     // Objects reach up into the row above, and the house up to 4 tiles left
     // and 3 up from where it is drawn: start a little outside the view.
-    for (int ty = y0 - 3; ty <= y1 + 1; ty++)
+    for (int ty = y0 - 3; ty <= y1 + 1; ty++) {
         for (int tx = x0 - 4; tx <= x1; tx++) {
             TileType tile = game_tile_at(g, tx, ty);
             bool far = ty < y0 || tx < x0 || ty > y1;
             if (far && !is_house(tile) && !(ty == y1 + 1 && tx >= x0)) continue;
             draw_object(g, tx * TILE - cam_x, ty * TILE - cam_y, tx, ty, tile, t);
         }
-}
-
-static Species encounter_leader(Encounter e)
-{
-    Species party[MAX_BATTLE_ENEMIES];
-    encounter_party(e, party);
-    return party[0];
-}
-
-static void draw_foes(const Game *g, int cam_x, int cam_y)
-{
-    for (int i = 0; i < g->foe_count; i++) {
-        const Foe *f = &g->foes[i];
-        if (!f->alive) continue;
-        float cx = f->x + WALKER_SIZE / 2.0f - cam_x, cy = f->y + WALKER_SIZE / 2.0f - cam_y;
-        if (cx < -32 || cy < -32 || cx > VIEW_W + 32 || cy > VIEW_H + 32) continue;
-        Species sp = encounter_leader(f->kind);
-        float scale = sp == SPECIES_ELDER_STUMP ? 1.4f : 0.9f;
-        draw_monster(sp, cx, cy - (sp == SPECIES_ELDER_STUMP ? 6 : 0), scale, g->time + i, false, f->vx < 0 ? -1 : 1);
-        if (f->kind == ENCOUNTER_SLIMES || f->kind == ENCOUNTER_WOLVES || f->kind == ENCOUNTER_BEETLE)
-            DrawText("+", (int)cx + 5, (int)cy - 12, 10, RAYWHITE);  // more than one monster
+        draw_actors_in_row(g, ty, cam_x, cam_y, chop);
     }
 }
 
-static void draw_map_hud(const Game *g, const InputState *s)
+static void draw_map_hud(const Game *g, const InputState *s, float alpha)
 {
     const Stats *st = &g->stats;
+    ui_alpha = alpha;
     draw_box((Rectangle){ 3, 3, 100, 29 });
     draw_text_shadow(TextFormat(text_get(TXT_LEVEL_SHORT), st->level), 7, 6, 10, GOLDEN);
     draw_text_shadow(TextFormat("%d/%d", st->hp, st->max_hp), 40, 6, 10, RAYWHITE);
-    DrawCircle(88, 10, 2.5f, MOSS);  // herbs
+    DrawCircle(88, 10, 2.5f, Fade(MOSS, alpha));  // herbs
     draw_text_shadow(TextFormat("%d", st->herbs), 93, 6, 10, RAYWHITE);
     draw_bar(7, 19, 92, st->hp, st->max_hp, HP_COLOR);
     draw_bar(7, 25, 92, st->sp, st->max_sp, SP_COLOR);
+    ui_alpha = 1.0f;
 
     if (g->toast_timer > 0 && g->toast != TOAST_NONE) {
         const char *msg = "";
@@ -1578,8 +1644,13 @@ static void draw_overlay(const Game *g, bool touch)
 // goddess above the dialog box, so the box does not hide them.
 static void scene_camera(const Game *g, int *cam_x, int *cam_y)
 {
-    if (g->state != STATE_SCENE || (g->scene != SCENE_CREATURES && g->scene != SCENE_GODDESS)) return;
+    if (g->state != STATE_SCENE || (g->scene != SCENE_CREATURES && g->scene != SCENE_GODDESS && g->scene != SCENE_ELDER)) return;
     float gx = -1, gy = -1;
+    if (g->scene == SCENE_ELDER) {  // frame the Elder Stump instead
+        const Foe *f = &g->foes[g->scene_foe];
+        gx = f->x + WALKER_SIZE / 2.0f;
+        gy = f->y + WALKER_SIZE / 2.0f - 8;
+    }
     for (int y = 0; y < g->h && gx < 0; y++)
         for (int x = 0; x < g->w && gx < 0; x++)
             if (game_tile_at(g, x, y) == TILE_GODDESS) { gx = x * TILE + TILE / 2.0f; gy = y * TILE + TILE / 2.0f; }
@@ -1589,6 +1660,10 @@ static void scene_camera(const Game *g, int *cam_x, int *cam_y)
     }
     float hx = g->walker.x + WALKER_SIZE / 2.0f, hy = g->walker.y + WALKER_SIZE / 2.0f;
     float cx = (gx + hx) / 2.0f - VIEW_W / 2.0f, cy = (gy + hy) / 2.0f - 58.0f;
+    if (g->scene == SCENE_ELDER) {  // he is big: keep all of him above the box
+        cx = gx - VIEW_W / 2.0f;
+        cy = gy - 72.0f;
+    }
     float max_x = (float)(g->w * TILE - VIEW_W), max_y = (float)(g->h * TILE - VIEW_H);
     *cam_x = (int)fmaxf(0.0f, fminf(cx, max_x));
     *cam_y = (int)fmaxf(0.0f, fminf(cy, max_y));
@@ -1603,21 +1678,15 @@ static void draw_game(const Game *g, const InputState *s, float chop)
     }
     int cam_x = (int)floorf(g->camera_x), cam_y = (int)floorf(g->camera_y);
     scene_camera(g, &cam_x, &cam_y);
-    draw_map(g, cam_x, cam_y);
-    draw_foes(g, cam_x, cam_y);
-    if (g->state != STATE_TITLE && g->state != STATE_WON) {
-        const Walker *w = &g->walker;
-        bool blink = g->state != STATE_SCENE && w->safe_timer > 0 && w->safe_timer < 1.9f && fmodf(w->safe_timer, 0.2f) < 0.1f;
-        const Walker *f = &g->follower;
-        bool with_her = g->goddess.joined;
-        float fx = f->x + WALKER_SIZE / 2.0f - cam_x, fy = f->y + WALKER_SIZE / 2.0f - cam_y - 2;
-        fy -= f->walk_anim > 0 ? fabsf(sinf(f->walk_anim * 0.3f)) : 0.0f;
-        if (with_her && f->y < w->y) draw_goddess(fx, fy, 1.0f, g->time, f->face_x, f->face_y, f->walk_anim);  // behind him
-        if (!blink)
-            draw_lumberjack(w->x + WALKER_SIZE / 2.0f - cam_x, w->y + WALKER_SIZE / 2.0f - cam_y - 2, 1.0f,
-                            w->face_x, w->face_y, w->walk_anim, chop);
-        if (with_her && f->y >= w->y) draw_goddess(fx, fy, 1.0f, g->time, f->face_x, f->face_y, f->walk_anim);
-        if (g->state == STATE_MAP || g->state == STATE_PAUSED) draw_map_hud(g, s);
+    draw_map(g, cam_x, cam_y, chop);
+    if (g->state == STATE_MAP || g->state == STATE_PAUSED) {
+        // The panel turns see-through while he or she walks under it.
+        const Walker *w = &g->walker, *f = &g->follower;
+        Rectangle panel = { 0, 0, 108, 38 };
+        bool under = CheckCollisionRecs(panel, (Rectangle){ w->x - cam_x - 4, w->y - cam_y - 14, WALKER_SIZE + 8, WALKER_SIZE + 16 }) ||
+                     (g->goddess.joined &&
+                      CheckCollisionRecs(panel, (Rectangle){ f->x - cam_x - 4, f->y - cam_y - 14, WALKER_SIZE + 8, WALKER_SIZE + 16 }));
+        draw_map_hud(g, s, under ? 0.3f : 1.0f);
     }
     draw_overlay(g, s->touch_ui);
 }

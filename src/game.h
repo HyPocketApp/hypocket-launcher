@@ -272,6 +272,7 @@ typedef enum {
     SCENE_WOODS,      // first steps into the woods: a cry
     SCENE_CREATURES,  // reaching her: the fire creatures; a battle follows
     SCENE_GODDESS,    // after the battle: she is the Moon Goddess, and joins
+    SCENE_ELDER,      // the fire creatures wake the Elder Stump; a battle follows
     SCENE_COUNT,
 } Scene;
 
@@ -354,6 +355,7 @@ typedef struct {
     bool goddess_saved;
     bool heard_cry;
     bool creatures_met;
+    bool elder_woke;  // the Elder Stump's scene has played: he is awake
     int scene_foe;  // the battle that starts when SCENE_CREATURES ends
 
     Toast toast;

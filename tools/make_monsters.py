@@ -7,6 +7,7 @@ twice as big in battle, facing right; it flips them to face left. Run:
   beetle_1/2.png  32x32
   wolf_1/2.png    48x32
   stump_1/2.png   48x48: the Elder Stump, the boss
+  stump_sleep.png 48x48: the Elder Stump asleep, before his scene
 
 (The fire creatures, ember_1/2.png, come from tools/make_characters.py.)
 """
@@ -154,7 +155,7 @@ E_MOSS, E_MOSS_LIGHT, E_MOSS_DARK = (78, 142, 32), (108, 170, 40), (44, 92, 30)
 E_GLOW, E_GLOW_HI = (255, 196, 64), (255, 246, 190)
 
 
-def elder_stump(frame):
+def elder_stump(frame, asleep=False):
     c = Canvas(48, 48)
     sway = (0, 1)[frame]
     # Roots spreading over the ground.
@@ -173,7 +174,7 @@ def elder_stump(frame):
     # Arms: two dead branches, raised, with a few leaves.
     for side in (-1, 1):
         x0 = 24 + side * 13
-        tip = (24 + side * 22, 6 + (sway if side < 0 else -sway))
+        tip = (24 + side * 21, 16) if asleep else (24 + side * 22, 6 + (sway if side < 0 else -sway))
         c.poly([(x0, 26), (x0 + side * 2, 21), tip, (tip[0] + side * 1, tip[1] + 3), (x0 + side * 3, 28)], E_MID)
         c.ellipse(tip[0], tip[1] - 1, 3.4, 2.6, lambda x, y: E_MOSS_LIGHT if y < tip[1] - 1 else E_MOSS)
     # The cut top with growth rings, under a cap of moss.
@@ -194,18 +195,25 @@ def elder_stump(frame):
     c.rect(25, 5, 26, 11, E_MOSS_DARK)
     c.ellipse(23.5 - sway, 5.5, 2, 1.4, E_MOSS_LIGHT)
     c.ellipse(27.5 + sway, 4.5, 2, 1.4, E_MOSS)
-    # The face: deep hollows with glowing eyes, and a jagged mouth.
-    for ex in (15, 28):
-        c.rect(ex, 25, ex + 6, 31, E_OUT)
-        c.rect(ex + 1, 26 + frame, ex + 5, 29 + frame, E_GLOW)
-        c.rect(ex + 2, 26 + frame, ex + 4, 27 + frame, E_GLOW_HI)
-    c.rect(16, 23, 22, 24, E_OUT)  # angry brows
-    c.rect(27, 23, 33, 24, E_OUT)
-    c.rect(17, 34, 32, 39, E_OUT)
-    for x in range(17, 32, 3):  # teeth of splinters
-        c.set(x + 1, 34, E_RING_DARK)
-        c.set(x + 1, 38, E_RING_DARK)
-        c.set(x + 2, 34, E_RING_DARK)
+    if asleep:
+        # Closed eyes and a quiet mouth.
+        for ex in (15, 28):
+            c.rect(ex, 27, ex + 6, 28, E_OUT)
+            c.rect(ex, 26, ex + 6, 27, E_LIGHT)
+        c.rect(20, 35, 28, 37, E_OUT)
+    else:
+        # The face: deep hollows with glowing eyes, and a jagged mouth.
+        for ex in (15, 28):
+            c.rect(ex, 25, ex + 6, 31, E_OUT)
+            c.rect(ex + 1, 26 + frame, ex + 5, 29 + frame, E_GLOW)
+            c.rect(ex + 2, 26 + frame, ex + 4, 27 + frame, E_GLOW_HI)
+        c.rect(16, 23, 22, 24, E_OUT)  # angry brows
+        c.rect(27, 23, 33, 24, E_OUT)
+        c.rect(17, 34, 32, 39, E_OUT)
+        for x in range(17, 32, 3):  # teeth of splinters
+            c.set(x + 1, 34, E_RING_DARK)
+            c.set(x + 1, 38, E_RING_DARK)
+            c.set(x + 2, 34, E_RING_DARK)
     c.outline(E_OUT)
     return c
 
@@ -216,6 +224,7 @@ def main():
         save(beetle(f), 'monsters', 'beetle_%d' % (f + 1))
         save(wolf(f), 'monsters', 'wolf_%d' % (f + 1))
         save(elder_stump(f), 'monsters', 'stump_%d' % (f + 1))
+    save(elder_stump(0, asleep=True), 'monsters', 'stump_sleep')
     print('wrote monsters')
 
 

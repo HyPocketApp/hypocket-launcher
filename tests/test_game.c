@@ -22,6 +22,7 @@ static Game g;
 static const GameInput NONE = { 0 };
 static const GameInput RIGHT = { .move_x = 1 };
 static const GameInput LEFT = { .move_x = -1 };
+static const GameInput UP = { .move_y = -1 };
 static const GameInput CONFIRM = { .confirm_pressed = true };
 static const GameInput CANCEL = { .cancel_pressed = true };
 static const GameInput DOWN = { .nav_y = 1 };
@@ -775,6 +776,26 @@ static void test_reaching_the_creatures_plays_their_scene(void)
     CHECK(g.battle.enemy_count == 3);
 }
 
+static void test_waking_the_elder_stump(void)
+{
+    memset(&g, 0, sizeof g);
+    game_new(&g);
+    g.goddess.joined = true;
+    game_enter_area(&g, AREA_CLEARING, 0);
+    g.state = STATE_MAP;
+    int bx, by;
+    find_tile('B', AREA_CLEARING, &bx, &by);
+    for (int i = 0; i < g.foe_count; i++)
+        if (g.foes[i].kind != ENCOUNTER_BOSS) g.foes[i].alive = false;
+    place(bx, by + 6);
+    run(&UP, 40);
+    CHECK(g.state == STATE_SCENE && g.scene == SCENE_ELDER);
+    CHECK(g.elder_woke);
+    run(&NONE, 30);
+    run(&CANCEL, 1);
+    CHECK(g.state == STATE_BATTLE && g.battle.enemies[0].species == SPECIES_ELDER_STUMP);
+}
+
 static void test_story_is_complete(void)
 {
     for (int sc = 0; sc < SCENE_COUNT; sc++) {
@@ -977,6 +998,7 @@ int main(void)
         { "scene can be skipped", test_scene_can_be_skipped },
         { "saving the goddess", test_saving_the_goddess },
         { "reaching the creatures plays their scene", test_reaching_the_creatures_plays_their_scene },
+        { "waking the Elder Stump", test_waking_the_elder_stump },
         { "story is complete", test_story_is_complete },
         { "goddess casts spells", test_goddess_casts_spells },
         { "monsters attack the goddess too", test_monsters_attack_the_goddess_too },
