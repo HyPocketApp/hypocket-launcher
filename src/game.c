@@ -300,7 +300,8 @@ static int linked_area(int from, int link)
     return -1;
 }
 
-// Uses the axe (or hands) on the tile in front of the lumberjack.
+// The action button on the tile in front of the lumberjack: chests,
+// campfire, door. (Trees, bushes and rocks stay as they are.)
 static void map_action(Game *g)
 {
     Walker *w = &g->walker;
@@ -308,18 +309,6 @@ static void map_action(Game *g)
     float cy = w->y + WALKER_SIZE / 2.0f + w->face_y * 11.0f;
     int tx = tile_floor(cx), ty = tile_floor(cy);
     switch (game_tile_at(g, tx, ty)) {
-    case TILE_TREE:
-        g->tiles[ty][tx] = TILE_STUMP;
-        g->events |= EVENT_CHOP;
-        break;
-    case TILE_BUSH:
-        g->tiles[ty][tx] = TILE_FLOOR;
-        g->events |= EVENT_CHOP;
-        break;
-    case TILE_ROCK:
-        g->events |= EVENT_BUMP;
-        show_toast(g, TOAST_TOO_HARD, 0);
-        break;
     case TILE_CHEST:
         g->tiles[ty][tx] = TILE_CHEST_OPEN;
         g->stats.herbs += CHEST_HERBS;
@@ -1053,6 +1042,18 @@ void game_enter_area(Game *g, int area, int link)
     }
 }
 
+void game_place_walker(Game *g, int tx, int ty, int face_x, int face_y)
+{
+    memset(&g->walker, 0, sizeof g->walker);
+    g->walker.x = tx * TILE + (TILE - WALKER_SIZE) / 2.0f;
+    g->walker.y = ty * TILE + (TILE - WALKER_SIZE) / 2.0f;
+    g->walker.face_x = face_x;
+    g->walker.face_y = face_y;
+    g->walker.safe_timer = 1.0f;
+    reset_follower(g);
+    update_camera(g);
+}
+
 void game_new(Game *g)
 {
     memset(&g->stats, 0, sizeof g->stats);
@@ -1191,37 +1192,17 @@ void game_step(Game *g, const GameInput *in)
         break;
 
     case STATE_MAP:
-        if (in->pause_pressed) {
-            g->state = STATE_PAUSED;
-            g->pause_cursor = PAUSE_CONTINUE;
-            g->state_timer = MENU_DELAY / 2;
-            break;
-        }
+        if (in->pause_pressed) { g->state = STATE_PAUSED; break; }
         update_walker(g, in, dt);
         if (g->state == STATE_MAP) update_foes(g, dt);
         update_camera(g);
         break;
 
-    case STATE_PAUSED: {
-        // A small menu: Continue, or save and go back to the title.
-        if (g->state_timer > 0) break;
-        if (in->nav_y) {
-            g->pause_cursor = wrap(g->pause_cursor + in->nav_y, PAUSE_COUNT);
-            g->events |= EVENT_CURSOR;
-        }
-        bool choose = in->confirm_pressed;
-        if (in->pick >= 1 && in->pick <= PAUSE_COUNT) {
-            g->pause_cursor = in->pick - 1;
-            choose = true;
-        }
-        if (in->pause_pressed || in->cancel_pressed || (choose && g->pause_cursor == PAUSE_CONTINUE)) {
+    case STATE_PAUSED:
+        // Any of the buttons resumes: the screen says Enter or a tap.
+        if (in->pause_pressed || in->cancel_pressed || in->confirm_pressed || in->pick || in->target_pick)
             g->state = STATE_MAP;
-            g->events |= EVENT_CONFIRM;
-        } else if (choose) {
-            g->events |= EVENT_SAVE | EVENT_TO_TITLE | EVENT_CONFIRM;
-        }
         break;
-    }
 
     case STATE_BATTLE:
         update_battle(g, in, dt);

@@ -8,8 +8,8 @@
 // The player is a lumberjack on his way to a nearby village. The world is a
 // set of areas joined by paths (his home, the woods, the valley, the
 // clearing); he can walk back and forth and each area remembers what changed.
-// On the map (seen from above) he walks, chops trees out of the way with his
-// axe, opens chests and rests at campfires. In the woods he saves the Moon
+// On the map (seen from above) he walks, opens chests and rests at the
+// campfire; his axe is for battles. In the woods he saves the Moon
 // Goddess from small fire beings; she then follows him and fights with magic.
 // Short story scenes play between the action (see Scene).
 // Touching a monster starts a turn-based battle: he picks an action, then
@@ -42,9 +42,9 @@
 typedef enum {
     TILE_FLOOR = 0,  // '.' grass
     TILE_WALL,       // '#' cliff, blocks
-    TILE_TREE,       // 'T' tree, blocks until chopped
-    TILE_STUMP,      //     what is left of a chopped tree
-    TILE_ROCK,       // 'R' rock, blocks, too hard to chop
+    TILE_TREE,       // 'T' tree, blocks
+    TILE_STUMP,      //     a tree stump (no map uses it now)
+    TILE_ROCK,       // 'R' rock, blocks
     TILE_WATER,      // '~' water, blocks
     TILE_BRIDGE,     // '=' bridge over water
     TILE_CHEST,      // 'c' chest with herbs
@@ -57,8 +57,9 @@ typedef enum {
     TILE_DOOR,       // 'D' its door: rest at home
     TILE_PATH,       // ':' dirt path
     TILE_WOODPILE,   // 'W' stacked firewood, blocks
-    TILE_BUSH,       // 'o' bush, blocks until cut
+    TILE_BUSH,       // 'o' bush, blocks
     TILE_FLOWERS,    // ',' flowers on the grass
+    TILE_COUNT,
 } TileType;
 
 // The areas, in the order of areas_rows() (levels.c).
@@ -285,15 +286,14 @@ typedef enum {
     TOAST_HERBS,     // amount = herbs found
     TOAST_AXE,       // the axe got sharper
     TOAST_REST,      // rested at the campfire
-    TOAST_TOO_HARD,  // tried to chop a rock
     TOAST_MAP,       // arrived in an area; amount = area + 1
     TOAST_HOME,      // rested at home
     TOAST_NOT_YET,   // tried to go deeper before saving the goddess
+    TOAST_SAVE_FAILED,  // set by the front end when the file could not be written
 } Toast;
 
 // Things that happened during the last step, for sounds and effects.
 enum {
-    EVENT_CHOP = 1 << 0,
     EVENT_CHEST = 1 << 1,
     EVENT_REST = 1 << 2,
     EVENT_ENCOUNTER = 1 << 3,
@@ -309,22 +309,19 @@ enum {
     EVENT_FLEE = 1 << 13,
     EVENT_PLAYER_DOWN = 1 << 14,
     EVENT_EXIT = 1 << 15,
-    EVENT_BUMP = 1 << 16,      // swung the axe at something that does not break
     EVENT_LANGUAGE = 1 << 17,  // title options: switch the language
     EVENT_SOUND = 1 << 18,     // title options: turn the sound on or off
     EVENT_QUIT = 1 << 19,      // title menu: close the game
-    EVENT_SAVE = 1 << 20,      // write the game to its save (save_slot 0: a new one)
+    EVENT_SAVE = 1 << 20,      // the player saves (resting), or a new game starts
     EVENT_LOAD = 1 << 21,      // title: load the save at title_cursor in the list
     EVENT_AXE = 1 << 22,       // the lumberjack's axe hit a monster
     EVENT_MOONBEAM = 1 << 23,  // the goddess's Moon Beam hit a monster
-    EVENT_TO_TITLE = 1 << 24,  // pause menu: back to the title (after EVENT_SAVE)
 };
 
 // The title menu, and its options page.
 typedef enum { TITLE_NEW, TITLE_LOAD, TITLE_OPTIONS, TITLE_QUIT, TITLE_COUNT } TitleItem;
 typedef enum { PAGE_MAIN, PAGE_LOAD, PAGE_OPTIONS } TitlePage;
 typedef enum { OPTION_LANGUAGE, OPTION_SOUND, OPTION_BACK, OPTION_COUNT } OptionItem;
-typedef enum { PAUSE_CONTINUE, PAUSE_TITLE, PAUSE_COUNT } PauseItem;
 
 typedef struct {
     float move_x, move_y;  // direction on the map, each from -1 to 1
@@ -343,7 +340,6 @@ typedef struct {
     int title_cursor;    // TitleItem, a save in the list, or an OptionItem
     int save_count;      // saves on disk, set by the front end for the title
     int save_slot;       // this game's save number; 0 until first saved
-    int pause_cursor;    // PauseItem
 
     int area;   // index into the area list, -1 for a map loaded by hand
     int w, h;   // map size in tiles
@@ -399,6 +395,8 @@ bool area_load_rows(Game *g, const char *const *rows, int row_count);
 void game_init(Game *g);       // title screen
 void game_new(Game *g);        // a new lumberjack at home
 void game_loaded(Game *g);     // after reading a save: back on the map
+// Puts the lumberjack on a tile of the current area, the goddess behind him.
+void game_place_walker(Game *g, int tx, int ty, int face_x, int face_y);
 // Goes to an area, arriving by the exit with digit `link`, or at its start
 // ('P') when link is 0.
 void game_enter_area(Game *g, int area, int link);

@@ -22,13 +22,14 @@ const char *save_dir(void);
 // Writes the game to its slot. A game without one (save_slot 0) gets the
 // next free number first.
 bool save_write(Game *g);
-// Reads a save into `g`. False when it is missing, damaged or from a version
-// of the game that kept other things.
+// Reads a save into `g` (then call game_loaded). False when it is missing or
+// not a save.
 bool save_read(int slot, Game *g);
 // All the saves, newest first. Free the list with free().
 SaveInfo *save_list(int *count);
 
-bool settings_write(bool portuguese, bool sound_on);
-bool settings_read(bool *portuguese, bool *sound_on);
+// hints_done: bits of the on-map hints the player no longer needs.
+bool settings_write(bool portuguese, bool sound_on, unsigned hints_done);
+bool settings_read(bool *portuguese, bool *sound_on, unsigned *hints_done);
 
 #endif

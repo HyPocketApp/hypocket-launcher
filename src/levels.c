@@ -1,6 +1,6 @@
 // The areas of the world, written as text. One character is one 16x16 tile:
 //
-//   .  grass            #  deep forest       T  tree (chop it with the axe)
+//   .  grass            #  deep forest       T  tree
 //   R  rock             ~  water             =  bridge
 //   o  bush (cut it)    ,  flowers
 //   c  chest (herbs)    A  chest (sharper axe)
@@ -19,8 +19,8 @@
 //      they stay put and are one battle against all three
 //
 // An area needs a path or a 'B', at most 64 rows and 96 columns.
-// tests/test_game.c checks that everything can be reached (trees and bushes
-// count as open, since the axe clears them) and that the paths pair up.
+// tests/test_game.c checks that everything can be reached (trees, bushes and
+// rocks are walls) and that the paths pair up.
 #include "game.h"
 
 // The lumberjack's home: no monsters. The path east leads into the woods.

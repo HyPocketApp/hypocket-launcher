@@ -77,8 +77,8 @@
 // --- Sound ----------------------------------------------------------------------
 
 enum {
-    SND_CHOP, SND_CHEST, SND_REST, SND_ENCOUNTER, SND_CURSOR, SND_CONFIRM, SND_DENIED, SND_HIT,
-    SND_HURT, SND_HEAL, SND_DEFEATED, SND_VICTORY, SND_LEVEL_UP, SND_FLEE, SND_DOWN, SND_EXIT, SND_BUMP,
+    SND_CHEST, SND_REST, SND_ENCOUNTER, SND_CURSOR, SND_CONFIRM, SND_DENIED, SND_HIT,
+    SND_HURT, SND_HEAL, SND_DEFEATED, SND_VICTORY, SND_LEVEL_UP, SND_FLEE, SND_DOWN, SND_EXIT,
     SND_AXE, SND_MOONBEAM,
     SND_COUNT,
 };
@@ -138,7 +138,6 @@ static Sounds load_sounds(void)
     Sounds s = { 0 };
     InitAudioDevice();
     if (!IsAudioDeviceReady()) return s;
-    s.s[SND_CHOP] = make_tone(220, 90, 0.14f, 0.25f, 0, true);
     s.s[SND_CHEST] = make_tone(523, 1047, 0.30f, 0.16f, 4, false);
     s.s[SND_REST] = make_tone(392, 784, 0.50f, 0.14f, 3, false);
     s.s[SND_ENCOUNTER] = make_tone(200, 800, 0.35f, 0.16f, 6, false);
@@ -154,7 +153,6 @@ static Sounds load_sounds(void)
     s.s[SND_FLEE] = make_tone(800, 200, 0.25f, 0.14f, 0, false);
     s.s[SND_DOWN] = make_tone(330, 82, 0.80f, 0.18f, 4, false);
     s.s[SND_EXIT] = make_tone(392, 784, 0.25f, 0.12f, 2, false);
-    s.s[SND_BUMP] = make_tone(160, 140, 0.08f, 0.20f, 0, true);
     s.s[SND_AXE] = make_tone(300, 90, 0.14f, 0.24f, 0, true);
     s.s[SND_MOONBEAM] = make_tone(880, 1760, 0.30f, 0.14f, 0, false);
     // Recorded sounds by the game's author, where there are any; the beeps
@@ -162,7 +160,6 @@ static Sounds load_sounds(void)
     load_sfx(&s.s[SND_CHEST], "sfx/chest", 0.9f);
     load_sfx(&s.s[SND_VICTORY], "sfx/victory", 0.8f);
     load_sfx(&s.s[SND_AXE], "sfx/axe", 0.55f);
-    load_sfx(&s.s[SND_CHOP], "sfx/axe", 0.45f);  // chopping trees on the map
     load_sfx(&s.s[SND_MOONBEAM], "sfx/moonbeam", 0.7f);
     s.ready = true;
     return s;
@@ -174,11 +171,11 @@ static void play_events(const Sounds *s, unsigned ev)
 {
     if (!s->ready || !sound_on) return;
     static const struct { unsigned event; int sound; } map[] = {
-        { EVENT_CHOP, SND_CHOP }, { EVENT_CHEST, SND_CHEST }, { EVENT_REST, SND_REST },
+        { EVENT_CHEST, SND_CHEST }, { EVENT_REST, SND_REST },
         { EVENT_ENCOUNTER, SND_ENCOUNTER }, { EVENT_CURSOR, SND_CURSOR }, { EVENT_CONFIRM, SND_CONFIRM },
         { EVENT_DENIED, SND_DENIED }, { EVENT_HIT, SND_HIT }, { EVENT_HURT, SND_HURT }, { EVENT_HEAL, SND_HEAL },
         { EVENT_DEFEATED, SND_DEFEATED }, { EVENT_VICTORY, SND_VICTORY }, { EVENT_LEVEL_UP, SND_LEVEL_UP },
-        { EVENT_FLEE, SND_FLEE }, { EVENT_PLAYER_DOWN, SND_DOWN }, { EVENT_EXIT, SND_EXIT }, { EVENT_BUMP, SND_BUMP },
+        { EVENT_FLEE, SND_FLEE }, { EVENT_PLAYER_DOWN, SND_DOWN }, { EVENT_EXIT, SND_EXIT },
         { EVENT_AXE, SND_AXE }, { EVENT_MOONBEAM, SND_MOONBEAM },
     };
     if (ev & (EVENT_AXE | EVENT_MOONBEAM)) ev &= ~(unsigned)EVENT_HIT;  // their own sound instead
@@ -305,17 +302,11 @@ static Rectangle menu_entry_rect(int i)
 
 // The title menu: entries in a box in the middle of the screen.
 #define TITLE_MENU_Y 70
-#define AUTOSAVE_EVERY 20.0f  // seconds of walking between saves
 #define TITLE_LINE 16
 
 static Rectangle title_entry_rect(int i)
 {
     return (Rectangle){ 100, (float)(TITLE_MENU_Y + 4 + i * TITLE_LINE), 120, TITLE_LINE };
-}
-
-static Rectangle pause_entry_rect(int i)
-{
-    return (Rectangle){ 84, (float)(TITLE_MENU_Y + 4 + i * TITLE_LINE), 152, TITLE_LINE };
 }
 
 // The load page: saves in rows of two lines, LOAD_ROWS at a time, and Back
@@ -420,9 +411,6 @@ static void poll_touch(InputState *s, View v, const Game *g)
             for (int i = 0; i < LOAD_ROWS && load_first + i < g->save_count; i++)
                 if (CheckCollisionPointRec(p, load_row_rect(i))) s->pick = load_first + i + 1;
             if (CheckCollisionPointRec(p, load_back_rect())) s->pick = g->save_count + 1;
-        } else if (g->state == STATE_PAUSED) {
-            for (int i = 0; i < PAUSE_COUNT; i++)
-                if (CheckCollisionPointRec(p, pause_entry_rect(i))) s->pick = i + 1;
         } else if (g->state == STATE_TITLE) {
             int n = g->title_page == PAGE_OPTIONS ? OPTION_COUNT : TITLE_COUNT;
             for (int i = 0; i < n; i++)
@@ -1421,9 +1409,9 @@ static void draw_map_hud(const Game *g, const InputState *s, float alpha)
         case TOAST_HERBS: msg = TextFormat(text_get(TXT_TOAST_HERBS), g->toast_amount); break;
         case TOAST_AXE: msg = TextFormat(text_get(TXT_TOAST_AXE), g->toast_amount); break;
         case TOAST_REST: msg = text_get(TXT_TOAST_REST); break;
-        case TOAST_TOO_HARD: msg = text_get(TXT_TOAST_TOO_HARD); break;
         case TOAST_HOME: msg = text_get(TXT_TOAST_HOME); break;
         case TOAST_NOT_YET: msg = text_get(TXT_TOAST_NOT_YET); break;
+        case TOAST_SAVE_FAILED: msg = text_get(TXT_TOAST_SAVE_FAILED); break;
         case TOAST_MAP: msg = text_get((TextId)(TXT_MAP_HOME + (g->toast_amount - 1) % 4)); break;
         default: break;
         }
@@ -1934,20 +1922,9 @@ static void draw_overlay(const Game *g, bool touch)
         draw_title(g, touch);
         break;
     case STATE_PAUSED:
-        DrawRectangle(0, 0, VIEW_W, VIEW_H, Fade(INK, 0.55f));
-        draw_text_centered(text_get(TXT_PAUSED), 40, 20, RAYWHITE);
-        draw_box((Rectangle){ 80, TITLE_MENU_Y, 160, PAUSE_COUNT * TITLE_LINE + 8 });
-        for (int i = 0; i < PAUSE_COUNT; i++) {
-            const char *label = text_get(i == PAUSE_CONTINUE ? TXT_PAUSE_CONTINUE : TXT_PAUSE_SAVE_QUIT);
-            Rectangle r = pause_entry_rect(i);
-            bool on = g->pause_cursor == i;
-            int x = (int)(r.x + (r.width - MeasureText(label, 10)) / 2), y = (int)r.y + 3;
-            if (on) DrawRectangleRec(r, Fade(PANEL_EDGE, 0.2f));
-            draw_text_shadow(label, x, y, 10, on ? GOLDEN : RAYWHITE);
-            if (on && !touch) DrawTriangle((Vector2){ (float)x - 9, (float)y }, (Vector2){ (float)x - 9, (float)y + 8 },
-                                           (Vector2){ (float)x - 4, (float)y + 4 }, GOLDEN);
-        }
-        draw_text_centered(text_get(TXT_AUTOSAVE), TITLE_MENU_Y + PAUSE_COUNT * TITLE_LINE + 18, 10, Fade(RAYWHITE, 0.7f));
+        DrawRectangle(0, 0, VIEW_W, VIEW_H, Fade(INK, 0.5f));
+        draw_text_centered(text_get(TXT_PAUSED), 70, 20, RAYWHITE);
+        draw_text_centered(text_get(press), 100, 10, RAYWHITE);
         break;
     case STATE_GAME_OVER:
         DrawRectangle(0, 0, VIEW_W, VIEW_H, Fade(INK, 0.85f));
@@ -2000,7 +1977,11 @@ static void scene_camera(const Game *g, int *cam_x, int *cam_y)
 }
 
 // When he stands facing a campfire, a chest or his door, a little sign over
-// his head says what the action button does there.
+// his head says what the action button does there, until the player has
+// done it once (remembered in the settings, for every game).
+enum { HINT_FIRE = 1, HINT_DOOR = 2, HINT_CHEST = 4 };
+static unsigned hints_done = 0;
+
 static void draw_action_hint(const Game *g, int cam_x, int cam_y, bool touch)
 {
     const Walker *w = &g->walker;
@@ -2011,6 +1992,8 @@ static void draw_action_hint(const Game *g, int cam_x, int cam_y, bool touch)
     TextId what = t == TILE_FIRE ? TXT_HINT_REST : t == TILE_DOOR ? TXT_HINT_HOME
                 : t == TILE_CHEST || t == TILE_CHEST_AXE ? TXT_HINT_OPEN : TXT_COUNT;
     if (what == TXT_COUNT) return;
+    unsigned bit = what == TXT_HINT_REST ? HINT_FIRE : what == TXT_HINT_HOME ? HINT_DOOR : HINT_CHEST;
+    if (hints_done & bit) return;
     const char *key = text_get(touch ? TXT_HINT_TAP : TXT_HINT_KEY), *label = text_get(what);
     int kw = MeasureText(key, 10) + 6, lw = MeasureText(label, 10);
     int w_all = kw + 4 + lw + 8, h = 14;
@@ -2101,7 +2084,7 @@ int main(int argc, char *argv[])
     save_set_dir(saves_folder());
     {
         bool pt = text_is_portuguese();
-        if (settings_read(&pt, &sound_on)) text_set_portuguese(pt);
+        if (settings_read(&pt, &sound_on, &hints_done)) text_set_portuguese(pt);
     }
     refresh_saves();
 
@@ -2116,9 +2099,7 @@ int main(int argc, char *argv[])
     for (int i = 1; i < argc; i++)
         if (strcmp(argv[i], "--touch") == 0) input.touch_ui = true;
 
-    float accumulator = 0.0f, chop = 0.0f, since_save = 0.0f;
-    int autosave_area = -1;
-    GameState autosave_state = STATE_TITLE;
+    float accumulator = 0.0f;
     bool quit = false;
     while (!quit && !WindowShouldClose()) {
         View view = fit_view();
@@ -2134,41 +2115,33 @@ int main(int argc, char *argv[])
         // Fixed steps keep the game the same at any frame rate.
         float frame = fminf(GetFrameTime(), 0.1f);
         accumulator += frame;
-        if (chop > 0) chop = fmaxf(0.0f, chop + frame * 5.0f > 1.0f ? 0.0f : chop + frame * 5.0f);
         while (accumulator >= STEP_DT) {
-            bool on_map = game.state == STATE_MAP;
             take_presses(&input, &in);
             if (game.state == STATE_TITLE) game.save_count = save_total;
             game_step(&game, &in);
-            if (on_map && in.confirm_pressed) chop = 0.01f;  // swing the axe
             if (game.events & (EVENT_LANGUAGE | EVENT_SOUND)) {
                 if (game.events & EVENT_LANGUAGE) text_set_portuguese(!text_is_portuguese());
                 if (game.events & EVENT_SOUND) sound_on = !sound_on;
-                settings_write(text_is_portuguese(), sound_on);
+                settings_write(text_is_portuguese(), sound_on, hints_done);
             }
             if (game.events & EVENT_QUIT) quit = true;
+            // Once he has rested or opened a chest, that sign is not needed.
+            unsigned learned = hints_done;
+            if ((game.events & EVENT_REST) && game.toast == TOAST_REST) learned |= HINT_FIRE;
+            if ((game.events & EVENT_REST) && game.toast == TOAST_HOME) learned |= HINT_DOOR;
+            if (game.events & EVENT_CHEST) learned |= HINT_CHEST;
+            if (learned != hints_done) {
+                hints_done = learned;
+                settings_write(text_is_portuguese(), sound_on, hints_done);
+            }
             if (game.events & EVENT_SAVE) {
-                if (!save_write(&game)) TraceLog(LOG_WARNING, "could not save the game in %s", save_dir());
-                refresh_saves();
-                since_save = 0;
-            }
-            if (game.events & EVENT_TO_TITLE) {
-                game_init(&game);
-                refresh_saves();
-            }
-            // Saves by itself too: on reaching another area, after a battle or
-            // a scene, and every so often while walking. (On Android the game
-            // stops as soon as it leaves the screen, so it cannot save then.)
-            if (game.save_slot > 0 && game.state == STATE_MAP) {
-                since_save += STEP_DT;
-                bool back = autosave_state != STATE_MAP && autosave_state != STATE_PAUSED;
-                if (game.area != autosave_area || back || since_save >= AUTOSAVE_EVERY) {
-                    save_write(&game);
-                    since_save = 0;
+                if (!save_write(&game)) {
+                    TraceLog(LOG_WARNING, "could not save the game in %s", save_dir());
+                    game.toast = TOAST_SAVE_FAILED;  // the player must know
+                    game.toast_timer = 4.0f;
                 }
+                refresh_saves();
             }
-            autosave_area = game.area;
-            autosave_state = game.state;
             if ((game.events & EVENT_LOAD) && game.title_cursor < save_total) {
                 if (save_read(saves[game.title_cursor].slot, &game)) game_loaded(&game);
                 else game.events |= EVENT_DENIED;
@@ -2181,7 +2154,7 @@ int main(int argc, char *argv[])
 
         BeginTextureMode(canvas);
         BeginMode2D(layout);
-        draw_game(&game, &input, chop);
+        draw_game(&game, &input, 0.0f);  // (no axe swing on the map)
         EndMode2D();
         EndTextureMode();
 
@@ -2193,8 +2166,6 @@ int main(int argc, char *argv[])
         EndDrawing();
     }
 
-    // Closing the window keeps where he is.
-    if (game.save_slot > 0 && (game.state == STATE_MAP || game.state == STATE_PAUSED)) save_write(&game);
     free(saves);
     unload_music();
     unload_sounds(&sounds);

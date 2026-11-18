@@ -84,9 +84,9 @@ static bool has_msg(MsgType type)
 
 // --- Maps -------------------------------------------------------------------------
 
-// Walks the map from the start through everything but cliffs, rocks and
-// water (trees count as open: the axe clears them). Every monster and exit
-// must be reached, and every chest and campfire must have a reachable side.
+// Walks the map from the start through everything that does not block
+// (cliffs, water, trees, bushes and rocks do). Every monster and exit must
+// be reached, and every chest and campfire must have a reachable side.
 static bool map_is_completable(const Game *m)
 {
     static bool seen[MAX_MAP_H][MAX_MAP_W];
@@ -104,7 +104,7 @@ static bool map_is_completable(const Game *m)
             int nx = x + dirs[i][0], ny = y + dirs[i][1];
             if (nx < 0 || ny < 0 || nx >= m->w || ny >= m->h || seen[ny][nx]) continue;
             TileType t = game_tile_at(m, nx, ny);
-            if (t != TILE_TREE && t != TILE_BUSH && game_tile_blocks(t)) continue;
+            if (game_tile_blocks(t)) continue;
             seen[ny][nx] = true;
             queue[tail++] = ny * MAX_MAP_W + nx;
         }
@@ -255,27 +255,18 @@ static void test_bad_map_is_rejected(void)
 
 // --- Exploring ----------------------------------------------------------------------
 
-static void test_axe_chops_trees(void)
+// Trees, bushes and rocks are in the way for good: the axe is for battles.
+static void test_trees_stay(void)
 {
-    static const char *const rows[] = { "#######", "#P.T.9#", "#######" };
+    static const char *const rows[] = { "#######", "#P.To9#", "#.R...#", "#######" };
     load(rows, COUNT(rows));
     run(&RIGHT, 60);
     CHECK(g.walker.x + WALKER_SIZE <= 3 * TILE + 0.01f);  // the tree stops him
     face(1, 0);
-    CHECK(run(&CONFIRM, 1) & EVENT_CHOP);
-    CHECK(game_tile_at(&g, 3, 1) == TILE_STUMP);
+    run(&CONFIRM, 1);
+    CHECK(game_tile_at(&g, 3, 1) == TILE_TREE && game_tile_at(&g, 4, 1) == TILE_BUSH);
     run(&RIGHT, 60);
-    CHECK(g.walker.x > 3 * TILE);  // the way is open
-}
-
-static void test_rocks_are_too_hard(void)
-{
-    static const char *const rows[] = { "#######", "#PR..9#", "#######" };
-    load(rows, COUNT(rows));
-    face(1, 0);
-    CHECK(run(&CONFIRM, 1) & EVENT_BUMP);
-    CHECK(game_tile_at(&g, 2, 1) == TILE_ROCK);
-    CHECK(g.toast == TOAST_TOO_HARD);
+    CHECK(g.walker.x + WALKER_SIZE <= 3 * TILE + 0.01f);
 }
 
 static void test_chests(void)
@@ -351,7 +342,7 @@ static void test_walking_between_areas(void)
     CHECK((int)(g.walker.x / TILE) == wx + 1 && (int)(g.walker.y / TILE) == wy);  // next to the path
 
     // Things done in an area stay done.
-    g.tiles[wy + 1][wx + 1] = TILE_STUMP;
+    g.tiles[wy + 1][wx + 1] = TILE_CHEST_OPEN;
     g.foes[0].alive = false;
     place(wx + 1, wy);
     for (int i = 0; i < 60 && g.area == AREA_WOODS; i++) run(&LEFT, 1);
@@ -360,7 +351,7 @@ static void test_walking_between_areas(void)
     run(&RIGHT, 30);
     CHECK(g.area == AREA_WOODS);
     CHECK(g.state == STATE_MAP);  // no cry the second time
-    CHECK(game_tile_at(&g, wx + 1, wy + 1) == TILE_STUMP);
+    CHECK(game_tile_at(&g, wx + 1, wy + 1) == TILE_CHEST_OPEN);
     CHECK(!g.foes[0].alive);
 
     // Deeper into the forest only with the goddess.
@@ -412,22 +403,15 @@ static void test_pause(void)
     CHECK(g.walker.x == x);
     run(&pause, 1);
     CHECK(g.state == STATE_MAP);
-    // The menu: Continue resumes; the second entry saves and goes to the title.
+    // Enter or a tap also resumes, as the pause screen says.
     run(&pause, 1);
     CHECK(g.state == STATE_PAUSED);
-    run(&NONE, 20);
     run(&CONFIRM, 1);
     CHECK(g.state == STATE_MAP);
     run(&pause, 1);
-    run(&NONE, 20);
     GameInput tap = { .pick = 1 };
     run(&tap, 1);
     CHECK(g.state == STATE_MAP);
-    run(&pause, 1);
-    run(&NONE, 20);
-    run(&DOWN, 1);
-    unsigned ev = run(&CONFIRM, 1);
-    CHECK((ev & EVENT_SAVE) && (ev & EVENT_TO_TITLE));
 }
 
 static void test_walking_tile_by_tile(void)
@@ -724,20 +708,24 @@ static void test_title_menu(void)
     CHECK(g.state == STATE_SCENE && g.scene == SCENE_INTRO && g.save_slot == 0);
 }
 
-// Saves: one file per game, as many as wanted, listed newest first, and a
-// loaded game is back where it was saved.
-static void test_saves(void)
+static void clear_saves(void)
 {
-    save_set_dir("test_saves/a/b");
     int count;
     SaveInfo *old = save_list(&count);
     for (int i = 0; i < count; i++) {
         char path[256];
-        snprintf(path, sizeof path, "test_saves/a/b/game_%d.sav", old[i].slot);
+        snprintf(path, sizeof path, "%s/game_%d.save", save_dir(), old[i].slot);
         remove(path);
     }
     free(old);
+}
 
+// Saves: one file per game, as many as wanted, listed newest first.
+static void test_saves(void)
+{
+    save_set_dir("test_saves/a/b");
+    clear_saves();
+    int count;
     for (int i = 0; i < 40; i++) {  // no limit
         game_new(&g);
         g.stats.level = 1 + i % 9;
@@ -745,40 +733,95 @@ static void test_saves(void)
         CHECK(g.save_slot == i + 1);
     }
     SaveInfo *list = save_list(&count);
-    CHECK(count == 40);
+    CHECK(count == 40 && list[0].slot == 40);
     free(list);
-
     game_new(&g);
-    game_enter_area(&g, AREA_WOODS, 0);
     g.save_slot = 7;
     g.stats.level = 5;
-    g.goddess.joined = true;
-    g.elder_woke = true;
-    float x = g.walker.x;
     CHECK(save_write(&g));
     list = save_list(&count);
-    CHECK(count == 40 && list[0].slot == 7 && list[0].level == 5 && list[0].area == AREA_WOODS);
+    CHECK(count == 40 && list[0].slot == 7 && list[0].level == 5 && list[0].area == AREA_HOME);
     free(list);
-
-    game_init(&g);
-    CHECK(save_read(7, &g));
-    game_loaded(&g);
-    CHECK(g.state == STATE_MAP && g.area == AREA_WOODS && g.stats.level == 5 && g.walker.x == x);
-    CHECK(g.goddess.joined && g.elder_woke && g.save_slot == 7);
     CHECK(!save_read(99, &g));
 
-    // A damaged file is not listed or loaded.
-    FILE *f = fopen("test_saves/a/b/game_3.sav", "r+b");
-    CHECK(f != NULL);
-    if (f) { fputs("XXXX", f); fclose(f); }
+    // A file that is not a save is not listed or loaded.
+    FILE *f = fopen("test_saves/a/b/game_3.save", "wb");
+    if (f) { fputs("hello", f); fclose(f); }
     CHECK(!save_read(3, &g));
     list = save_list(&count);
     CHECK(count == 39);
     free(list);
 
     bool pt = false, sound = true;
-    CHECK(settings_write(true, false));
-    CHECK(settings_read(&pt, &sound) && pt && !sound);
+    unsigned hints = 0;
+    CHECK(settings_write(true, false, 5));
+    CHECK(settings_read(&pt, &sound, &hints) && pt && !sound && hints == 5);
+}
+
+// A save keeps the player's progress: what he has, the story, where he
+// rested, and in every area the chests opened and the monsters beaten.
+static void test_save_keeps_progress(void)
+{
+    save_set_dir("test_saves/progress");
+    clear_saves();
+    game_new(&g);
+    g.heard_cry = true;
+    g.goddess.joined = true;
+    g.goddess.hp = 17;
+    g.goddess.max_hp = 30;
+    g.goddess.mp = 4;
+    g.stats.level = 4;
+    g.stats.xp = 33;
+    g.stats.hp = 21;
+    g.stats.max_hp = 70;
+    g.stats.sp = 2;
+    g.stats.herbs = 3;
+    g.stats.atk = 15;
+    game_enter_area(&g, AREA_WOODS, 0);
+    g.state = STATE_MAP;
+    g.foes[0].alive = false;
+    g.foes[2].alive = false;
+    int cx, cy;
+    find_tile('c', AREA_WOODS, &cx, &cy);
+    g.tiles[cy][cx] = TILE_CHEST_OPEN;
+    game_enter_area(&g, AREA_VALLEY, 0);
+    g.state = STATE_MAP;
+    g.foes[1].alive = false;
+    place(5, 5);
+    g.walker.face_x = 1;
+    g.walker.face_y = 0;
+    g.respawn_area = AREA_VALLEY;
+    g.respawn_x = 5 * TILE + 2;
+    g.respawn_y = 5 * TILE + 2;
+    CHECK(save_write(&g));
+    int slot = g.save_slot;
+
+    game_init(&g);
+    CHECK(save_read(slot, &g));
+    game_loaded(&g);
+    CHECK(g.state == STATE_MAP && g.area == AREA_VALLEY);
+    CHECK((int)(g.walker.x / TILE) == 5 && (int)(g.walker.y / TILE) == 5 && g.walker.face_x == 1);
+    CHECK(g.stats.level == 4 && g.stats.xp == 33 && g.stats.hp == 21 && g.stats.max_hp == 70);
+    CHECK(g.stats.sp == 2 && g.stats.herbs == 3 && g.stats.atk == 15);
+    CHECK(g.goddess.joined && g.goddess.hp == 17 && g.goddess.max_hp == 30 && g.goddess.mp == 4);
+    CHECK(g.heard_cry && g.respawn_area == AREA_VALLEY && (int)g.respawn_x == 5 * TILE + 2);
+    CHECK(!g.foes[1].alive && g.foes[0].alive);
+    CHECK(g.save_slot == slot);
+    // The woods as he left them.
+    game_enter_area(&g, AREA_WOODS, 0);
+    CHECK(g.state == STATE_MAP);  // no cry again
+    CHECK(!g.foes[0].alive && g.foes[1].alive && !g.foes[2].alive);
+    CHECK(game_tile_at(&g, cx, cy) == TILE_CHEST_OPEN);
+
+    // A save from a newer game version, with keys this one does not know,
+    // still loads.
+    FILE *f = fopen("test_saves/progress/game_50.save", "wb");
+    if (f) {
+        fputs("timberheart save\nversion=9\nslot=50\norder=99\nlevel=6\nsomething_new=4\narea=2\nherbs=8\n", f);
+        fclose(f);
+    }
+    CHECK(save_read(50, &g));
+    CHECK(g.area == AREA_VALLEY && g.stats.level == 6 && g.stats.herbs == 8);
 }
 
 static void test_title_starts_game(void)
@@ -1121,8 +1164,7 @@ int main(void)
         { "goddess casts spells", test_goddess_casts_spells },
         { "monsters attack the goddess too", test_monsters_attack_the_goddess_too },
         { "bad map is rejected", test_bad_map_is_rejected },
-        { "axe chops trees", test_axe_chops_trees },
-        { "rocks are too hard", test_rocks_are_too_hard },
+        { "trees stay", test_trees_stay },
         { "chests", test_chests },
         { "campfire heals and saves", test_campfire_heals_and_saves },
         { "walking between areas", test_walking_between_areas },
@@ -1146,6 +1188,7 @@ int main(void)
         { "title starts game", test_title_starts_game },
         { "title menu", test_title_menu },
         { "saves", test_saves },
+        { "save keeps progress", test_save_keeps_progress },
         { "battle sound events", test_battle_sound_events },
         { "balance", test_balance },
     };

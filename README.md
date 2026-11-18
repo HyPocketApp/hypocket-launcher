@@ -20,31 +20,31 @@ seres querem roubar o que resta. A história está em
   dela: **Raio Lunar** (magia num monstro, atravessa metade da armadura),
   **Luz da Lua** (cura os dois) ou **Defender**. Magias gastam PM. Os
   monstros atacam os dois; se ela cair, volta a levantar depois da luta.
-- **Explorando o mapa:** ande um quadrado por vez (para cima, para baixo e para os lados), como nos RPGs clássicos, **derrube árvores** com o machado
-  para abrir caminhos, abra **baús** (ervas ou uma lâmina mais afiada) e
+- **Explorando o mapa:** ande um quadrado por vez (para cima, para baixo e para os lados), como nos RPGs clássicos, abra **baús** (ervas ou uma lâmina mais afiada) e
   **descanse na fogueira** (só há uma, na Clareira, perto do chefe) ou na
-  porta de casa para recuperar tudo e **salvar o jogo**. Ervas são raras:
+  porta de casa para recuperar tudo e **salvar o jogo**. Árvores, arbustos
+  e pedras ficam no lugar: o machado é para as batalhas. Ervas são raras:
   um baú por área, com uma erva, e às vezes um monstro deixa uma. De frente
   para uma fogueira, um baú ou a porta, aparece uma placa dizendo o que o
-  botão de ação faz ali. Se você cair numa batalha, acorda no último lugar em
+  botão de ação faz ali, até você fazer aquilo pela primeira vez. Se você cair numa batalha, acorda no último lugar em
   que descansou, sem perder nada.
 - **Música:** o tema de flauta toca no menu e explorando; "Conflito na
   Névoa" toca nas batalhas e nas cenas de tensão (a deusa sendo atacada e o
   Toco Ancião acordando). Uma passa para a outra aos poucos. As duas são do
   autor do jogo, em `assets/music/` (OGG, convertidas dos originais em M4A),
   e vão embutidas no programa como as imagens.
-- **Efeitos sonoros:** baú abrindo, machadada (golpes do lenhador e
-  árvores cortadas), Raio Lunar e vitória são gravações do autor do jogo, em
+- **Efeitos sonoros:** baú abrindo, machadada (golpes do lenhador), Raio Lunar e vitória são gravações do autor do jogo, em
   `assets/sfx/`. Os outros sons ainda são bipes gerados pelo código.
 - **Jogos salvos:** cada "Novo jogo" cria um jogo salvo novo, sem limite.
-  Além do descanso, o jogo salva sozinho ao trocar de área, depois de cada
-  batalha ou cena, a cada 20 segundos andando e ao fechar a janela. A pausa
-  tem "Salvar e voltar ao menu".
+  Depois disso, só você salva: descansando na fogueira ou na porta de casa.
+  O jogo salvo guarda nível, experiência, vida, energia, ervas, força, a
+  deusa e a vida e magia dela, a história até ali, onde você está, onde
+  acorda se cair, e em cada área os baús abertos e os monstros vencidos.
   "Carregar jogo" lista todos, do mais recente para o mais antigo, com
   nível, área e data. Os arquivos ficam em `~/.local/share/timberheart` no
   Linux, `%APPDATA%\Timberheart` no Windows e na memória interna do app no
-  Android (`src/save.c`). Um jogo salvo guarda o estado inteiro do jogo, então
-  uma versão nova que mude o que é guardado não abre os saves antigos.
+  Android (`src/save.c`). Os arquivos são texto (`chave=valor`), então
+  continuam abrindo depois que o jogo é atualizado.
 - **Batalhas por turno:** ao tocar num monstro, começa uma batalha. Você
   escolhe uma ação e depois cada monstro age:
   - **Machadada:** um golpe simples (às vezes crítico).
@@ -124,7 +124,7 @@ cmake --build build-tests
 ctest --test-dir build-tests --output-on-failure
 ```
 
-Eles conferem a exploração (cortar árvores, pedras, baús, fogueiras, saída),
+Eles conferem a exploração (árvores e pedras no caminho, baús, fogueira, saída),
 as batalhas (menus, alvos, técnicas, ervas, defesa, fuga, vitória, derrota,
 subida de nível, chefe) e se todo mapa pode ser completado. Também simulam
 centenas de batalhas para checar o equilíbrio: um lenhador novo vence as
@@ -148,7 +148,7 @@ gosmas, os lobos pedem alguns níveis, e o chefe vence quem chega despreparado.
 
 Edite `src/levels.c`. Cada caractere é um quadrado do mapa (16x16 na tela virtual, 32x32 na arte):
 `#` mata fechada (a borda do mundo; use manchas irregulares, não linhas
-retas), `T` árvore (dá para cortar), `o` arbusto (dá para cortar), `,` flores,
+retas), `T` árvore, `o` arbusto, `,` flores,
 `R` pedra, `~` água, `=` ponte, `c` baú com ervas, `A` baú com lâmina
 afiada, `f` fogueira, `H` casa (um bloco de 4x3 com a porta em baixo, na
 segunda coluna),

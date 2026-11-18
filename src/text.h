@@ -18,9 +18,6 @@ typedef enum {
     TXT_OPTIONS,
     TXT_QUIT,
     TXT_LOAD_GAME,
-    TXT_PAUSE_CONTINUE,
-    TXT_PAUSE_SAVE_QUIT,
-    TXT_AUTOSAVE,
     TXT_HINT_KEY,       // the action button, before a hint
     TXT_HINT_TAP,
     TXT_HINT_REST,
@@ -42,9 +39,9 @@ typedef enum {
     TXT_TOAST_HERBS,    // %d
     TXT_TOAST_AXE,      // %d
     TXT_TOAST_REST,
-    TXT_TOAST_TOO_HARD,
     TXT_TOAST_HOME,
     TXT_TOAST_NOT_YET,
+    TXT_TOAST_SAVE_FAILED,
     // Battle menus and status
     TXT_MENU_ATTACK,
     TXT_MENU_SKILLS,
