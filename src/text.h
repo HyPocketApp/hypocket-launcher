@@ -18,6 +18,14 @@ typedef enum {
     TXT_OPTIONS,
     TXT_QUIT,
     TXT_LOAD_GAME,
+    TXT_PAUSE_CONTINUE,
+    TXT_PAUSE_SAVE_QUIT,
+    TXT_AUTOSAVE,
+    TXT_HINT_KEY,       // the action button, before a hint
+    TXT_HINT_TAP,
+    TXT_HINT_REST,
+    TXT_HINT_HOME,
+    TXT_HINT_OPEN,
     TXT_SAVE_NAME,      // %d: the game's number
     TXT_LEVEL_LONG,     // %d
     TXT_LANGUAGE,       // the name of the language, in itself

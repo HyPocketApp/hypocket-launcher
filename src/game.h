@@ -119,6 +119,7 @@ typedef struct {
 } Stats;
 
 #define HERB_HEAL 30
+#define CHEST_HERBS 1  // herbs in a chest; herbs are rare
 #define SKILL_SPLIT_COST 4  // Splitting Blow: one strong hit
 #define SKILL_SPIN_COST 5   // Whirlwind Chop: hits every monster
 #define AXE_UPGRADE_ATK 3
@@ -316,12 +317,14 @@ enum {
     EVENT_LOAD = 1 << 21,      // title: load the save at title_cursor in the list
     EVENT_AXE = 1 << 22,       // the lumberjack's axe hit a monster
     EVENT_MOONBEAM = 1 << 23,  // the goddess's Moon Beam hit a monster
+    EVENT_TO_TITLE = 1 << 24,  // pause menu: back to the title (after EVENT_SAVE)
 };
 
 // The title menu, and its options page.
 typedef enum { TITLE_NEW, TITLE_LOAD, TITLE_OPTIONS, TITLE_QUIT, TITLE_COUNT } TitleItem;
 typedef enum { PAGE_MAIN, PAGE_LOAD, PAGE_OPTIONS } TitlePage;
 typedef enum { OPTION_LANGUAGE, OPTION_SOUND, OPTION_BACK, OPTION_COUNT } OptionItem;
+typedef enum { PAUSE_CONTINUE, PAUSE_TITLE, PAUSE_COUNT } PauseItem;
 
 typedef struct {
     float move_x, move_y;  // direction on the map, each from -1 to 1
@@ -340,6 +343,7 @@ typedef struct {
     int title_cursor;    // TitleItem, a save in the list, or an OptionItem
     int save_count;      // saves on disk, set by the front end for the title
     int save_slot;       // this game's save number; 0 until first saved
+    int pause_cursor;    // PauseItem
 
     int area;   // index into the area list, -1 for a map loaded by hand
     int w, h;   // map size in tiles

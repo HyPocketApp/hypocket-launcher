@@ -20,10 +20,10 @@
 // --- Tables -------------------------------------------------------------------
 
 static const SpeciesInfo species_table[SPECIES_COUNT] = {
-    [SPECIES_SLIME] = { .max_hp = 18, .atk = 9, .def = 1, .xp = 5, .herb_drop = 20 },
-    [SPECIES_BEETLE] = { .max_hp = 28, .atk = 11, .def = 4, .xp = 8, .herb_drop = 25 },
-    [SPECIES_WOLF] = { .max_hp = 32, .atk = 14, .def = 2, .xp = 12, .herb_drop = 30 },
-    [SPECIES_EMBER] = { .max_hp = 11, .atk = 8, .def = 0, .xp = 6, .herb_drop = 40 },
+    [SPECIES_SLIME] = { .max_hp = 18, .atk = 9, .def = 1, .xp = 5, .herb_drop = 8 },
+    [SPECIES_BEETLE] = { .max_hp = 28, .atk = 11, .def = 4, .xp = 8, .herb_drop = 10 },
+    [SPECIES_WOLF] = { .max_hp = 32, .atk = 14, .def = 2, .xp = 12, .herb_drop = 12 },
+    [SPECIES_EMBER] = { .max_hp = 11, .atk = 8, .def = 0, .xp = 6, .herb_drop = 10 },
     [SPECIES_ELDER_STUMP] = { .max_hp = 300, .atk = 21, .def = 8, .xp = 100, .wooden = true },
 };
 
@@ -322,9 +322,9 @@ static void map_action(Game *g)
         break;
     case TILE_CHEST:
         g->tiles[ty][tx] = TILE_CHEST_OPEN;
-        g->stats.herbs += 2;
+        g->stats.herbs += CHEST_HERBS;
         g->events |= EVENT_CHEST;
-        show_toast(g, TOAST_HERBS, 2);
+        show_toast(g, TOAST_HERBS, CHEST_HERBS);
         break;
     case TILE_CHEST_AXE:
         g->tiles[ty][tx] = TILE_CHEST_OPEN;
@@ -1068,7 +1068,7 @@ void game_new(Game *g)
     g->stats.sp = g->stats.max_sp = 8;
     g->stats.atk = 9;
     g->stats.def = 3;
-    g->stats.herbs = 2;
+    g->stats.herbs = 1;
     g->rng = 0x2545f491u;
     g->area = -1;
     game_enter_area(g, AREA_HOME, 0);
@@ -1191,17 +1191,37 @@ void game_step(Game *g, const GameInput *in)
         break;
 
     case STATE_MAP:
-        if (in->pause_pressed) { g->state = STATE_PAUSED; break; }
+        if (in->pause_pressed) {
+            g->state = STATE_PAUSED;
+            g->pause_cursor = PAUSE_CONTINUE;
+            g->state_timer = MENU_DELAY / 2;
+            break;
+        }
         update_walker(g, in, dt);
         if (g->state == STATE_MAP) update_foes(g, dt);
         update_camera(g);
         break;
 
-    case STATE_PAUSED:
-        // Any of the buttons resumes: the screen says Enter or a tap.
-        if (in->pause_pressed || in->cancel_pressed || in->confirm_pressed || in->pick || in->target_pick)
+    case STATE_PAUSED: {
+        // A small menu: Continue, or save and go back to the title.
+        if (g->state_timer > 0) break;
+        if (in->nav_y) {
+            g->pause_cursor = wrap(g->pause_cursor + in->nav_y, PAUSE_COUNT);
+            g->events |= EVENT_CURSOR;
+        }
+        bool choose = in->confirm_pressed;
+        if (in->pick >= 1 && in->pick <= PAUSE_COUNT) {
+            g->pause_cursor = in->pick - 1;
+            choose = true;
+        }
+        if (in->pause_pressed || in->cancel_pressed || (choose && g->pause_cursor == PAUSE_CONTINUE)) {
             g->state = STATE_MAP;
+            g->events |= EVENT_CONFIRM;
+        } else if (choose) {
+            g->events |= EVENT_SAVE | EVENT_TO_TITLE | EVENT_CONFIRM;
+        }
         break;
+    }
 
     case STATE_BATTLE:
         update_battle(g, in, dt);

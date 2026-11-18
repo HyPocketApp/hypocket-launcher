@@ -108,6 +108,46 @@ def plaid(x, y):
     return SHIRT_LIGHT if (x + y) % 9 == 0 else SHIRT
 
 
+# --- The axe --------------------------------------------------------------------
+
+AXE_W, AXE_H = 20, 28
+AXE_GRIP = (5, 24)  # the point in his hand; the game turns the axe around it
+WOOD_D, WOOD, WOOD_L = (92, 58, 34), (134, 88, 50), (176, 124, 72)
+STEEL_D, STEEL, STEEL_L, EDGE = (78, 86, 98), (130, 140, 154), (182, 192, 204), (236, 242, 248)
+WRAP, WRAP_L = (70, 40, 30), (110, 66, 46)
+
+
+def axe():
+    """A lumberjack's axe standing up: the handle along x 4-6, the head at the
+    top with its blade to the right. The game rotates and flips it."""
+    c = Canvas(AXE_W, AXE_H)
+    # Handle: light on the left, a few grain lines, a little curve.
+    for y in range(3, 27):
+        x0 = 4 - (1 if 13 <= y <= 18 else 0)
+        c.set(x0, y, WOOD_L)
+        c.set(x0 + 1, y, WOOD_D if y % 6 == 0 else WOOD)
+        c.set(x0 + 2, y, WOOD_D)
+    # Leather wrap at the grip and a knob at the end.
+    for y in range(20, 25):
+        for x in range(4, 7):
+            c.set(x, y, WRAP_L if (y + x) % 3 == 0 else WRAP)
+    c.rect(3, 25, 8, 27, WOOD_D)
+    # The head: a short poll behind the handle, a narrow neck, and a blade
+    # that flares out, longer below (a bearded axe), with a bright edge.
+    def steel(x, y):
+        return STEEL_L if y <= 3 else STEEL_D if y >= 8 else STEEL
+    c.rect(2, 3, 8, 9, steel)                                   # around the handle
+    c.poly([(8, 3.5), (11, 4), (11, 8), (8, 8.5)], steel)       # neck
+    c.poly([(11, 4), (14, 1.5), (17, 0.5), (18, 3), (18, 10), (17, 13), (15, 13), (11, 8)], steel)
+    for y in range(1, 13):  # the cutting edge, curved
+        x = 18 if 3 <= y <= 10 else 17
+        c.set(x, y, EDGE)
+        c.set(x - 1, y, STEEL_L)
+    c.rect(4, 4, 7, 8, STEEL_D)  # the eye, with the handle's end showing
+    c.rect(5, 5, 6, 7, WOOD_D)
+    return c.outline((32, 30, 36))
+
+
 # --- The lumberjack -------------------------------------------------------------
 
 def hero_legs_front(c, step):
@@ -453,6 +493,7 @@ def save(c, folder, name):
 
 
 def main():
+    save(axe(), 'chars', 'axe')
     for f in (1, 2, 3):
         save(hero_s(0 if f == 1 else f - 1), 'chars', 'hero_s_%d' % f)
         save(hero_n(0 if f == 1 else f - 1), 'chars', 'hero_n_%d' % f)

@@ -22,8 +22,11 @@ seres querem roubar o que resta. A história está em
   monstros atacam os dois; se ela cair, volta a levantar depois da luta.
 - **Explorando o mapa:** ande um quadrado por vez (para cima, para baixo e para os lados), como nos RPGs clássicos, **derrube árvores** com o machado
   para abrir caminhos, abra **baús** (ervas ou uma lâmina mais afiada) e
-  **descanse nas fogueiras** (ou na porta de casa) para recuperar tudo e
-  **salvar o jogo**. Se você cair numa batalha, acorda no último lugar em
+  **descanse na fogueira** (só há uma, na Clareira, perto do chefe) ou na
+  porta de casa para recuperar tudo e **salvar o jogo**. Ervas são raras:
+  um baú por área, com uma erva, e às vezes um monstro deixa uma. De frente
+  para uma fogueira, um baú ou a porta, aparece uma placa dizendo o que o
+  botão de ação faz ali. Se você cair numa batalha, acorda no último lugar em
   que descansou, sem perder nada.
 - **Música:** o tema de flauta toca no menu e explorando; "Conflito na
   Névoa" toca nas batalhas e nas cenas de tensão (a deusa sendo atacada e o
@@ -34,6 +37,9 @@ seres querem roubar o que resta. A história está em
   árvores cortadas), Raio Lunar e vitória são gravações do autor do jogo, em
   `assets/sfx/`. Os outros sons ainda são bipes gerados pelo código.
 - **Jogos salvos:** cada "Novo jogo" cria um jogo salvo novo, sem limite.
+  Além do descanso, o jogo salva sozinho ao trocar de área, depois de cada
+  batalha ou cena, a cada 20 segundos andando e ao fechar a janela. A pausa
+  tem "Salvar e voltar ao menu".
   "Carregar jogo" lista todos, do mais recente para o mais antigo, com
   nível, área e data. Os arquivos ficam em `~/.local/share/timberheart` no
   Linux, `%APPDATA%\Timberheart` no Windows e na memória interna do app no

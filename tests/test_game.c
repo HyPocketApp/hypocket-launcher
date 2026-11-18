@@ -285,7 +285,7 @@ static void test_chests(void)
     int herbs = g.stats.herbs, atk = g.stats.atk;
     face(-1, 0);
     CHECK(run(&CONFIRM, 1) & EVENT_CHEST);
-    CHECK(g.stats.herbs == herbs + 2);
+    CHECK(g.stats.herbs == herbs + CHEST_HERBS);
     face(1, 0);
     run(&CONFIRM, 1);
     CHECK(g.stats.atk == atk + AXE_UPGRADE_ATK);
@@ -412,15 +412,22 @@ static void test_pause(void)
     CHECK(g.walker.x == x);
     run(&pause, 1);
     CHECK(g.state == STATE_MAP);
-    // Enter or a tap also resumes, as the pause screen says.
+    // The menu: Continue resumes; the second entry saves and goes to the title.
     run(&pause, 1);
     CHECK(g.state == STATE_PAUSED);
+    run(&NONE, 20);
     run(&CONFIRM, 1);
     CHECK(g.state == STATE_MAP);
     run(&pause, 1);
+    run(&NONE, 20);
     GameInput tap = { .pick = 1 };
     run(&tap, 1);
     CHECK(g.state == STATE_MAP);
+    run(&pause, 1);
+    run(&NONE, 20);
+    run(&DOWN, 1);
+    unsigned ev = run(&CONFIRM, 1);
+    CHECK((ev & EVENT_SAVE) && (ev & EVENT_TO_TITLE));
 }
 
 static void test_walking_tile_by_tile(void)

@@ -305,11 +305,17 @@ static Rectangle menu_entry_rect(int i)
 
 // The title menu: entries in a box in the middle of the screen.
 #define TITLE_MENU_Y 70
+#define AUTOSAVE_EVERY 20.0f  // seconds of walking between saves
 #define TITLE_LINE 16
 
 static Rectangle title_entry_rect(int i)
 {
     return (Rectangle){ 100, (float)(TITLE_MENU_Y + 4 + i * TITLE_LINE), 120, TITLE_LINE };
+}
+
+static Rectangle pause_entry_rect(int i)
+{
+    return (Rectangle){ 84, (float)(TITLE_MENU_Y + 4 + i * TITLE_LINE), 152, TITLE_LINE };
 }
 
 // The load page: saves in rows of two lines, LOAD_ROWS at a time, and Back
@@ -414,6 +420,9 @@ static void poll_touch(InputState *s, View v, const Game *g)
             for (int i = 0; i < LOAD_ROWS && load_first + i < g->save_count; i++)
                 if (CheckCollisionPointRec(p, load_row_rect(i))) s->pick = load_first + i + 1;
             if (CheckCollisionPointRec(p, load_back_rect())) s->pick = g->save_count + 1;
+        } else if (g->state == STATE_PAUSED) {
+            for (int i = 0; i < PAUSE_COUNT; i++)
+                if (CheckCollisionPointRec(p, pause_entry_rect(i))) s->pick = i + 1;
         } else if (g->state == STATE_TITLE) {
             int n = g->title_page == PAGE_OPTIONS ? OPTION_COUNT : TITLE_COUNT;
             for (int i = 0; i < n; i++)
@@ -667,6 +676,7 @@ static struct {
     Texture2D slime[2], beetle[2], wolf[2], ember[2], elder[2];  // two frames each
     Texture2D elder_sleep;
     Texture2D hero[3][3], goddess[3][3];  // facing s, n, e; standing and two steps
+    Texture2D axe;  // standing up, blade to the right; held at AXE_GRIP
     Texture2D goddess_fallen, chest, chest_open, woodpile, fire[3];
     bool has_stump, has_path_edges, has_banks, has_house, has_bridge, has_hero, has_goddess, has_fire;
     Texture2D loaded[MAX_LOADED];  // everything, to unload
@@ -740,6 +750,7 @@ static void load_art(void)
             art.has_goddess &= load_art_texture(TextFormat("chars/goddess_%s_%d", dirs[d], f + 1), &art.goddess[d][f]);
         }
     load_art_texture("chars/goddess_fallen", &art.goddess_fallen);
+    load_art_texture("chars/axe", &art.axe);
     load_art_texture("monsters/stump_sleep", &art.elder_sleep);
     load_art_texture("tiles/chest", &art.chest);
     load_art_texture("tiles/chest_open", &art.chest_open);
@@ -770,6 +781,23 @@ static void art_draw_figure(Texture2D t, float cx, float foot, float k, bool fli
 static int facing_row(int face_x, int face_y) { return face_y < 0 && face_x == 0 ? 1 : face_x != 0 ? 2 : 0; }
 static int walk_frame(float walk) { return walk > 0 ? (sinf(walk * 0.3f) > 0 ? 1 : 2) : 0; }
 
+// The axe picture, turned `angle` degrees (clockwise) around the grip at
+// (gx, gy). `stretch` from -1 to 1 squeezes it toward the grip, for swings
+// toward or away from the camera: positive keeps the head up, negative turns
+// it down.
+#define AXE_GRIP_X 5.5f  // in art pixels, as in tools/make_characters.py
+#define AXE_GRIP_Y 24.5f
+static void draw_axe(float gx, float gy, float k, float angle, bool flip, float stretch)
+{
+    Texture2D t = art.axe;
+    float sc = k / ART, a = fmaxf(0.25f, fabsf(stretch));
+    Rectangle src = { 0, 0, flip ? -(float)t.width : (float)t.width, stretch >= 0 ? (float)t.height : -(float)t.height };
+    Rectangle dst = { roundf(gx * ART) / ART, roundf(gy * ART) / ART, t.width * sc, t.height * sc * a };
+    Vector2 origin = { (flip ? t.width - AXE_GRIP_X : AXE_GRIP_X) * sc,
+                       (stretch >= 0 ? AXE_GRIP_Y : t.height - AXE_GRIP_Y) * sc * a };
+    DrawTexturePro(t, src, dst, origin, angle, WHITE);
+}
+
 static bool draw_hero_sprite(float cx, float cy, float s, int face_x, int face_y, float walk, float swing)
 {
     if (!art.has_hero) return false;
@@ -778,23 +806,50 @@ static bool draw_hero_sprite(float cx, float cy, float s, int face_x, int face_y
     float y = cy - bob;
     int row = facing_row(face_x, face_y);
     DrawEllipse((int)cx, (int)(cy + 7 * s), 5 * s, 2 * s, SHADOW);
-    // The axe: resting upright in his hand, or swinging toward where he
-    // faces. The angle is measured from straight up, toward the front.
-    float d = face_x != 0 ? (float)face_x : 1.0f;
-    float angle = (swing > 0 ? -40.0f + swing * 160.0f : 15.0f) * DEG2RAD;
-    Vector2 hand = { cx + d * (row == 2 ? 1.5f : 4.5f) * s, y + 1.5f * s };
-    Vector2 tip = { hand.x + d * sinf(angle) * 10 * s, hand.y - cosf(angle) * 10 * s };
-    bool behind = row == 1;
-    for (int pass = 0; pass < 2; pass++) {
-        if ((pass == 0) == behind) {
-            DrawLineEx(hand, tip, fmaxf(1.0f, 1.0f * s), TRUNK_LIGHT);
-            DrawLineEx((Vector2){ hand.x + 0.5f, hand.y }, (Vector2){ tip.x + 0.5f, tip.y }, 0.5f * s, TRUNK);
-            DrawCircleV(tip, 2.5f * s, (Color){ 120, 128, 140, 255 });
-            DrawCircleV((Vector2){ tip.x + d * 0.5f * s, tip.y - 0.5f * s }, 1.8f * s, STEEL);
+    Texture2D body = art.hero[row][walk_frame(walk)];
+    if (!art.axe.id) {
+        art_draw_figure(body, cx, y + 8 * s, k, face_x < 0, WHITE);
+        return true;
+    }
+    // Where the axe is, by the way he faces. At rest he holds it upright in
+    // his right hand; a swing brings it down onto the tile in front of him.
+    float gx, gy, angle = 0, stretch = 1;
+    bool flip = false, behind = false;
+    float u = swing > 0 ? swing : 0;
+    if (row == 2) {  // to the side: an arc from behind his shoulder to the ground ahead
+        float d = (float)face_x;
+        flip = d < 0;
+        gx = cx + d * 1.5f * s;
+        gy = y + 1.5f * s;
+        angle = d * (swing > 0 ? -50.0f + u * 170.0f : 15.0f);
+        behind = swing > 0 && u < 0.35f;  // raised behind his shoulder
+    } else if (row == 0) {  // toward the camera: raised over his head, then down in front
+        if (swing > 0) {
+            stretch = cosf(u * PI);
+            gx = cx - 1.0f * s;
+            gy = y + (-5.0f + 7.0f * u) * s;
+            behind = stretch > 0.3f;
         } else {
-            art_draw_figure(art.hero[row][walk_frame(walk)], cx, y + 8 * s, k, face_x < 0, WHITE);
+            gx = cx - 4.5f * s;  // his right hand is on our left
+            gy = y + 1.5f * s;
+            angle = -10.0f;
+            flip = true;
+        }
+    } else {  // away from the camera: from his waist, up over his head and down ahead
+        behind = true;
+        if (swing > 0) {
+            stretch = sinf(-0.4f + u * 2.1f);
+            gx = cx + 1.0f * s;
+            gy = y + (1.0f - 5.0f * u) * s;
+        } else {
+            gx = cx + 4.5f * s;
+            gy = y + 1.5f * s;
+            angle = 10.0f;
         }
     }
+    if (behind) draw_axe(gx, gy, k, angle, flip, stretch);
+    art_draw_figure(body, cx, y + 8 * s, k, face_x < 0, WHITE);
+    if (!behind) draw_axe(gx, gy, k, angle, flip, stretch);
     return true;
 }
 
@@ -1879,9 +1934,20 @@ static void draw_overlay(const Game *g, bool touch)
         draw_title(g, touch);
         break;
     case STATE_PAUSED:
-        DrawRectangle(0, 0, VIEW_W, VIEW_H, Fade(INK, 0.5f));
-        draw_text_centered(text_get(TXT_PAUSED), 70, 20, RAYWHITE);
-        draw_text_centered(text_get(press), 100, 10, RAYWHITE);
+        DrawRectangle(0, 0, VIEW_W, VIEW_H, Fade(INK, 0.55f));
+        draw_text_centered(text_get(TXT_PAUSED), 40, 20, RAYWHITE);
+        draw_box((Rectangle){ 80, TITLE_MENU_Y, 160, PAUSE_COUNT * TITLE_LINE + 8 });
+        for (int i = 0; i < PAUSE_COUNT; i++) {
+            const char *label = text_get(i == PAUSE_CONTINUE ? TXT_PAUSE_CONTINUE : TXT_PAUSE_SAVE_QUIT);
+            Rectangle r = pause_entry_rect(i);
+            bool on = g->pause_cursor == i;
+            int x = (int)(r.x + (r.width - MeasureText(label, 10)) / 2), y = (int)r.y + 3;
+            if (on) DrawRectangleRec(r, Fade(PANEL_EDGE, 0.2f));
+            draw_text_shadow(label, x, y, 10, on ? GOLDEN : RAYWHITE);
+            if (on && !touch) DrawTriangle((Vector2){ (float)x - 9, (float)y }, (Vector2){ (float)x - 9, (float)y + 8 },
+                                           (Vector2){ (float)x - 4, (float)y + 4 }, GOLDEN);
+        }
+        draw_text_centered(text_get(TXT_AUTOSAVE), TITLE_MENU_Y + PAUSE_COUNT * TITLE_LINE + 18, 10, Fade(RAYWHITE, 0.7f));
         break;
     case STATE_GAME_OVER:
         DrawRectangle(0, 0, VIEW_W, VIEW_H, Fade(INK, 0.85f));
@@ -1933,6 +1999,32 @@ static void scene_camera(const Game *g, int *cam_x, int *cam_y)
     *cam_y = (int)fmaxf(0.0f, fminf(cy, max_y));
 }
 
+// When he stands facing a campfire, a chest or his door, a little sign over
+// his head says what the action button does there.
+static void draw_action_hint(const Game *g, int cam_x, int cam_y, bool touch)
+{
+    const Walker *w = &g->walker;
+    if (w->moving) return;
+    float hx = w->x + WALKER_SIZE / 2.0f, hy = w->y + WALKER_SIZE / 2.0f;
+    int tx = (int)floorf((hx + w->face_x * 11.0f) / TILE), ty = (int)floorf((hy + w->face_y * 11.0f) / TILE);
+    TileType t = game_tile_at(g, tx, ty);
+    TextId what = t == TILE_FIRE ? TXT_HINT_REST : t == TILE_DOOR ? TXT_HINT_HOME
+                : t == TILE_CHEST || t == TILE_CHEST_AXE ? TXT_HINT_OPEN : TXT_COUNT;
+    if (what == TXT_COUNT) return;
+    const char *key = text_get(touch ? TXT_HINT_TAP : TXT_HINT_KEY), *label = text_get(what);
+    int kw = MeasureText(key, 10) + 6, lw = MeasureText(label, 10);
+    int w_all = kw + 4 + lw + 8, h = 14;
+    int x = (int)(hx - cam_x) - w_all / 2, y = (int)(hy - cam_y) - 36 + (int)(fmodf(g->time, 1.0f) < 0.5f);
+    if (x < 2) x = 2;
+    if (x + w_all > VIEW_W - 2) x = VIEW_W - 2 - w_all;
+    if (y < 40) y = (int)(hy - cam_y) + 14;  // under him when he is at the top
+    DrawRectangle(x, y, w_all, h, Fade(PANEL, 0.9f));
+    DrawRectangleLines(x, y, w_all, h, PANEL_EDGE);
+    DrawRectangle(x + 3, y + 2, kw, h - 4, GOLDEN);  // the key, as a little cap
+    DrawText(key, x + 6, y + 3, 10, INK);
+    draw_text_shadow(label, x + 3 + kw + 4, y + 3, 10, RAYWHITE);
+}
+
 static void draw_game(const Game *g, const InputState *s, float chop)
 {
     ClearBackground(CLIFF_DARK);
@@ -1951,6 +2043,7 @@ static void draw_game(const Game *g, const InputState *s, float chop)
                      (g->goddess.joined &&
                       CheckCollisionRecs(panel, (Rectangle){ f->x - cam_x - 4, f->y - cam_y - 14, WALKER_SIZE + 8, WALKER_SIZE + 16 }));
         draw_map_hud(g, s, under ? 0.3f : 1.0f);
+        if (g->state == STATE_MAP) draw_action_hint(g, cam_x, cam_y, s->touch_ui);
     }
     draw_overlay(g, s->touch_ui);
 }
@@ -2023,7 +2116,9 @@ int main(int argc, char *argv[])
     for (int i = 1; i < argc; i++)
         if (strcmp(argv[i], "--touch") == 0) input.touch_ui = true;
 
-    float accumulator = 0.0f, chop = 0.0f;
+    float accumulator = 0.0f, chop = 0.0f, since_save = 0.0f;
+    int autosave_area = -1;
+    GameState autosave_state = STATE_TITLE;
     bool quit = false;
     while (!quit && !WindowShouldClose()) {
         View view = fit_view();
@@ -2055,7 +2150,25 @@ int main(int argc, char *argv[])
             if (game.events & EVENT_SAVE) {
                 if (!save_write(&game)) TraceLog(LOG_WARNING, "could not save the game in %s", save_dir());
                 refresh_saves();
+                since_save = 0;
             }
+            if (game.events & EVENT_TO_TITLE) {
+                game_init(&game);
+                refresh_saves();
+            }
+            // Saves by itself too: on reaching another area, after a battle or
+            // a scene, and every so often while walking. (On Android the game
+            // stops as soon as it leaves the screen, so it cannot save then.)
+            if (game.save_slot > 0 && game.state == STATE_MAP) {
+                since_save += STEP_DT;
+                bool back = autosave_state != STATE_MAP && autosave_state != STATE_PAUSED;
+                if (game.area != autosave_area || back || since_save >= AUTOSAVE_EVERY) {
+                    save_write(&game);
+                    since_save = 0;
+                }
+            }
+            autosave_area = game.area;
+            autosave_state = game.state;
             if ((game.events & EVENT_LOAD) && game.title_cursor < save_total) {
                 if (save_read(saves[game.title_cursor].slot, &game)) game_loaded(&game);
                 else game.events |= EVENT_DENIED;
@@ -2080,6 +2193,8 @@ int main(int argc, char *argv[])
         EndDrawing();
     }
 
+    // Closing the window keeps where he is.
+    if (game.save_slot > 0 && (game.state == STATE_MAP || game.state == STATE_PAUSED)) save_write(&game);
     free(saves);
     unload_music();
     unload_sounds(&sounds);
