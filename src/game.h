@@ -31,7 +31,8 @@
 #define MAX_MAP_H 64
 #define MAX_FOES 48
 #define MAX_BATTLE_ENEMIES 3
-#define MAX_BATTLE_MSGS 40
+#define MAX_BATTLE_MSGS 64
+#define MAX_ACTORS (MAX_BATTLE_ENEMIES + 2)
 #define MAX_AREAS 8
 
 #define STEP_DT (1.0f / 60.0f)
@@ -78,6 +79,8 @@ typedef enum {
 
 typedef struct {
     int max_hp, atk, def, xp;
+    int spd;         // speed: who acts first in a round
+    int wits;        // 0-100: how well it picks its moves (see enemy_think)
     bool wooden;     // an axe hits wooden things harder
     int herb_drop;   // chance in percent of leaving a herb
 } SpeciesInfo;
@@ -150,59 +153,97 @@ typedef struct {
 } Walker;
 
 // --- Battle -------------------------------------------------------------------
+//
+// Rounds. At the start of each round everyone's place in the turn order is
+// rolled from their speed. Then the lumberjack and the goddess choose a
+// command each, and everyone acts in that order: the monsters choose when
+// their turn comes (see enemy_think in game.c).
 
+// The commands, the same for both of them. The second opens his techniques
+// or her spells.
 typedef enum {
-    MENU_ATTACK,
-    MENU_SKILLS,
-    MENU_HERB,
-    MENU_DEFEND,
-    MENU_FLEE,
-    MENU_COUNT,
-} MenuItem;
+    CMD_ATTACK,
+    CMD_SPECIAL,
+    CMD_DEFEND,
+    CMD_ITEMS,
+    CMD_FLEE,
+    CMD_COUNT,
+    CMD_BOUND,  // not a menu entry: held by roots, he or she loses the turn
+} Command;
 
+// The lumberjack's techniques.
 typedef enum {
     SKILL_SPLIT,
     SKILL_SPIN,
-    SKILL_BACK,  // the last entry of the skills menu goes back
+    SKILL_BACK,  // the last entry of a submenu goes back
     SKILL_MENU_COUNT,
 } SkillItem;
 
-// The goddess's battle menu.
+// The goddess's spells.
 typedef enum {
     SPELL_BEAM,
     SPELL_LIGHT,
-    SPELL_DEFEND,
-    SPELL_BACK,  // back to the lumberjack's choice
+    SPELL_BACK,
     SPELL_MENU_COUNT,
 } SpellItem;
 
 typedef enum {
-    PHASE_MENU,     // the lumberjack chooses an action
-    PHASE_SKILLS,   // the lumberjack chooses a skill
-    PHASE_ALLY,     // the goddess chooses
-    PHASE_TARGET,   // choose which monster (for whoever is choosing)
-    PHASE_MESSAGES, // the results play one message at a time
+    ITEM_HERB,
+    ITEM_BACK,
+    ITEM_MENU_COUNT,
+} ItemEntry;
+
+// Who: the monsters are 0, 1, 2; the two of them are these.
+#define ACTOR_HERO (-1)
+#define ACTOR_GODDESS (-2)
+
+typedef enum {
+    PHASE_COMMAND,      // the one choosing (b->choosing) picks a command
+    PHASE_SPECIAL,      // ... a technique or a spell
+    PHASE_ITEMS,        // ... an item
+    PHASE_TARGET,       // ... which monster
+    PHASE_ALLY_TARGET,  // ... which of the two (for a herb)
+    PHASE_MESSAGES,     // the round plays, one message at a time
 } BattlePhase;
+
+// What monsters can do besides a plain attack.
+typedef enum {
+    MOVE_ATTACK,
+    MOVE_DEFEND,  // halves the damage it takes until its next turn
+    MOVE_FLAME,   // fire creature: a burn that ignores armor
+    MOVE_SHELL,   // beetle: hardens its shell for a few rounds
+    MOVE_HORN,    // beetle: a heavy charge that can miss
+    MOVE_BITE,    // wolf: a fierce bite
+    MOVE_HOWL,    // wolf: the pack hits harder for a few rounds
+    MOVE_ROOTS,   // Elder Stump: hits both, may hold one of them
+    MOVE_SLAM,    // Elder Stump: a crushing blow on one
+    MOVE_SAP,     // Elder Stump: heals itself, twice at most
+    MOVE_COUNT,
+} EnemyMove;
 
 // One line of the battle story. Effects are applied to the rules at once;
 // the screen shows them when the message plays, using the *_after values.
 typedef enum {
     MSG_START,           // amount = encounter
-    MSG_ATTACK,          // target, amount, crit
+    MSG_ATTACK,          // actor (him or her) hits monster `target`: amount, crit
     MSG_SPLIT,           // target, amount, crit
     MSG_SPIN,            // then one MSG_SPIN_HIT per monster
     MSG_SPIN_HIT,        // target, amount, crit
-    MSG_HERB,            // amount healed
-    MSG_DEFEND,
+    MSG_BEAM,            // the goddess: target, amount
+    MSG_LIGHT,           // the goddess heals both
+    MSG_HERB,            // actor gives a herb to `on_ally ? her : him`: amount
+    MSG_DEFEND,          // actor
+    MSG_BOUND,           // actor is held by roots and loses the turn
     MSG_FLEE_OK,
     MSG_FLEE_FAIL,
     MSG_CANT_FLEE,
-    MSG_BEAM,            // the goddess: target, amount
-    MSG_LIGHT,           // the goddess heals both
-    MSG_ALLY_DEFEND,
     MSG_ALLY_DOWN,       // the goddess cannot fight until the battle ends
-    MSG_ENEMY_ATTACK,    // actor, amount; on_ally when it hits the goddess
-    MSG_ENEMY_SPECIAL,   // actor, amount (wolf bite, boss roots)
+    MSG_ENEMY_ATTACK,    // actor, move, amount; on_ally when it hits the goddess
+    MSG_ENEMY_MISS,      // actor, move
+    MSG_ENEMY_DEFEND,    // actor
+    MSG_ENEMY_BUFF,      // actor, move (howl, shell)
+    MSG_ENEMY_HEAL,      // actor, amount
+    MSG_HELD,            // the roots hold one of them (on_ally) next round
     MSG_ENEMY_DOWN,      // target
     MSG_VICTORY,         // amount = xp
     MSG_FOUND_HERB,      // amount = herbs
@@ -213,8 +254,10 @@ typedef enum {
 typedef struct {
     MsgType type;
     int actor, target, amount;
+    int move;             // EnemyMove, for monster messages
     bool crit;
-    bool on_ally;         // an enemy action aimed at the goddess
+    bool on_ally;         // aimed at the goddess
+    int slot;             // place in the turn order of whoever acts, or -1
     int enemy_hp_after;   // hp of `target` after this message
     int player_hp_after, player_sp_after;
     int ally_hp_after, ally_mp_after;
@@ -223,6 +266,12 @@ typedef struct {
 typedef struct {
     Species species;
     int hp;
+    bool guarding;     // defended on its last turn
+    int def_up;        // rounds left of a hardened shell
+    int atk_up;        // rounds left of a howl
+    int cooldown;      // rounds before it can use a strong move again
+    int saps;          // times the Elder Stump has healed
+    int last_special;  // the last move other than a plain attack, so the clever ones vary
     int shown_hp;      // what the screen shows, catches up with the messages
     bool shown_alive;
     float flash;       // blinks after being hit
@@ -230,21 +279,30 @@ typedef struct {
 
 typedef enum { OUTCOME_NONE, OUTCOME_WON, OUTCOME_FLED, OUTCOME_LOST } Outcome;
 
+// What one of the two will do this round.
+typedef struct {
+    int command;  // Command
+    int sub;      // SkillItem, SpellItem or ItemEntry
+    int target;   // a monster, or for a herb 0 (him) / 1 (her)
+} Plan;
+
 typedef struct {
     int foe;  // index of the map foe that started it
     Combatant enemies[MAX_BATTLE_ENEMIES];
     int enemy_count;
     BattlePhase phase;
-    int cursor;        // in the main menu
-    int skill_cursor;  // in the skills menu
-    int target;        // monster under the target cursor
-    int pending;       // MENU_ATTACK or MENU_SKILLS waiting for a target
     int choosing;      // 0: the lumberjack is choosing, 1: the goddess
-    int hero_action, hero_skill, hero_target;  // his choice for this round
+    int cursor;        // in the command menu
+    int sub_cursor;    // in a submenu
+    int target;        // monster (or 0/1 for the two) under the target cursor
+    Plan plan[2];
     bool ally_in;      // the goddess fights in this battle
-    int ally_cursor;
-    int ally_spell, ally_target;
     bool defending, ally_defending;
+    int held[2];       // rounds he / she is held by roots
+    int order[MAX_ACTORS];  // this round's turn order: monster index or ACTOR_*
+    int order_count;
+    int acting;        // slot in `order` acting in the message shown, or -1
+    int focus;         // the one the wolves went for this round: 0 him, 1 her, -1
     int turn;
     BattleMsg msgs[MAX_BATTLE_MSGS];
     int msg_count, msg_index;
@@ -254,6 +312,10 @@ typedef struct {
     float player_flash, ally_flash;
     Outcome outcome;
 } Battle;
+
+// Speeds of the two of them, from his level.
+int hero_speed(int level);
+int goddess_speed(int level);
 
 // --- Game -----------------------------------------------------------------------
 
@@ -331,6 +393,7 @@ typedef struct {
     bool pause_pressed;
     int pick;              // touch: menu entry tapped (1-based), 0 = none
     int target_pick;       // touch: monster tapped (1-based), 0 = none
+    int ally_pick;         // touch: 1 the lumberjack or 2 the goddess tapped, 0 = none
 } GameInput;
 
 typedef struct {
@@ -401,15 +464,20 @@ void game_place_walker(Game *g, int tx, int ty, int face_x, int face_y);
 // ('P') when link is 0.
 void game_enter_area(Game *g, int area, int link);
 void game_start_battle(Game *g, int foe);
+// The goddess's health, magic and strength for his level; refill fills them.
+void goddess_scale(Game *g, bool refill);
 void game_step(Game *g, const GameInput *in);
 
 TileType game_tile_at(const Game *g, int tx, int ty);
 bool game_tile_blocks(TileType t);
 int skill_cost(SkillItem s);
 int spell_cost(SpellItem s);
-bool battle_spell_enabled(const Game *g, SpellItem item);
-bool battle_menu_enabled(const Game *g, MenuItem item);
-bool battle_skill_enabled(const Game *g, SkillItem item);
+// Whether an entry can be chosen now by the one choosing.
+bool battle_command_enabled(const Game *g, Command c);
+bool battle_special_enabled(const Game *g, int entry);  // a technique or a spell
+bool battle_item_enabled(const Game *g, ItemEntry e);
+int battle_special_count(const Game *g);                // entries in that submenu
+int battle_herbs_left(const Game *g);                   // not yet promised this round
 // The message playing now, or NULL.
 const BattleMsg *battle_current_msg(const Game *g);
 

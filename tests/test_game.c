@@ -447,6 +447,20 @@ static void test_walking_tile_by_tile(void)
 static const char *const one_slime[] = { "#######", "#P.s.9#", "#######" };
 static const char *const two_slimes[] = { "#######", "#P.g.9#", "#######" };
 
+static int count_msgs(MsgType type)
+{
+    int n = 0;
+    for (int i = 0; i < g.battle.msg_count; i++) n += g.battle.msgs[i].type == type;
+    return n;
+}
+
+static const BattleMsg *find_msg(MsgType type)
+{
+    for (int i = 0; i < g.battle.msg_count; i++)
+        if (g.battle.msgs[i].type == type) return &g.battle.msgs[i];
+    return NULL;
+}
+
 static void test_touching_a_monster_starts_a_battle(void)
 {
     load(two_slimes, COUNT(two_slimes));
@@ -455,7 +469,8 @@ static void test_touching_a_monster_starts_a_battle(void)
     CHECK(g.battle.enemy_count == 2);
     CHECK(g.battle.enemies[0].species == SPECIES_SLIME);
     play_messages();
-    CHECK(g.battle.phase == PHASE_MENU);
+    CHECK(g.battle.phase == PHASE_COMMAND && g.battle.choosing == 0);
+    CHECK(g.battle.order_count == 3);  // him and the two slimes
 }
 
 static void test_attack_hurts_and_monsters_answer(void)
@@ -464,11 +479,11 @@ static void test_attack_hurts_and_monsters_answer(void)
     game_start_battle(&g, 0);
     play_messages();
     int hp = g.stats.hp;
-    pick(MENU_ATTACK);  // only one monster: no need to choose
+    pick(CMD_ATTACK);  // only one monster: no need to choose
     CHECK(g.battle.phase == PHASE_MESSAGES);
     CHECK(has_msg(MSG_ATTACK));
     CHECK(g.battle.enemies[0].hp < species_info(SPECIES_SLIME)->max_hp);
-    if (g.battle.enemies[0].hp > 0) CHECK(g.stats.hp < hp);
+    if (g.battle.enemies[0].hp > 0 && has_msg(MSG_ENEMY_ATTACK)) CHECK(g.stats.hp < hp);
     unsigned events = play_messages();
     CHECK(events & EVENT_HIT);
 }
@@ -478,20 +493,20 @@ static void test_choosing_a_target(void)
     load(two_slimes, COUNT(two_slimes));
     game_start_battle(&g, 0);
     play_messages();
-    pick(MENU_ATTACK);
+    pick(CMD_ATTACK);
     CHECK(g.battle.phase == PHASE_TARGET);
     CHECK(g.battle.target == 0);
     GameInput next = { .nav_x = 1 };
     run(&next, 1);
     CHECK(g.battle.target == 1);
     run(&CANCEL, 1);
-    CHECK(g.battle.phase == PHASE_MENU);
-    pick(MENU_ATTACK);
+    CHECK(g.battle.phase == PHASE_COMMAND);
+    pick(CMD_ATTACK);
     GameInput tap = { .target_pick = 2 };
     run(&tap, 1);
     CHECK(g.battle.phase == PHASE_MESSAGES);
-    CHECK(g.battle.enemies[1].hp < species_info(SPECIES_SLIME)->max_hp);
-    CHECK(g.battle.enemies[0].hp == species_info(SPECIES_SLIME)->max_hp);
+    const BattleMsg *hit = find_msg(MSG_ATTACK);
+    CHECK(hit && hit->target == 1);
 }
 
 static void test_skills_cost_stamina(void)
@@ -500,20 +515,18 @@ static void test_skills_cost_stamina(void)
     game_start_battle(&g, 0);
     play_messages();
     g.stats.sp = SKILL_SPIN_COST;
-    pick(MENU_SKILLS);
-    CHECK(g.battle.phase == PHASE_SKILLS);
+    pick(CMD_SPECIAL);
+    CHECK(g.battle.phase == PHASE_SPECIAL);
     pick(SKILL_SPIN);
     CHECK(has_msg(MSG_SPIN));
-    int hits = 0;
-    for (int i = 0; i < g.battle.msg_count; i++) hits += g.battle.msgs[i].type == MSG_SPIN_HIT;
-    CHECK(hits == 2);
+    CHECK(count_msgs(MSG_SPIN_HIT) == 2);
     CHECK(g.stats.sp <= 1);  // spent 5, maybe got 1 back at the end of the round
     play_messages();
     if (g.state == STATE_BATTLE) {
         g.stats.sp = 0;
-        CHECK(!battle_menu_enabled(&g, MENU_SKILLS));
-        CHECK(pick(MENU_SKILLS) & EVENT_DENIED);
-        CHECK(g.battle.phase == PHASE_MENU);
+        CHECK(!battle_command_enabled(&g, CMD_SPECIAL));
+        CHECK(pick(CMD_SPECIAL) & EVENT_DENIED);
+        CHECK(g.battle.phase == PHASE_COMMAND);
     }
 }
 
@@ -522,12 +535,12 @@ static void test_skills_menu_back(void)
     load(one_slime, COUNT(one_slime));
     game_start_battle(&g, 0);
     play_messages();
-    pick(MENU_SKILLS);
+    pick(CMD_SPECIAL);
     pick(SKILL_BACK);
-    CHECK(g.battle.phase == PHASE_MENU);
-    pick(MENU_SKILLS);
+    CHECK(g.battle.phase == PHASE_COMMAND);
+    pick(CMD_SPECIAL);
     run(&CANCEL, 1);
-    CHECK(g.battle.phase == PHASE_MENU);
+    CHECK(g.battle.phase == PHASE_COMMAND);
 }
 
 static void test_herb_heals(void)
@@ -535,13 +548,15 @@ static void test_herb_heals(void)
     load(one_slime, COUNT(one_slime));
     game_start_battle(&g, 0);
     play_messages();
-    CHECK(!battle_menu_enabled(&g, MENU_HERB));  // full health
+    CHECK(!battle_command_enabled(&g, CMD_ITEMS));  // full health
     g.stats.hp = 5;
-    int herbs = g.stats.herbs;
-    pick(MENU_HERB);
-    CHECK(has_msg(MSG_HERB));
-    CHECK(g.stats.herbs == herbs - 1);
-    CHECK(g.battle.msgs[0].amount == HERB_HEAL);
+    g.stats.herbs = 2;
+    pick(CMD_ITEMS);
+    CHECK(g.battle.phase == PHASE_ITEMS);
+    pick(ITEM_HERB);
+    const BattleMsg *m = find_msg(MSG_HERB);
+    CHECK(m && m->amount == HERB_HEAL && !m->on_ally);
+    CHECK(g.stats.herbs == 1);
 }
 
 static void test_defend_rests(void)
@@ -550,10 +565,10 @@ static void test_defend_rests(void)
     game_start_battle(&g, 0);
     play_messages();
     g.stats.sp = 0;
-    pick(MENU_DEFEND);
+    pick(CMD_DEFEND);
     CHECK(has_msg(MSG_DEFEND));
     CHECK(g.stats.sp == 3);  // 2 for defending, 1 at the end of the round
-    // Halved damage: the slime's hits stay small.
+    // Halved damage, even when the slime moves first: its hits stay small.
     for (int i = 0; i < g.battle.msg_count; i++)
         if (g.battle.msgs[i].type == MSG_ENEMY_ATTACK) CHECK(g.battle.msgs[i].amount <= 4);
 }
@@ -564,10 +579,10 @@ static void test_moving_the_cursor(void)
     game_start_battle(&g, 0);
     play_messages();
     CHECK(run(&DOWN, 1) & EVENT_CURSOR);
-    CHECK(g.battle.cursor == MENU_SKILLS);
+    CHECK(g.battle.cursor == CMD_SPECIAL);
     GameInput up = { .nav_y = -1 };
     run(&up, 2);
-    CHECK(g.battle.cursor == MENU_FLEE);  // wraps around
+    CHECK(g.battle.cursor == CMD_FLEE);  // wraps around
 }
 
 static void test_winning_a_battle(void)
@@ -576,7 +591,7 @@ static void test_winning_a_battle(void)
     g.stats.atk = 99;
     game_start_battle(&g, 0);
     play_messages();
-    pick(MENU_ATTACK);
+    pick(CMD_ATTACK);
     CHECK(has_msg(MSG_ENEMY_DOWN));
     CHECK(has_msg(MSG_VICTORY));
     CHECK(g.stats.xp == species_info(SPECIES_SLIME)->xp);
@@ -592,10 +607,10 @@ static void test_level_up(void)
     g.stats.atk = 99;
     g.stats.xp = xp_to_next_level(1) - 1;
     int max_hp = g.stats.max_hp;
-    g.stats.hp = 3;
+    g.stats.hp = 30;
     game_start_battle(&g, 0);
     play_messages();
-    pick(MENU_ATTACK);
+    pick(CMD_ATTACK);
     CHECK(has_msg(MSG_LEVEL_UP));
     CHECK(g.stats.level == 2);
     CHECK(g.stats.max_hp > max_hp && g.stats.hp == g.stats.max_hp);
@@ -610,7 +625,7 @@ static void test_fleeing(void)
         game_start_battle(&g, 0);
         g.stats.hp = g.stats.max_hp;
         play_messages();
-        pick(MENU_FLEE);
+        pick(CMD_FLEE);
         fled = has_msg(MSG_FLEE_OK);
         play_messages();
     }
@@ -626,9 +641,9 @@ static void test_no_fleeing_from_the_boss(void)
     load(rows, COUNT(rows));
     game_start_battle(&g, 0);
     play_messages();
-    pick(MENU_FLEE);
-    CHECK(has_msg(MSG_CANT_FLEE));
-    CHECK(g.battle.outcome != OUTCOME_FLED);
+    CHECK(!battle_command_enabled(&g, CMD_FLEE));
+    CHECK(pick(CMD_FLEE) & EVENT_DENIED);
+    CHECK(g.battle.phase == PHASE_COMMAND);
 }
 
 static void test_losing_wakes_at_campfire(void)
@@ -640,7 +655,7 @@ static void test_losing_wakes_at_campfire(void)
     play_messages();
     g.stats.hp = 1;
     g.stats.def = 0;
-    pick(MENU_DEFEND);  // even halved, a hit takes the last point
+    pick(CMD_DEFEND);  // even halved, a hit takes the last point
     CHECK(has_msg(MSG_PLAYER_DOWN));
     CHECK(play_messages() & EVENT_PLAYER_DOWN);
     CHECK(g.state == STATE_GAME_OVER);
@@ -659,9 +674,38 @@ static void test_beating_the_boss_wins(void)
     g.stats.atk = 500;
     game_start_battle(&g, 0);
     play_messages();
-    pick(MENU_ATTACK);
+    pick(CMD_ATTACK);
     play_messages();
     CHECK(g.state == STATE_WON);
+}
+
+// Speed decides the order: a wolf (fast) always goes before him, a slime
+// (slow) almost never does; everyone acts once a round.
+static void test_speed_sets_the_order(void)
+{
+    load(one_slime, COUNT(one_slime));
+    int slime_first = 0;
+    for (int r = 0; r < 40; r++) {
+        game_start_battle(&g, 0);
+        g.battle.enemies[0].hp = 999;
+        play_messages();
+        CHECK(g.battle.order_count == 2);
+        slime_first += g.battle.order[0] == 0;
+    }
+    CHECK(slime_first <= 8);
+    g.foes[0].kind = ENCOUNTER_WOLF;
+    g.stats.hp = g.stats.max_hp = 999;
+    for (int r = 0; r < 20; r++) {
+        game_start_battle(&g, 0);
+        g.battle.enemies[0].hp = 999;
+        play_messages();
+        CHECK(g.battle.order[0] == 0 && g.battle.order[1] == ACTOR_HERO);
+        pick(CMD_DEFEND);
+        CHECK(g.battle.msgs[0].actor == 0);  // the wolf acts first
+        int hero_msgs = 0;
+        for (int i = 0; i < g.battle.msg_count; i++) hero_msgs += g.battle.msgs[i].actor == ACTOR_HERO;
+        CHECK(hero_msgs == 1);
+    }
 }
 
 // Presses confirm until the scene is over; returns how many pages it took.
@@ -874,13 +918,11 @@ static void test_saving_the_goddess(void)
     game_start_battle(&g, 0);
     CHECK(g.battle.enemy_count == 3 && g.battle.enemies[0].species == SPECIES_EMBER);
     play_messages();
-    pick(MENU_FLEE);
-    CHECK(has_msg(MSG_CANT_FLEE));
-    play_messages();
+    CHECK(pick(CMD_FLEE) & EVENT_DENIED);  // no running from them
     g.stats.atk = 99;
     g.stats.hp = g.stats.max_hp;
     while (g.state == STATE_BATTLE) {
-        pick(MENU_ATTACK);
+        pick(CMD_ATTACK);
         if (g.battle.phase == PHASE_TARGET) run(&CONFIRM, 1);
         play_messages();
     }
@@ -950,8 +992,13 @@ static void test_battle_sound_events(void)
     g.state = STATE_MAP;
     game_start_battle(&g, 0);
     unsigned seen = 0;
-    for (int i = 0; i < 3000 && g.state == STATE_BATTLE; i++)
-        seen |= run(i % 8 ? &NONE : &CONFIRM, 1);  // always the first entry: Attack, Moon Beam
+    for (int i = 0; i < 400 && g.state == STATE_BATTLE; i++) {
+        seen |= play_messages();
+        if (g.state != STATE_BATTLE) break;
+        if (g.battle.choosing == 1) { seen |= pick(CMD_SPECIAL); seen |= pick(SPELL_BEAM); }
+        else seen |= pick(CMD_ATTACK);
+        if (g.battle.phase == PHASE_TARGET) seen |= run(&CONFIRM, 1);
+    }
     CHECK(seen & EVENT_AXE);
     CHECK(seen & EVENT_MOONBEAM);
     CHECK(seen & EVENT_VICTORY);
@@ -985,24 +1032,54 @@ static void start_party_battle(void)
     play_messages();
 }
 
-static void test_goddess_casts_spells(void)
+// She has the same commands as he does; her second one opens her spells.
+static void test_goddess_has_her_own_menu(void)
 {
     start_party_battle();
     g.battle.enemies[0].hp = 999;
-    pick(MENU_DEFEND);
-    CHECK(g.battle.phase == PHASE_ALLY);  // her turn to choose
-    pick(SPELL_BACK);
-    CHECK(g.battle.phase == PHASE_MENU);  // he can change his mind
-    pick(MENU_DEFEND);
+    CHECK(g.battle.order_count == 3);
+    pick(CMD_DEFEND);
+    CHECK(g.battle.phase == PHASE_COMMAND && g.battle.choosing == 1);  // her turn to choose
+    run(&CANCEL, 1);
+    CHECK(g.battle.choosing == 0);  // he can change his mind
+    pick(CMD_DEFEND);
+    pick(CMD_SPECIAL);
+    CHECK(g.battle.phase == PHASE_SPECIAL);
     pick(SPELL_BEAM);
     CHECK(has_msg(MSG_BEAM));
     CHECK(g.goddess.mp <= 10 - SPELL_BEAM_COST + 1);
     CHECK(g.battle.enemies[0].hp < 999);
     play_messages();
 
+    // Her plain attack costs nothing.
+    int mp = g.goddess.mp;
+    pick(CMD_DEFEND);
+    pick(CMD_ATTACK);
+    const BattleMsg *hit = find_msg(MSG_ATTACK);
+    CHECK(hit && hit->actor == ACTOR_GODDESS);
+    CHECK(g.goddess.mp >= mp);
+    play_messages();
+
+    // A herb from him to her.
+    g.goddess.hp = 5;
+    g.stats.herbs = 1;
+    pick(CMD_ITEMS);
+    pick(ITEM_HERB);
+    CHECK(g.battle.phase == PHASE_ALLY_TARGET && g.battle.target == 1);  // the one with less health
+    GameInput tap_her = { .ally_pick = 2 };
+    run(&tap_her, 1);
+    CHECK(g.battle.choosing == 1);
+    CHECK(!battle_command_enabled(&g, CMD_ITEMS));  // the only herb is promised
+    pick(CMD_DEFEND);
+    const BattleMsg *m = find_msg(MSG_HERB);
+    CHECK(m && m->on_ally && m->actor == ACTOR_HERO);
+    CHECK(g.stats.herbs == 0);
+    play_messages();
+
     g.stats.hp = 5;
     g.goddess.hp = 5;
-    pick(MENU_DEFEND);
+    pick(CMD_DEFEND);
+    pick(CMD_SPECIAL);
     pick(SPELL_LIGHT);
     CHECK(has_msg(MSG_LIGHT));
     play_messages();
@@ -1010,22 +1087,25 @@ static void test_goddess_casts_spells(void)
 
     // Without magic left, the spells are closed.
     g.goddess.mp = 0;
-    pick(MENU_DEFEND);
-    CHECK(pick(SPELL_BEAM) & EVENT_DENIED);
-    CHECK(g.battle.phase == PHASE_ALLY);
-    pick(SPELL_DEFEND);
-    CHECK(has_msg(MSG_ALLY_DEFEND));
+    pick(CMD_DEFEND);
+    CHECK(pick(CMD_SPECIAL) & EVENT_DENIED);
+    CHECK(g.battle.phase == PHASE_COMMAND);
+    pick(CMD_DEFEND);
+    const BattleMsg *d = find_msg(MSG_DEFEND);
+    CHECK(d != NULL);
 }
 
 static void test_monsters_attack_the_goddess_too(void)
 {
     start_party_battle();
+    g.foes[0].kind = ENCOUNTER_SLIMES;
     g.battle.enemies[0].hp = 999;
     g.stats.hp = g.stats.max_hp = 999;
     bool hit_her = false, hit_him = false;
-    for (int round = 0; round < 30 && g.goddess.hp > 0; round++) {
-        pick(MENU_DEFEND);
-        pick(SPELL_DEFEND);
+    for (int round = 0; round < 40 && g.goddess.hp > 0; round++) {
+        g.stats.hp = 999;
+        pick(CMD_DEFEND);
+        pick(CMD_DEFEND);
         for (int i = 0; i < g.battle.msg_count; i++) {
             const BattleMsg *m = &g.battle.msgs[i];
             if (m->type == MSG_ENEMY_ATTACK) { if (m->on_ally) hit_her = true; else hit_him = true; }
@@ -1036,16 +1116,146 @@ static void test_monsters_attack_the_goddess_too(void)
 
     // When she falls, she sits out and gets back up after the battle.
     g.goddess.hp = 0;
-    pick(MENU_ATTACK);
-    CHECK(g.battle.phase != PHASE_ALLY);
+    pick(CMD_ATTACK);
+    CHECK(g.battle.choosing == 0);
     g.battle.enemies[0].hp = 0;
     g.stats.atk = 99;
     play_messages();
     while (g.state == STATE_BATTLE) {
-        pick(MENU_ATTACK);
+        pick(CMD_ATTACK);
         play_messages();
     }
     CHECK(g.goddess.hp == 1);
+}
+
+// Plays every enemy turn of `rounds` rounds and counts the moves they make.
+static void count_moves(Encounter kind, int rounds, int moves[MOVE_COUNT], bool goddess)
+{
+    load(one_slime, COUNT(one_slime));
+    g.foes[0].kind = kind;
+    if (goddess) {
+        g.goddess.joined = true;
+        g.goddess.max_hp = g.goddess.hp = 400;
+        g.goddess.max_mp = g.goddess.mp = 20;
+        g.goddess.def = 3;
+        g.goddess.mag = 10;
+    }
+    memset(moves, 0, sizeof(int) * MOVE_COUNT);
+    for (int r = 0; r < rounds; r++) {
+        if (g.state != STATE_BATTLE) game_start_battle(&g, 0);
+        g.stats.hp = g.stats.max_hp = 400;
+        g.goddess.hp = goddess ? 400 : 0;
+        play_messages();
+        while (g.state == STATE_BATTLE && g.battle.phase != PHASE_MESSAGES) pick(CMD_DEFEND);
+        for (int i = 0; i < g.battle.msg_count; i++) {
+            const BattleMsg *m = &g.battle.msgs[i];
+            if (m->actor < 0) continue;
+            if (m->type == MSG_ENEMY_ATTACK || m->type == MSG_ENEMY_MISS || m->type == MSG_ENEMY_BUFF ||
+                m->type == MSG_ENEMY_HEAL)
+                moves[m->move]++;
+            if (m->type == MSG_ENEMY_DEFEND) moves[MOVE_DEFEND]++;
+        }
+    }
+}
+
+// The stronger monsters use their own moves.
+static void test_monster_specials(void)
+{
+    int moves[MOVE_COUNT];
+    count_moves(ENCOUNTER_WOLVES, 30, moves, false);
+    CHECK(moves[MOVE_BITE] > 0 && moves[MOVE_HOWL] > 0 && moves[MOVE_ATTACK] > 0);
+    count_moves(ENCOUNTER_BEETLE, 30, moves, false);
+    CHECK(moves[MOVE_SHELL] > 0 && moves[MOVE_HORN] > 0);
+    count_moves(ENCOUNTER_EMBERS, 30, moves, true);
+    CHECK(moves[MOVE_FLAME] > 0);
+    count_moves(ENCOUNTER_BOSS, 30, moves, true);
+    CHECK(moves[MOVE_ROOTS] > 0 && moves[MOVE_SLAM] > 0);
+    // A slime has no special moves.
+    count_moves(ENCOUNTER_SLIMES, 20, moves, false);
+    CHECK(moves[MOVE_BITE] + moves[MOVE_HOWL] + moves[MOVE_SHELL] + moves[MOVE_ROOTS] == 0);
+}
+
+// The Elder Stump heals when low, twice at most, and its roots can hold one
+// of them, who then loses a turn.
+static void test_elder_stump_sap_and_roots(void)
+{
+    static const char *const rows[] = { "######", "#P.B.#", "######" };
+    load(rows, COUNT(rows));
+    g.goddess.joined = true;
+    g.goddess.max_hp = 400;
+    g.goddess.def = 3;
+    int saps = 0, held = 0, bound = 0;
+    for (int fight = 0; fight < 10; fight++) {
+        game_start_battle(&g, 0);
+        for (int r = 0; r < 12 && g.state == STATE_BATTLE; r++) {
+            g.stats.hp = g.stats.max_hp = 400;
+            g.goddess.hp = 400;
+            g.battle.enemies[0].hp = 60;  // low: time for sap
+            play_messages();
+            while (g.state == STATE_BATTLE && g.battle.phase != PHASE_MESSAGES) pick(CMD_DEFEND);
+            saps += count_msgs(MSG_ENEMY_HEAL);
+            held += count_msgs(MSG_HELD);
+            bound += count_msgs(MSG_BOUND);
+        }
+        CHECK(g.battle.enemies[0].saps <= 2);
+    }
+    CHECK(saps > 0);
+    CHECK(held > 0 && bound > 0);
+}
+
+// Clever monsters finish off whoever they can knock out, and go for him
+// (that ends the battle) when they can.
+static void test_monsters_go_for_the_kill(void)
+{
+    start_party_battle();
+    g.foes[0].kind = ENCOUNTER_WOLF;
+    int at_him = 0, total = 0;
+    for (int r = 0; r < 30; r++) {
+        game_start_battle(&g, 0);
+        g.battle.enemies[0].hp = 999;
+        g.stats.hp = 4;                 // one bite and he is out
+        g.goddess.hp = g.goddess.max_hp = 30;
+        play_messages();
+        while (g.state == STATE_BATTLE && g.battle.phase != PHASE_MESSAGES) pick(CMD_ATTACK);
+        const BattleMsg *m = find_msg(MSG_ENEMY_ATTACK);
+        if (!m) continue;
+        total++;
+        at_him += !m->on_ally;
+        g.stats.hp = g.stats.max_hp;
+    }
+    CHECK(total > 20 && at_him * 10 >= total * 9);
+}
+
+// Monsters guard when badly hurt while a friend fights on.
+static void test_monsters_defend(void)
+{
+    load(one_slime, COUNT(one_slime));
+    g.foes[0].kind = ENCOUNTER_WOLVES;
+    int guards = 0;
+    for (int r = 0; r < 30; r++) {
+        game_start_battle(&g, 0);
+        g.stats.hp = g.stats.max_hp = 400;
+        g.battle.enemies[0].hp = 3;
+        play_messages();
+        pick(CMD_DEFEND);
+        for (int i = 0; i < g.battle.msg_count; i++)
+            guards += g.battle.msgs[i].type == MSG_ENEMY_DEFEND && g.battle.msgs[i].actor == 0;
+    }
+    CHECK(guards >= 10);
+    // A guarding monster takes half.
+    game_start_battle(&g, 0);
+    play_messages();
+    g.battle.enemies[0].guarding = true;
+    g.battle.enemies[0].hp = 999;
+    g.stats.atk = 40;
+    g.battle.order[0] = ACTOR_HERO;  // he goes first: the guard still holds
+    g.battle.order[1] = 0;
+    g.battle.order[2] = 1;
+    g.battle.order_count = 3;
+    pick(CMD_ATTACK);
+    run(&CONFIRM, 1);
+    const BattleMsg *m = find_msg(MSG_ATTACK);
+    CHECK(m && m->target == 0 && m->amount <= (int)(40 * 1.15f * 1.6f) / 2 + 1);
 }
 
 // --- Balance --------------------------------------------------------------------------
@@ -1071,37 +1281,42 @@ static bool auto_battle_with(Encounter kind, int level, int herbs, unsigned seed
     g.stats.herbs = herbs;
     if (goddess) {
         g.goddess.joined = true;
-        g.goddess.max_hp = g.goddess.hp = 24 + 5 * level;
-        g.goddess.max_mp = g.goddess.mp = 8 + 2 * level;
-        g.goddess.mag = 8 + 2 * level;
-        g.goddess.def = 2 + level / 2;
+        goddess_scale(&g, true);
     }
     game_start_battle(&g, 0);
-    for (int round = 0; round < 100 && g.state == STATE_BATTLE; round++) {
+    for (int round = 0; round < 200 && g.state == STATE_BATTLE; round++) {
         play_messages();
         if (g.state != STATE_BATTLE) break;
         const Stats *s = &g.stats;
         int alive = 0;
         for (int i = 0; i < g.battle.enemy_count; i++) alive += g.battle.enemies[i].hp > 0;
-        if (s->hp * 3 < s->max_hp && battle_menu_enabled(&g, MENU_HERB)) {
-            pick(MENU_HERB);
-        } else if (alive > 1 && s->sp >= SKILL_SPIN_COST) {
-            pick(MENU_SKILLS);
-            pick(SKILL_SPIN);
-        } else if (s->sp >= SKILL_SPLIT_COST) {
-            pick(MENU_SKILLS);
-            pick(SKILL_SPLIT);
+        if (g.battle.choosing == 0) {
+            if (s->hp * 3 < s->max_hp && battle_command_enabled(&g, CMD_ITEMS)) {
+                pick(CMD_ITEMS);
+                pick(ITEM_HERB);
+                if (g.battle.phase == PHASE_ALLY_TARGET) { GameInput me = { .ally_pick = 1 }; run(&me, 1); }
+            } else if (alive > 1 && s->sp >= SKILL_SPIN_COST) {
+                pick(CMD_SPECIAL);
+                pick(SKILL_SPIN);
+            } else if (s->sp >= SKILL_SPLIT_COST) {
+                pick(CMD_SPECIAL);
+                pick(SKILL_SPLIT);
+            } else {
+                pick(CMD_ATTACK);
+            }
         } else {
-            pick(MENU_ATTACK);
+            // She heals when he is hurt, else casts her beam, else strikes.
+            if (s->hp * 2 < s->max_hp && battle_special_enabled(&g, SPELL_LIGHT)) {
+                pick(CMD_SPECIAL);
+                pick(SPELL_LIGHT);
+            } else if (battle_command_enabled(&g, CMD_SPECIAL)) {
+                pick(CMD_SPECIAL);
+                pick(SPELL_BEAM);
+            } else {
+                pick(CMD_ATTACK);
+            }
         }
         if (g.battle.phase == PHASE_TARGET) run(&CONFIRM, 1);
-        if (g.battle.phase == PHASE_ALLY) {
-            // She heals when he is hurt, else casts her beam, else rests.
-            if (s->hp * 2 < s->max_hp && battle_spell_enabled(&g, SPELL_LIGHT)) pick(SPELL_LIGHT);
-            else if (battle_spell_enabled(&g, SPELL_BEAM)) pick(SPELL_BEAM);
-            else pick(SPELL_DEFEND);
-            if (g.battle.phase == PHASE_TARGET) run(&CONFIRM, 1);
-        }
     }
     return !g.foes[0].alive && (g.state == STATE_MAP || g.state == STATE_SCENE || g.state == STATE_WON);
 }
@@ -1111,41 +1326,35 @@ static bool auto_battle(Encounter kind, int level, int herbs, unsigned seed)
     return auto_battle_with(kind, level, herbs, seed, false);
 }
 
+// Wins out of 20 fights, and prints the rate so balancing is easy to follow.
+static int rate(const char *what, Encounter kind, int level, int herbs, bool goddess)
+{
+    int wins = 0;
+    for (unsigned i = 0; i < 20; i++) wins += auto_battle_with(kind, level, herbs, i, goddess);
+    printf("       %-34s %2d/20\n", what, wins);
+    return wins;
+}
+
 static void test_balance(void)
 {
-    int wins;
     // The fire beings are the very first fight: always won, but it hurts.
-    wins = 0;
-    for (unsigned i = 0; i < 20; i++) wins += auto_battle(ENCOUNTER_EMBERS, 1, 0, i);
-    CHECK(wins >= 19);
+    CHECK(rate("fire creatures, level 1", ENCOUNTER_EMBERS, 1, 0, false) >= 18);
     // A new lumberjack handles the first monsters.
-    wins = 0;
-    for (unsigned i = 0; i < 20; i++) wins += auto_battle(ENCOUNTER_SLIMES, 1, 0, i);
-    CHECK(wins >= 18);
-    // Wolves need a few levels.
-    wins = 0;
-    for (unsigned i = 0; i < 20; i++) wins += auto_battle(ENCOUNTER_WOLVES, 4, 2, i);
-    CHECK(wins >= 15);
+    CHECK(rate("two slimes, level 1", ENCOUNTER_SLIMES, 1, 0, false) >= 17);
+    CHECK(rate("beetle and slime, level 2", ENCOUNTER_BEETLE, 2, 1, false) >= 15);
+    // Wolves need a few levels, or the goddess.
+    CHECK(rate("two wolves, level 4", ENCOUNTER_WOLVES, 4, 2, false) >= 13);
+    CHECK(rate("two wolves, level 3, goddess", ENCOUNTER_WOLVES, 3, 1, true) >= 16);
     // The boss is a real fight: alone, only a well-trained lumberjack wins.
-    wins = 0;
-    for (unsigned i = 0; i < 20; i++) wins += auto_battle(ENCOUNTER_BOSS, 9, 4, i);
-    CHECK(wins >= 17);
-    wins = 0;
-    for (unsigned i = 0; i < 20; i++) wins += auto_battle(ENCOUNTER_BOSS, 7, 4, i);
-    CHECK(wins <= 10);
-    wins = 0;
-    for (unsigned i = 0; i < 20; i++) wins += auto_battle(ENCOUNTER_BOSS, 1, 0, i);
-    CHECK(wins == 0);
-    // With the goddess, the boss is easier but still needs levels.
-    wins = 0;
-    for (unsigned i = 0; i < 20; i++) wins += auto_battle_with(ENCOUNTER_BOSS, 6, 3, i, true);
-    CHECK(wins >= 17);
-    wins = 0;
-    for (unsigned i = 0; i < 20; i++) wins += auto_battle_with(ENCOUNTER_BOSS, 2, 0, i, true);
-    CHECK(wins <= 2);
-    wins = 0;
-    for (unsigned i = 0; i < 20; i++) wins += auto_battle_with(ENCOUNTER_WOLVES, 3, 1, i, true);
-    CHECK(wins >= 17);
+    CHECK(rate("Elder Stump, level 9, alone", ENCOUNTER_BOSS, 9, 4, false) >= 15);
+    CHECK(rate("Elder Stump, level 7, alone", ENCOUNTER_BOSS, 7, 4, false) <= 13);
+    CHECK(rate("Elder Stump, level 1, alone", ENCOUNTER_BOSS, 1, 0, false) == 0);
+    // With the goddess it still needs levels: lost at 5, a toss-up at 6,
+    // won at 7.
+    CHECK(rate("Elder Stump, level 5, goddess", ENCOUNTER_BOSS, 5, 3, true) <= 5);
+    CHECK(rate("Elder Stump, level 6, goddess", ENCOUNTER_BOSS, 6, 3, true) >= 8);
+    CHECK(rate("Elder Stump, level 7, goddess", ENCOUNTER_BOSS, 7, 3, true) >= 18);
+    CHECK(rate("Elder Stump, level 2, goddess", ENCOUNTER_BOSS, 2, 0, true) <= 2);
 }
 
 int main(void)
@@ -1161,7 +1370,12 @@ int main(void)
         { "reaching the creatures plays their scene", test_reaching_the_creatures_plays_their_scene },
         { "waking the Elder Stump", test_waking_the_elder_stump },
         { "story is complete", test_story_is_complete },
-        { "goddess casts spells", test_goddess_casts_spells },
+        { "goddess has her own menu", test_goddess_has_her_own_menu },
+        { "speed sets the order", test_speed_sets_the_order },
+        { "monster specials", test_monster_specials },
+        { "Elder Stump sap and roots", test_elder_stump_sap_and_roots },
+        { "monsters go for the kill", test_monsters_go_for_the_kill },
+        { "monsters defend", test_monsters_defend },
         { "monsters attack the goddess too", test_monsters_attack_the_goddess_too },
         { "bad map is rejected", test_bad_map_is_rejected },
         { "trees stay", test_trees_stay },

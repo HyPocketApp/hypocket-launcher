@@ -326,6 +326,14 @@ static Rectangle load_back_rect(void)
     return (Rectangle){ 44, (float)(LOAD_Y + 4 + LOAD_ROWS * LOAD_ROW + 2), 232, 14 };
 }
 
+// Where the lumberjack (0) and the goddess (1) stand in battle.
+#define HERO_X 70
+#define GODDESS_X 26
+static Rectangle party_rect(int who)
+{
+    return (Rectangle){ (who == 0 ? HERO_X : GODDESS_X) - 16.0f, 52, 32, 50 };
+}
+
 // Where each monster stands, and how big it is drawn.
 static Rectangle enemy_rect(const Battle *b, int i)
 {
@@ -352,7 +360,7 @@ typedef struct {
     bool was_touching;
     // Presses waiting for the next game step.
     bool confirm, cancel, pause;
-    int nav_x, nav_y, pick, target_pick;
+    int nav_x, nav_y, pick, target_pick, ally_pick;
     // Repeats menu moves while a direction is held.
     int held_x, held_y;
     float repeat;
@@ -396,14 +404,19 @@ static void poll_touch(InputState *s, View v, const Game *g)
         Vector2 p = to_virtual(v, GetTouchPosition(0));
         if (g->state == STATE_BATTLE) {
             const Battle *b = &g->battle;
-            if (b->phase == PHASE_MENU || b->phase == PHASE_SKILLS || b->phase == PHASE_ALLY) {
-                int n = b->phase == PHASE_MENU ? MENU_COUNT : b->phase == PHASE_SKILLS ? SKILL_MENU_COUNT : SPELL_MENU_COUNT;
+            int n = b->phase == PHASE_COMMAND ? CMD_COUNT : b->phase == PHASE_SPECIAL ? battle_special_count(g)
+                  : b->phase == PHASE_ITEMS ? ITEM_MENU_COUNT : 0;
+            if (n > 0) {
                 for (int i = 0; i < n; i++)
                     if (CheckCollisionPointRec(p, menu_entry_rect(i))) s->pick = i + 1;
             } else if (b->phase == PHASE_TARGET) {
                 for (int i = 0; i < b->enemy_count; i++)
                     if (b->enemies[i].hp > 0 && CheckCollisionPointRec(p, enemy_rect(b, i))) s->target_pick = i + 1;
                 if (!s->target_pick && p.y > PANEL_Y) s->cancel = true;
+            } else if (b->phase == PHASE_ALLY_TARGET) {
+                for (int i = 0; i < 2; i++)
+                    if (CheckCollisionPointRec(p, party_rect(i))) s->ally_pick = i + 1;
+                if (!s->ally_pick && p.y > PANEL_Y) s->cancel = true;
             } else {
                 s->confirm = true;  // tap to skip a message
             }
@@ -491,8 +504,9 @@ static void take_presses(InputState *s, GameInput *in)
     in->nav_y = s->nav_y;
     in->pick = s->pick;
     in->target_pick = s->target_pick;
+    in->ally_pick = s->ally_pick;
     s->confirm = s->cancel = s->pause = false;
-    s->nav_x = s->nav_y = s->pick = s->target_pick = 0;
+    s->nav_x = s->nav_y = s->pick = s->target_pick = s->ally_pick = 0;
 }
 
 // --- Drawing helpers ------------------------------------------------------------------
@@ -1450,30 +1464,44 @@ static const char *msg_text(const Game *g, const BattleMsg *m)
     const char *target = (m->target >= 0 && m->target < b->enemy_count) ? enemy_name(b, m->target) : "";
     const char *actor = (m->actor >= 0 && m->actor < b->enemy_count) ? enemy_name(b, m->actor) : "";
     const char *crit = m->crit ? text_get(TXT_MSG_CRIT) : "";
+    bool her = m->actor == ACTOR_GODDESS, at_her = m->on_ally;
     switch (m->type) {
     case MSG_START:
         if (m->amount == ENCOUNTER_BOSS) return text_get(TXT_MSG_BOSS);
         if (m->amount == ENCOUNTER_EMBERS) return text_get(TXT_MSG_EMBERS);
         return text_get(TXT_MSG_START);
-    case MSG_ATTACK: return TextFormat("%s%s", crit, TextFormat(text_get(TXT_MSG_ATTACK), target, m->amount));
+    case MSG_ATTACK:
+        if (her) return TextFormat(text_get(TXT_MSG_ALLY_ATTACK), target, m->amount);
+        return TextFormat("%s%s", crit, TextFormat(text_get(TXT_MSG_ATTACK), target, m->amount));
     case MSG_SPLIT: return TextFormat("%s%s", crit, TextFormat(text_get(TXT_MSG_SPLIT), target, m->amount));
     case MSG_SPIN: return text_get(TXT_MSG_SPIN);
     case MSG_SPIN_HIT: return TextFormat("%s%s", crit, TextFormat(text_get(TXT_MSG_SPIN_HIT), target, m->amount));
-    case MSG_HERB: return TextFormat(text_get(TXT_MSG_HERB), m->amount);
-    case MSG_DEFEND: return text_get(TXT_MSG_DEFEND);
+    case MSG_BEAM: return TextFormat(text_get(TXT_MSG_BEAM), target, m->amount);
+    case MSG_LIGHT: return TextFormat(text_get(TXT_MSG_LIGHT), m->amount);
+    case MSG_HERB: {
+        TextId id = her ? (at_her ? TXT_MSG_HERB_HER : TXT_MSG_HERB_TO_HIM) : (at_her ? TXT_MSG_HERB_TO_HER : TXT_MSG_HERB);
+        return TextFormat(text_get(id), m->amount);
+    }
+    case MSG_DEFEND: return text_get(her ? TXT_MSG_ALLY_DEFEND : TXT_MSG_DEFEND);
+    case MSG_BOUND: return text_get(her ? TXT_MSG_BOUND_ALLY : TXT_MSG_BOUND);
     case MSG_FLEE_OK: return text_get(TXT_MSG_FLEE_OK);
     case MSG_FLEE_FAIL: return text_get(TXT_MSG_FLEE_FAIL);
     case MSG_CANT_FLEE: return text_get(TXT_MSG_CANT_FLEE);
-    case MSG_BEAM: return TextFormat(text_get(TXT_MSG_BEAM), target, m->amount);
-    case MSG_LIGHT: return TextFormat(text_get(TXT_MSG_LIGHT), m->amount);
-    case MSG_ALLY_DEFEND: return text_get(TXT_MSG_ALLY_DEFEND);
     case MSG_ALLY_DOWN: return text_get(TXT_MSG_ALLY_DOWN);
     case MSG_ENEMY_ATTACK:
-        return TextFormat(text_get(m->on_ally ? TXT_MSG_ENEMY_ATTACK_ALLY : TXT_MSG_ENEMY_ATTACK), actor, m->amount);
-    case MSG_ENEMY_SPECIAL:
-        if (b->enemies[m->actor].species == SPECIES_ELDER_STUMP)
-            return TextFormat(text_get(m->on_ally ? TXT_MSG_ROOTS_ALLY : TXT_MSG_ROOTS), m->amount);
-        return TextFormat(text_get(m->on_ally ? TXT_MSG_BITE_ALLY : TXT_MSG_BITE), actor, m->amount);
+        switch (m->move) {
+        case MOVE_BITE: return TextFormat(text_get(at_her ? TXT_MSG_BITE_ALLY : TXT_MSG_BITE), actor, m->amount);
+        case MOVE_FLAME: return TextFormat(text_get(at_her ? TXT_MSG_FLAME_ALLY : TXT_MSG_FLAME), actor, m->amount);
+        case MOVE_HORN: return TextFormat(text_get(at_her ? TXT_MSG_HORN_ALLY : TXT_MSG_HORN), actor, m->amount);
+        case MOVE_ROOTS: return TextFormat(text_get(at_her ? TXT_MSG_ROOTS_ALLY : TXT_MSG_ROOTS), m->amount);
+        case MOVE_SLAM: return TextFormat(text_get(at_her ? TXT_MSG_SLAM_ALLY : TXT_MSG_SLAM), m->amount);
+        default: return TextFormat(text_get(at_her ? TXT_MSG_ENEMY_ATTACK_ALLY : TXT_MSG_ENEMY_ATTACK), actor, m->amount);
+        }
+    case MSG_ENEMY_MISS: return TextFormat(text_get(TXT_MSG_MISS), actor);
+    case MSG_ENEMY_DEFEND: return TextFormat(text_get(TXT_MSG_ENEMY_DEFEND), actor);
+    case MSG_ENEMY_BUFF: return TextFormat(text_get(m->move == MOVE_HOWL ? TXT_MSG_HOWL : TXT_MSG_SHELL), actor);
+    case MSG_ENEMY_HEAL: return TextFormat(text_get(TXT_MSG_SAP), actor, m->amount);
+    case MSG_HELD: return text_get(at_her ? TXT_MSG_HELD_ALLY : TXT_MSG_HELD);
     case MSG_ENEMY_DOWN:
         if (b->enemies[m->target].species == SPECIES_EMBER) return TextFormat(text_get(TXT_MSG_EMBER_FLEES), target);
         return TextFormat(text_get(TXT_MSG_ENEMY_DOWN), target);
@@ -1527,12 +1555,126 @@ static void draw_damage_popup(const BattleMsg *m, float timer, Vector2 at, Color
     draw_text_shadow(txt, (int)(at.x - MeasureText(txt, size) / 2.0f), (int)(at.y - rise), size, c);
 }
 
+// A small picture of someone in the turn order: a monster's sprite, or the
+// head and shoulders of one of the two.
+static void draw_turn_face(const Game *g, int who, Rectangle r, Color tint)
+{
+    Texture2D t = { 0 };
+    Rectangle src = { 0 };
+    if (who == ACTOR_HERO && art.has_hero) { t = art.hero[0][0]; src = (Rectangle){ 4, 0, 24, 24 }; }
+    else if (who == ACTOR_GODDESS && art.has_goddess) { t = art.goddess[0][0]; src = (Rectangle){ 4, 0, 24, 24 }; }
+    else if (who >= 0) {
+        Species sp = g->battle.enemies[who].species;
+        const Texture2D *frames = sp == SPECIES_SLIME ? art.slime : sp == SPECIES_BEETLE ? art.beetle
+                                : sp == SPECIES_WOLF ? art.wolf : sp == SPECIES_EMBER ? art.ember : art.elder;
+        t = frames[0];
+        src = (Rectangle){ 0, 0, (float)t.width, (float)t.height };
+    }
+    if (t.id) {
+        float k = fminf((r.width - 2) / src.width, (r.height - 2) / src.height);
+        Rectangle dst = { r.x + (r.width - src.width * k) / 2, r.y + (r.height - src.height * k) / 2, src.width * k, src.height * k };
+        DrawTexturePro(t, src, dst, (Vector2){ 0, 0 }, 0, tint);
+        return;
+    }
+    Color c = who == ACTOR_HERO ? SHIRT : who == ACTOR_GODDESS ? MOON_SILVER : SLIME_C;
+    DrawCircle((int)(r.x + r.width / 2), (int)(r.y + r.height / 2), r.width / 3, Fade(c, tint.a / 255.0f));
+}
+
+// The turn order of this round, fastest first, under the message line. The
+// one acting (or choosing) is framed in gold; those done are dimmed.
+static void draw_turn_order(const Game *g, const BattleMsg *m)
+{
+    const Battle *b = &g->battle;
+    if (b->order_count == 0) return;
+    int now = -1;
+    if (m) now = m->slot;
+    else if (b->phase != PHASE_MESSAGES) {
+        int me = b->choosing == 0 ? ACTOR_HERO : ACTOR_GODDESS;
+        for (int i = 0; i < b->order_count; i++)
+            if (b->order[i] == me) now = i;
+    }
+    int x = 6, y = 23;
+    for (int i = 0; i < b->order_count; i++) {
+        int who = b->order[i];
+        bool gone = who >= 0 && !b->enemies[who].shown_alive;
+        bool done = m && now >= 0 && i < now;
+        Rectangle r = { (float)x, (float)y, 16, 16 };
+        Color frame = who == ACTOR_HERO || who == ACTOR_GODDESS ? (Color){ 60, 90, 130, 220 } : (Color){ 110, 50, 50, 220 };
+        DrawRectangleRec(r, Fade(PANEL, 0.85f));
+        DrawRectangleLinesEx(r, 1, i == now ? GOLDEN : frame);
+        draw_turn_face(g, who, r, Fade(WHITE, gone ? 0.25f : done ? 0.5f : 1.0f));
+        if (who >= 0) {  // "Wolf A", "Wolf B": the letter in the corner
+            const char *name = enemy_name(b, who);
+            size_t len = strlen(name);
+            if (len > 2 && name[len - 2] == ' ') {
+                char letter[2] = { name[len - 1], 0 };
+                draw_text_shadow(letter, x + 10, y + 6, 10, gone ? Fade(RAYWHITE, 0.4f) : RAYWHITE);
+            }
+        }
+        if (i + 1 < b->order_count) DrawTriangle((Vector2){ x + 17.0f, y + 6.0f }, (Vector2){ x + 17.0f, y + 10.0f }, (Vector2){ x + 19.0f, y + 8.0f }, Fade(RAYWHITE, 0.6f));
+        x += 20;
+    }
+}
+
+// A menu entry: label, an optional cost dot, and the cursor.
+static void draw_menu_entry(int i, const char *label, bool on, Color c, Color dot, bool touch)
+{
+    Rectangle r = menu_entry_rect(i);
+    if (on) DrawRectangleRec(r, Fade(PANEL_EDGE, 0.2f));
+    DrawText(label, (int)r.x + 10, (int)r.y + 1, 10, c);
+    if (dot.a) DrawCircle((int)r.x + MENU_W - 12, (int)r.y + 5, 2, dot);
+    if (on && !touch) DrawText(">", (int)r.x + 2, (int)r.y + 1, 10, GOLDEN);
+}
+
+static void draw_battle_menu(const Game *g, bool touch)
+{
+    const Battle *b = &g->battle;
+    BattlePhase ph = b->phase;
+    bool her = b->choosing == 1 && ph != PHASE_MESSAGES;
+    // Which list: a submenu while choosing in it (or aiming from it).
+    bool special = ph == PHASE_SPECIAL || (ph == PHASE_TARGET && b->plan[b->choosing].command == CMD_SPECIAL);
+    bool items = ph == PHASE_ITEMS || ph == PHASE_ALLY_TARGET;
+    bool live = ph == PHASE_COMMAND || ph == PHASE_SPECIAL || ph == PHASE_ITEMS;
+    Color dim = Fade(RAYWHITE, 0.5f);
+    if (special) {
+        int n = battle_special_count(g);
+        for (int i = 0; i < n; i++) {
+            const char *label;
+            Color dot = { 0 };
+            if (i == n - 1) label = text_get(TXT_BACK);
+            else if (!her) {
+                label = TextFormat(text_get(i == SKILL_SPLIT ? TXT_SKILL_SPLIT : TXT_SKILL_SPIN), skill_cost((SkillItem)i));
+                dot = SP_COLOR;
+            } else {
+                label = TextFormat(text_get(i == SPELL_BEAM ? TXT_SPELL_BEAM : TXT_SPELL_LIGHT), spell_cost((SpellItem)i));
+                dot = MOON_SILVER;
+            }
+            Color c = !live ? dim : battle_special_enabled(g, i) ? RAYWHITE : DISABLED;
+            draw_menu_entry(i, label, b->sub_cursor == i, c, dot, touch);
+        }
+    } else if (items) {
+        for (int i = 0; i < ITEM_MENU_COUNT; i++) {
+            const char *label = i == ITEM_HERB ? TextFormat(text_get(TXT_MENU_HERB), battle_herbs_left(g)) : text_get(TXT_BACK);
+            Color c = !live ? dim : battle_item_enabled(g, (ItemEntry)i) ? RAYWHITE : DISABLED;
+            draw_menu_entry(i, label, b->sub_cursor == i, c, i == ITEM_HERB ? SLIME_C : (Color){ 0 }, touch);
+        }
+    } else {
+        static const TextId labels[CMD_COUNT] = { TXT_MENU_ATTACK, TXT_MENU_SKILLS, TXT_MENU_DEFEND, TXT_MENU_ITEMS, TXT_MENU_FLEE };
+        for (int i = 0; i < CMD_COUNT; i++) {
+            const char *label = text_get(i == CMD_SPECIAL && her ? TXT_MENU_SPELLS : labels[i]);
+            Color c = !live ? dim : battle_command_enabled(g, (Command)i) ? RAYWHITE : DISABLED;
+            draw_menu_entry(i, label, b->cursor == i && live, c, (Color){ 0 }, touch);
+        }
+    }
+}
+
 static void draw_battle(const Game *g, const InputState *s)
 {
     const Battle *b = &g->battle;
     const Stats *st = &g->stats;
     const BattleMsg *m = battle_current_msg(g);
     draw_battle_background(g);
+    bool her_acts = m && m->actor == ACTOR_GODDESS, he_acts = m && m->actor == ACTOR_HERO;
 
     // Monsters.
     for (int i = 0; i < b->enemy_count; i++) {
@@ -1541,10 +1683,14 @@ static void draw_battle(const Game *g, const InputState *s)
         Rectangle r = enemy_rect(b, i);
         float cx = r.x + r.width / 2, cy = r.y + r.height / 2;
         bool flash = e->flash > 0 && fmodf(e->flash, 0.1f) < 0.05f;
-        float lunge = (m && (m->type == MSG_ENEMY_ATTACK || m->type == MSG_ENEMY_SPECIAL) && m->actor == i)
-                          ? -sinf(fminf(b->msg_timer * 8.0f, PI)) * 12.0f : 0.0f;
+        bool strikes = m && (m->type == MSG_ENEMY_ATTACK || m->type == MSG_ENEMY_MISS) && m->actor == i;
+        float lunge = strikes ? -sinf(fminf(b->msg_timer * 8.0f, PI)) * 12.0f : 0.0f;
         float scale = e->species == SPECIES_ELDER_STUMP ? 3.4f : 2.0f;
+        // Auras: a howl glows red, a hardened shell or a guard shows a ring.
+        if (e->atk_up > 0) DrawCircle((int)cx, (int)cy, r.width * 0.45f, Fade(HP_COLOR, 0.18f + 0.06f * sinf(g->time * 6)));
         draw_monster(e->species, cx + lunge, cy, scale, g->time + i, flash, -1);
+        if (e->def_up > 0) DrawCircleLines((int)cx, (int)cy, r.width * 0.42f, Fade(GOLDEN, 0.7f));
+        if (e->guarding) DrawCircleLines((int)cx, (int)cy, r.width * 0.38f, Fade(RAYWHITE, 0.8f));
         // Name and health bar.
         const char *name = enemy_name(b, i);
         int bw = (int)fmaxf(30, r.width - 6);
@@ -1552,133 +1698,100 @@ static void draw_battle(const Game *g, const InputState *s)
         draw_bar((int)(cx - bw / 2), by, bw, e->shown_hp, species_info(e->species)->max_hp, HP_COLOR);
         DrawText(name, (int)(cx - MeasureText(name, 10) / 2.0f) + 1, by - 10, 10, INK);
         DrawText(name, (int)(cx - MeasureText(name, 10) / 2.0f), by - 11, 10, RAYWHITE);
-        if (b->phase == PHASE_TARGET && b->target == i && fmodf(g->time, 0.5f) < 0.35f) {
+        if (b->phase == PHASE_TARGET && b->target == i && fmodf(g->time, 0.5f) < 0.35f)
             DrawTriangle((Vector2){ cx - 5, r.y - 8 }, (Vector2){ cx, r.y - 2 }, (Vector2){ cx + 5, r.y - 8 }, GOLDEN);
-        }
         if (m && m->target == i && m->amount > 0 &&
             (m->type == MSG_ATTACK || m->type == MSG_SPLIT || m->type == MSG_SPIN_HIT))
             draw_damage_popup(m, b->msg_timer, (Vector2){ cx, r.y + 4 }, m->crit ? GOLDEN : RAYWHITE);
+        if (m && m->target == i && m->type == MSG_ENEMY_HEAL)
+            draw_damage_popup(m, b->msg_timer, (Vector2){ cx, r.y + 4 }, SLIME_C);
         if (m && m->target == i && m->type == MSG_BEAM) {
             // A beam of moonlight falls on the monster.
             float k = fminf(1.0f, b->msg_timer * 3.0f);
-            float bw = 10 * (1.0f - fabsf(k * 2 - 1)) + 2;
-            DrawRectangle((int)(cx - bw / 2), 0, (int)bw, (int)(cy + 10), Fade(MOON_SILVER, 0.75f));
-            DrawRectangle((int)(cx - bw / 4), 0, (int)fmaxf(1, bw / 2), (int)(cy + 10), Fade(RAYWHITE, 0.9f));
+            float beam = 10 * (1.0f - fabsf(k * 2 - 1)) + 2;
+            DrawRectangle((int)(cx - beam / 2), 0, (int)beam, (int)(cy + 10), Fade(MOON_SILVER, 0.75f));
+            DrawRectangle((int)(cx - beam / 4), 0, (int)fmaxf(1, beam / 2), (int)(cy + 10), Fade(RAYWHITE, 0.9f));
             draw_damage_popup(m, b->msg_timer, (Vector2){ cx, r.y + 4 }, MOON_SILVER);
         }
     }
 
-    // The lumberjack, swinging when he acts.
-    float swing = 0, step = 0;
-    if (m && (m->type == MSG_ATTACK || m->type == MSG_SPLIT || m->type == MSG_SPIN || m->type == MSG_SPIN_HIT)) {
-        swing = fminf(1.0f, b->msg_timer * 4.0f);
-        step = sinf(fminf(b->msg_timer * 6.0f, PI)) * 18.0f;
-    }
+    // The two of them: the goddess behind, the lumberjack in front.
     bool hurt = b->player_flash > 0 && fmodf(b->player_flash, 0.1f) < 0.05f;
     bool down = m && m->type == MSG_PLAYER_DOWN;
-    // The goddess, behind him: watching while the fire beings attack her,
-    // fighting at his side once she has joined.
+    Vector2 him = { HERO_X, 50 }, hers = { GODDESS_X, 50 };  // where numbers pop up
     if (b->ally_in) {
         bool her_hurt = b->ally_flash > 0 && fmodf(b->ally_flash, 0.1f) < 0.05f;
-        bool casting = m && (m->type == MSG_BEAM || m->type == MSG_LIGHT);
+        bool casting = her_acts && (m->type == MSG_BEAM || m->type == MSG_LIGHT || m->type == MSG_ATTACK);
         if (b->ally_shown_hp <= 0) {
             DrawRectangle(14, 96, 26, 6, MOON_WHITE);  // she fell
             DrawRectangle(10, 94, 8, 8, MOON_SHADE);
         } else if (!her_hurt) {
-            draw_goddess(26 + (casting ? sinf(fminf(b->msg_timer * 6.0f, PI)) * 8.0f : 0.0f), 86, 2.0f, g->time * (casting ? 4.0f : 1.0f), 1, 0, 0);
+            draw_goddess(GODDESS_X + (casting ? sinf(fminf(b->msg_timer * 6.0f, PI)) * 8.0f : 0.0f), 86, 2.0f,
+                         g->time * (casting ? 4.0f : 1.0f), 1, 0, 0);
         }
-        if (b->ally_defending) DrawCircleLines(26, 78, 18, Fade(MOON_SILVER, 0.8f));
+        if (b->ally_defending) DrawCircleLines(GODDESS_X, 78, 18, Fade(MOON_SILVER, 0.8f));
+        if (b->held[1] > 0) for (int k = 0; k < 3; k++) DrawRectangle(GODDESS_X - 9 + k * 7, 92 - k % 2 * 4, 3, 10, BARK_DARK);
         if (m && m->type == MSG_LIGHT) {
             for (int k = 0; k < 10; k++) {  // sparkles over both of them
                 float a = g->time * 3.0f + k * 0.63f;
                 float rise = fmodf(b->msg_timer * 30.0f + k * 7, 40.0f);
                 DrawRectangle((int)(48 + cosf(a) * 34), (int)(96 - rise), 2, 2, Fade(MOON_SILVER, 1.0f - rise / 40.0f));
             }
-            draw_damage_popup(m, b->msg_timer, (Vector2){ 26, 50 }, SLIME_C);
-            draw_damage_popup(m, b->msg_timer, (Vector2){ 70, 50 }, SLIME_C);
+            draw_damage_popup(m, b->msg_timer, hers, SLIME_C);
+            draw_damage_popup(m, b->msg_timer, him, SLIME_C);
         }
-        if (m && m->on_ally && (m->type == MSG_ENEMY_ATTACK || m->type == MSG_ENEMY_SPECIAL))
-            draw_damage_popup(m, b->msg_timer, (Vector2){ 26, 50 }, HP_COLOR);
+        if (b->phase == PHASE_ALLY_TARGET && b->target == 1 && fmodf(g->time, 0.5f) < 0.35f)
+            DrawTriangle((Vector2){ GODDESS_X - 5.0f, 54 }, (Vector2){ GODDESS_X, 60 }, (Vector2){ GODDESS_X + 5.0f, 54 }, GOLDEN);
     } else if (g->foes[b->foe].kind == ENCOUNTER_EMBERS) {
         draw_goddess_fallen(28, 96, 2.0f, g->time);
+    }
+    float swing = 0, step = 0;
+    if (he_acts && (m->type == MSG_ATTACK || m->type == MSG_SPLIT || m->type == MSG_SPIN || m->type == MSG_SPIN_HIT)) {
+        swing = fminf(1.0f, b->msg_timer * 4.0f);
+        step = sinf(fminf(b->msg_timer * 6.0f, PI)) * 18.0f;
     }
     if (!hurt) {
         if (down) {
             DrawRectangle(52, 92, 26, 6, SHIRT);  // lying on the grass
             DrawRectangle(76, 90, 8, 8, SKIN);
         } else {
-            draw_lumberjack(70 + step, 82, 2.0f, 1, 0, 0, swing);
+            draw_lumberjack(HERO_X + step, 82, 2.0f, 1, 0, 0, swing);
         }
     }
-    if (b->defending) DrawCircleLines(70, 78, 18, Fade(SP_COLOR, 0.8f));
-    if (m && !m->on_ally && (m->type == MSG_ENEMY_ATTACK || m->type == MSG_ENEMY_SPECIAL))
-        draw_damage_popup(m, b->msg_timer, (Vector2){ 70, 50 }, HP_COLOR);
-    if (m && m->type == MSG_HERB) draw_damage_popup(m, b->msg_timer, (Vector2){ 70, 50 }, SLIME_C);
+    if (b->defending) DrawCircleLines(HERO_X, 78, 18, Fade(SP_COLOR, 0.8f));
+    if (b->held[0] > 0) for (int k = 0; k < 3; k++) DrawRectangle(HERO_X - 9 + k * 7, 92 - k % 2 * 4, 3, 10, BARK_DARK);
+    if (b->phase == PHASE_ALLY_TARGET && b->target == 0 && fmodf(g->time, 0.5f) < 0.35f)
+        DrawTriangle((Vector2){ HERO_X - 5.0f, 54 }, (Vector2){ HERO_X, 60 }, (Vector2){ HERO_X + 5.0f, 54 }, GOLDEN);
+    if (m && m->type == MSG_ENEMY_ATTACK) draw_damage_popup(m, b->msg_timer, m->on_ally ? hers : him, HP_COLOR);
+    if (m && m->type == MSG_HERB) draw_damage_popup(m, b->msg_timer, m->on_ally ? hers : him, SLIME_C);
 
-    // Message line at the top.
+    // Message line at the top, and the turn order under it.
     const char *line = NULL;
     if (m) line = msg_text(g, m);
     else if (b->phase == PHASE_TARGET) line = text_get(TXT_CHOOSE_TARGET);
-    else if (b->phase == PHASE_ALLY) line = text_get(TXT_ALLY_TURN);
+    else if (b->phase == PHASE_ALLY_TARGET) line = text_get(TXT_CHOOSE_ALLY);
+    else if (b->phase != PHASE_MESSAGES) line = text_get(b->choosing == 1 ? TXT_ALLY_TURN : TXT_HERO_TURN);
     if (line) {
         draw_box((Rectangle){ 4, 4, VIEW_W - 8, 16 });
         draw_text_centered(line, 7, 10, RAYWHITE);
     }
+    draw_turn_order(g, m);
 
     // Bottom panel: menu on the left, status on the right.
     draw_box((Rectangle){ 3, PANEL_Y, 154, VIEW_H - PANEL_Y - 3 });
     draw_box((Rectangle){ 161, PANEL_Y, VIEW_W - 164, VIEW_H - PANEL_Y - 3 });
-    bool menu_active = b->phase == PHASE_MENU || b->phase == PHASE_SKILLS || b->phase == PHASE_ALLY;
-    if (b->phase == PHASE_ALLY || (b->phase == PHASE_TARGET && b->choosing == 1)) {
-        for (int i = 0; i < SPELL_MENU_COUNT; i++) {
-            const char *label = i == SPELL_BEAM ? TextFormat(text_get(TXT_SPELL_BEAM), SPELL_BEAM_COST)
-                              : i == SPELL_LIGHT ? TextFormat(text_get(TXT_SPELL_LIGHT), SPELL_LIGHT_COST)
-                              : i == SPELL_DEFEND ? text_get(TXT_MENU_DEFEND)
-                                                  : text_get(TXT_BACK);
-            Rectangle r = menu_entry_rect(i);
-            bool on = b->ally_cursor == i;
-            Color c = b->phase != PHASE_ALLY ? Fade(RAYWHITE, 0.5f)
-                    : battle_spell_enabled(g, (SpellItem)i) ? RAYWHITE : DISABLED;
-            if (on) DrawRectangleRec(r, Fade(PANEL_EDGE, 0.2f));
-            DrawText(label, (int)r.x + 10, (int)r.y + 1, 10, c);
-            if (i == SPELL_BEAM || i == SPELL_LIGHT) DrawCircle((int)r.x + MENU_W - 12, (int)r.y + 5, 2, MOON_SILVER);
-            if (on && !s->touch_ui) DrawText(">", (int)r.x + 2, (int)r.y + 1, 10, GOLDEN);
-        }
-    } else if (b->phase == PHASE_SKILLS) {
-        for (int i = 0; i < SKILL_MENU_COUNT; i++) {
-            const char *label = i == SKILL_SPLIT ? TextFormat(text_get(TXT_SKILL_SPLIT), SKILL_SPLIT_COST)
-                              : i == SKILL_SPIN ? TextFormat(text_get(TXT_SKILL_SPIN), SKILL_SPIN_COST)
-                                                : text_get(TXT_BACK);
-            Rectangle r = menu_entry_rect(i);
-            bool on = b->skill_cursor == i;
-            Color c = battle_skill_enabled(g, (SkillItem)i) ? RAYWHITE : DISABLED;
-            if (on) DrawRectangleRec(r, Fade(PANEL_EDGE, 0.2f));
-            DrawText(label, (int)r.x + 10, (int)r.y + 1, 10, c);
-            if (i != SKILL_BACK) DrawCircle((int)r.x + MENU_W - 12, (int)r.y + 5, 2, SP_COLOR);
-            if (on && !s->touch_ui) DrawText(">", (int)r.x + 2, (int)r.y + 1, 10, GOLDEN);
-        }
-    } else {
-        for (int i = 0; i < MENU_COUNT; i++) {
-            static const TextId labels[MENU_COUNT] = { TXT_MENU_ATTACK, TXT_MENU_SKILLS, TXT_MENU_HERB, TXT_MENU_DEFEND, TXT_MENU_FLEE };
-            const char *label = i == MENU_HERB ? TextFormat(text_get(labels[i]), st->herbs) : text_get(labels[i]);
-            Rectangle r = menu_entry_rect(i);
-            bool on = b->cursor == i && menu_active;
-            Color c = !menu_active ? Fade(RAYWHITE, 0.5f) : battle_menu_enabled(g, (MenuItem)i) ? RAYWHITE : DISABLED;
-            if (on) DrawRectangleRec(r, Fade(PANEL_EDGE, 0.2f));
-            DrawText(label, (int)r.x + 10, (int)r.y + 1, 10, c);
-            if (on && !s->touch_ui) DrawText(">", (int)r.x + 2, (int)r.y + 1, 10, GOLDEN);
-        }
-    }
+    draw_battle_menu(g, s->touch_ui);
 
     int sx = 167, sy = PANEL_Y + 6;
+    bool choosing = b->phase != PHASE_MESSAGES;
     if (b->ally_in) {
         // Two of them: a name line with numbers, then thin bars.
         const Ally *a = &g->goddess;
         struct { const char *name, *nums; int hp, max_hp, sp, max_sp; Color sp_color; bool active; } rows[2] = {
             { text_get(TXT_HERO), TextFormat("%s %d  %s %d", text_get(TXT_HP), b->shown_hp, text_get(TXT_SP), b->shown_sp),
-              b->shown_hp, st->max_hp, b->shown_sp, st->max_sp, SP_COLOR, b->phase != PHASE_MESSAGES && b->choosing == 0 },
+              b->shown_hp, st->max_hp, b->shown_sp, st->max_sp, SP_COLOR, choosing ? b->choosing == 0 : he_acts },
             { text_get(TXT_GODDESS_SHORT), TextFormat("%s %d  %s %d", text_get(TXT_HP), b->ally_shown_hp, text_get(TXT_MP), b->ally_shown_mp),
-              b->ally_shown_hp, a->max_hp, b->ally_shown_mp, a->max_mp, MOON_SILVER, b->phase != PHASE_MESSAGES && b->choosing == 1 },
+              b->ally_shown_hp, a->max_hp, b->ally_shown_mp, a->max_mp, MOON_SILVER, choosing ? b->choosing == 1 : her_acts },
         };
         for (int i = 0; i < 2; i++) {
             int y = PANEL_Y + 4 + i * 26;

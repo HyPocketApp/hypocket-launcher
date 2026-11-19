@@ -14,17 +14,15 @@
 #define TOAST_TIME 2.2f
 #define MENU_DELAY 0.4f      // ignore presses right after a screen appears
 #define PAGE_DELAY 0.15f     // between pages of a story scene
-#define FLEE_CHANCE 65       // percent
-#define ALLY_HIT_CHANCE 35   // percent of monster attacks aimed at the goddess
 
 // --- Tables -------------------------------------------------------------------
 
 static const SpeciesInfo species_table[SPECIES_COUNT] = {
-    [SPECIES_SLIME] = { .max_hp = 18, .atk = 9, .def = 1, .xp = 5, .herb_drop = 8 },
-    [SPECIES_BEETLE] = { .max_hp = 28, .atk = 11, .def = 4, .xp = 8, .herb_drop = 10 },
-    [SPECIES_WOLF] = { .max_hp = 32, .atk = 14, .def = 2, .xp = 12, .herb_drop = 12 },
-    [SPECIES_EMBER] = { .max_hp = 11, .atk = 8, .def = 0, .xp = 6, .herb_drop = 10 },
-    [SPECIES_ELDER_STUMP] = { .max_hp = 300, .atk = 21, .def = 8, .xp = 100, .wooden = true },
+    [SPECIES_SLIME] = { .max_hp = 18, .atk = 9, .def = 1, .xp = 5, .spd = 5, .wits = 15, .herb_drop = 8 },
+    [SPECIES_BEETLE] = { .max_hp = 28, .atk = 11, .def = 4, .xp = 8, .spd = 4, .wits = 55, .herb_drop = 10 },
+    [SPECIES_WOLF] = { .max_hp = 32, .atk = 12, .def = 2, .xp = 12, .spd = 13, .wits = 75, .herb_drop = 12 },
+    [SPECIES_EMBER] = { .max_hp = 9, .atk = 7, .def = 0, .xp = 6, .spd = 8, .wits = 45, .herb_drop = 10 },
+    [SPECIES_ELDER_STUMP] = { .max_hp = 300, .atk = 19, .def = 8, .xp = 100, .spd = 7, .wits = 90, .wooden = true },
 };
 
 const SpeciesInfo *species_info(Species s) { return &species_table[s]; }
@@ -453,32 +451,62 @@ static void update_foes(Game *g, float dt)
     }
 }
 
-// --- Battle: resolving a turn -------------------------------------------------
+// --- Battle: messages and dice ---------------------------------------------------
 
-static void push_msg_ex(Game *g, MsgType type, int actor, int target, int amount, bool crit, bool on_ally)
+// How hard the monsters' moves hit, as times their attack. (#ifndef so the
+// balance can be tried with other numbers: -DBITE_MULT=1.3f and so on.)
+#ifndef FLAME_MULT
+#define FLAME_MULT 0.7f    // fire creature: ignores armor
+#endif
+#ifndef HORN_MULT
+#define HORN_MULT 1.6f     // beetle: hits 3 times in 4
+#endif
+#ifndef BITE_MULT
+#define BITE_MULT 1.3f     // wolf
+#endif
+#ifndef HOWL_BOOST
+#define HOWL_BOOST 1.2f    // wolves after a howl
+#endif
+#ifndef ROOTS_MULT
+#define ROOTS_MULT 1.0f    // Elder Stump, on both
+#endif
+#ifndef SLAM_MULT
+#define SLAM_MULT 1.6f     // Elder Stump, on one
+#endif
+#ifndef SAP_PERCENT
+#define SAP_PERCENT 12     // Elder Stump heals this much of his health
+#endif
+#define SHELL_DEF 5        // a hardened shell adds this much armor
+#define BUFF_ROUNDS 3      // how long a howl or a shell lasts
+#define SPECIAL_COOLDOWN 2 // rounds before a monster can use a strong move again
+#define HOLD_CHANCE 40     // percent: the roots hold the one they hit
+#define SAP_HEALS 2
+
+int hero_speed(int level) { return 6 + level; }
+int goddess_speed(int level) { return 8 + level; }
+
+static BattleMsg *push(Game *g, MsgType type, int actor, int target, int amount)
 {
     Battle *b = &g->battle;
-    if (b->msg_count >= MAX_BATTLE_MSGS) return;
+    static BattleMsg spare;
+    if (b->msg_count >= MAX_BATTLE_MSGS) return &spare;
     BattleMsg *m = &b->msgs[b->msg_count++];
+    memset(m, 0, sizeof *m);
     m->type = type;
     m->actor = actor;
     m->target = target;
     m->amount = amount;
-    m->crit = crit;
-    m->on_ally = on_ally;
+    m->move = MOVE_ATTACK;
+    m->slot = b->acting;
     m->enemy_hp_after = (target >= 0 && target < b->enemy_count) ? b->enemies[target].hp : 0;
     m->player_hp_after = g->stats.hp;
     m->player_sp_after = g->stats.sp;
     m->ally_hp_after = g->goddess.hp;
     m->ally_mp_after = g->goddess.mp;
+    return m;
 }
 
-static void push_msg(Game *g, MsgType type, int actor, int target, int amount, bool crit)
-{
-    push_msg_ex(g, type, actor, target, amount, crit, false);
-}
-
-static int roll_damage(Game *g, int atk, int def, float mult, bool *crit)
+static int roll_damage(Game *g, float atk, int def, float mult, bool *crit)
 {
     float base = atk * mult * (0.85f + 0.3f * random_unit(g));
     bool is_crit = crit != NULL && chance(g, 10);  // only the lumberjack lands critical hits
@@ -503,13 +531,14 @@ static int first_alive(const Battle *b)
 }
 
 static int min_int(int a, int b) { return a < b ? a : b; }
+static int max_int(int a, int b) { return a > b ? a : b; }
 
 // The goddess's strength follows the lumberjack's level.
-static void goddess_scale(Game *g, bool refill)
+void goddess_scale(Game *g, bool refill)
 {
     Ally *a = &g->goddess;
     int l = g->stats.level;
-    a->max_hp = 24 + 5 * l;
+    a->max_hp = 30 + 5 * l;
     a->max_mp = 8 + 2 * l;
     a->mag = 8 + 2 * l;
     a->def = 2 + l / 2;
@@ -521,18 +550,38 @@ static void goddess_scale(Game *g, bool refill)
     a->mp = min_int(a->mp, a->max_mp);
 }
 
-// The lumberjack hits one monster and tells what happened.
-static void axe_hit(Game *g, MsgType type, int target, float mult)
+static bool goddess_fights(const Game *g) { return g->battle.ally_in && g->goddess.hp > 0; }
+
+// A monster's armor now: its own, a hardened shell, and halved damage while
+// it guards (applied by the caller).
+static int enemy_def(const Combatant *e)
+{
+    return species_info(e->species)->def + (e->def_up > 0 ? SHELL_DEF : 0);
+}
+
+// Damage to a monster from one of the two, with its guard.
+static void hurt_enemy(Game *g, MsgType type, int actor, int target, float atk, int def, float mult, bool can_crit)
 {
     Battle *b = &g->battle;
     Combatant *e = &b->enemies[target];
-    const SpeciesInfo *info = species_info(e->species);
-    if (info->wooden) mult *= 1.25f;  // the axe was made for this
     bool crit = false;
-    int dmg = roll_damage(g, g->stats.atk, info->def, mult, &crit);
+    int dmg = roll_damage(g, atk, def, mult, can_crit ? &crit : NULL);
+    if (e->guarding) dmg = (dmg + 1) / 2;
     e->hp = e->hp > dmg ? e->hp - dmg : 0;
-    push_msg(g, type, -1, target, dmg, crit);
-    if (e->hp == 0) push_msg(g, MSG_ENEMY_DOWN, -1, target, 0, false);
+    push(g, type, actor, target, dmg)->crit = crit;
+    if (e->hp == 0) push(g, MSG_ENEMY_DOWN, actor, target, 0);
+}
+
+static void axe_hit(Game *g, MsgType type, int target, float mult)
+{
+    const Combatant *e = &g->battle.enemies[target];
+    if (species_info(e->species)->wooden) mult *= 1.25f;  // the axe was made for this
+    hurt_enemy(g, type, ACTOR_HERO, target, (float)g->stats.atk, enemy_def(e), mult, true);
+}
+
+static int retarget(const Battle *b, int t)
+{
+    return t >= 0 && t < b->enemy_count && b->enemies[t].hp > 0 ? t : first_alive(b);
 }
 
 static void finish_victory(Game *g)
@@ -540,16 +589,17 @@ static void finish_victory(Game *g)
     Battle *b = &g->battle;
     Stats *s = &g->stats;
     int xp = 0, herbs = 0;
+    b->acting = -1;
     for (int i = 0; i < b->enemy_count; i++) {
         const SpeciesInfo *info = species_info(b->enemies[i].species);
         xp += info->xp;
         if (chance(g, info->herb_drop)) herbs++;
     }
     s->xp += xp;
-    push_msg(g, MSG_VICTORY, -1, -1, xp, false);
+    push(g, MSG_VICTORY, -1, -1, xp);
     if (herbs > 0) {
         s->herbs += herbs;
-        push_msg(g, MSG_FOUND_HERB, -1, -1, herbs, false);
+        push(g, MSG_FOUND_HERB, -1, -1, herbs);
     }
     while (s->xp >= xp_to_next_level(s->level)) {
         s->xp -= xp_to_next_level(s->level);
@@ -561,166 +611,473 @@ static void finish_victory(Game *g)
         s->hp = s->max_hp;
         s->sp = s->max_sp;
         if (g->goddess.joined) goddess_scale(g, true);
-        push_msg(g, MSG_LEVEL_UP, -1, -1, s->level, false);
+        push(g, MSG_LEVEL_UP, -1, -1, s->level);
     }
     b->outcome = OUTCOME_WON;
 }
 
-// The goddess's turn: the spell chosen for this round.
-static void ally_act(Game *g)
+// --- Battle: the two of them act ---------------------------------------------------
+
+static bool can_flee(const Game *g)
+{
+    Encounter k = g->foes[g->battle.foe].kind;
+    return k != ENCOUNTER_BOSS && k != ENCOUNTER_EMBERS;
+}
+
+// Faster than the fastest monster, easier to get away.
+static int flee_chance(const Game *g)
+{
+    const Battle *b = &g->battle;
+    int ours = hero_speed(g->stats.level), theirs = 0;
+    if (goddess_fights(g)) ours = max_int(ours, goddess_speed(g->stats.level));
+    for (int i = 0; i < b->enemy_count; i++)
+        if (b->enemies[i].hp > 0) theirs = max_int(theirs, species_info(b->enemies[i].species)->spd);
+    int c = 50 + 5 * (ours - theirs);
+    return c < 15 ? 15 : c > 95 ? 95 : c;
+}
+
+static void give_herb(Game *g, int actor, int who)
+{
+    Stats *s = &g->stats;
+    Ally *a = &g->goddess;
+    if (s->herbs <= 0) return;
+    if (who == 1 && !goddess_fights(g)) who = 0;
+    s->herbs--;
+    int heal;
+    if (who == 1) {
+        heal = min_int(a->max_hp - a->hp, HERB_HEAL);
+        a->hp += heal;
+    } else {
+        heal = min_int(s->max_hp - s->hp, HERB_HEAL);
+        s->hp += heal;
+    }
+    push(g, MSG_HERB, actor, -1, heal)->on_ally = who == 1;
+}
+
+// Plays the plan of one of the two (0 him, 1 her).
+static void party_act(Game *g, int who)
 {
     Battle *b = &g->battle;
-    Ally *a = &g->goddess;
     Stats *s = &g->stats;
-    switch (b->ally_spell) {
-    case SPELL_BEAM: {
-        a->mp -= SPELL_BEAM_COST;
-        int t = b->enemies[b->ally_target].hp > 0 ? b->ally_target : first_alive(b);
-        Combatant *e = &b->enemies[t];
-        // Moonlight passes through armor: only half the defense counts.
-        int dmg = roll_damage(g, a->mag, species_info(e->species)->def / 2, 1.0f, NULL);
-        e->hp = e->hp > dmg ? e->hp - dmg : 0;
-        push_msg(g, MSG_BEAM, -1, t, dmg, false);
-        if (e->hp == 0) push_msg(g, MSG_ENEMY_DOWN, -1, t, 0, false);
+    Ally *a = &g->goddess;
+    const Plan *p = &b->plan[who];
+    int actor = who == 0 ? ACTOR_HERO : ACTOR_GODDESS;
+    switch (p->command) {
+    case CMD_BOUND:
+        if (b->held[who] > 0) b->held[who]--;
+        push(g, MSG_BOUND, actor, -1, 0);
         break;
-    }
-    case SPELL_LIGHT: {
-        a->mp -= SPELL_LIGHT_COST;
-        int heal = 8 + 2 * s->level;
-        s->hp = min_int(s->max_hp, s->hp + heal);
-        a->hp = min_int(a->max_hp, a->hp + heal);
-        push_msg(g, MSG_LIGHT, -1, -1, heal, false);
+    case CMD_ATTACK:
+        if (who == 0) axe_hit(g, MSG_ATTACK, retarget(b, p->target), 1.0f);
+        else {
+            int t = retarget(b, p->target);
+            hurt_enemy(g, MSG_ATTACK, ACTOR_GODDESS, t, a->mag * 0.7f, enemy_def(&b->enemies[t]), 1.0f, false);
+        }
         break;
-    }
-    case SPELL_DEFEND:
-        b->ally_defending = true;
-        a->mp = min_int(a->max_mp, a->mp + 2);
-        push_msg(g, MSG_ALLY_DEFEND, -1, -1, 0, false);
+    case CMD_SPECIAL:
+        if (who == 0) {
+            s->sp -= skill_cost((SkillItem)p->sub);
+            if (p->sub == SKILL_SPLIT) {
+                axe_hit(g, MSG_SPLIT, retarget(b, p->target), 1.5f);
+            } else {
+                push(g, MSG_SPIN, ACTOR_HERO, -1, 0);
+                for (int i = 0; i < b->enemy_count; i++)
+                    if (b->enemies[i].hp > 0) axe_hit(g, MSG_SPIN_HIT, i, 0.7f);
+            }
+        } else if (p->sub == SPELL_BEAM) {
+            a->mp -= SPELL_BEAM_COST;
+            int t = retarget(b, p->target);
+            // Moonlight passes through armor: only half of it counts.
+            hurt_enemy(g, MSG_BEAM, ACTOR_GODDESS, t, (float)a->mag, enemy_def(&b->enemies[t]) / 2, 1.0f, false);
+        } else {
+            a->mp -= SPELL_LIGHT_COST;
+            int heal = 8 + 2 * s->level;
+            s->hp = min_int(s->max_hp, s->hp + heal);
+            a->hp = min_int(a->max_hp, a->hp + heal);
+            push(g, MSG_LIGHT, ACTOR_GODDESS, -1, heal);
+        }
+        break;
+    case CMD_DEFEND:
+        if (who == 0) s->sp = min_int(s->max_sp, s->sp + 2);
+        else a->mp = min_int(a->max_mp, a->mp + 2);
+        push(g, MSG_DEFEND, actor, -1, 0);
+        break;
+    case CMD_ITEMS:
+        give_herb(g, actor, p->target);
+        break;
+    case CMD_FLEE:
+        if (!can_flee(g)) {
+            push(g, MSG_CANT_FLEE, actor, -1, 0);
+        } else if (chance(g, flee_chance(g))) {
+            push(g, MSG_FLEE_OK, actor, -1, 0);
+            b->outcome = OUTCOME_FLED;
+        } else {
+            push(g, MSG_FLEE_FAIL, actor, -1, 0);
+        }
         break;
     default:
         break;
     }
 }
 
-static void enemies_turn(Game *g)
+// --- Battle: the monsters ------------------------------------------------------------
+//
+// On its turn a monster weighs every move it knows against each of the two:
+// how much of what is left of them a hit would take, a big bonus for a hit
+// that knocks one out (the lumberjack most: that ends the battle), the
+// goddess as a target when she can heal, the wolves going for whoever the
+// pack is already on, and moves for the moment (a shell when it is hurt and
+// has none, a howl when the pack has none, sap when the Elder Stump is low).
+// Then some noise, more for the dim ones: a slime is a slime; the Elder
+// Stump plays it close to right.
+
+typedef struct {
+    int move;
+    int target;  // 0 him, 1 her
+    float score;
+} EnemyPlan;
+
+static int party_hp(const Game *g, int t) { return t == 0 ? g->stats.hp : g->goddess.hp; }
+static int party_max_hp(const Game *g, int t) { return t == 0 ? g->stats.max_hp : g->goddess.max_hp; }
+static int party_def(const Game *g, int t) { return t == 0 ? g->stats.def : g->goddess.def; }
+static bool party_guarding(const Game *g, int t) { return t == 0 ? g->battle.defending : g->battle.ally_defending; }
+static bool party_alive(const Game *g, int t) { return t == 0 ? g->stats.hp > 0 : goddess_fights(g); }
+
+static float enemy_atk(const Combatant *e)
 {
-    Battle *b = &g->battle;
-    Stats *s = &g->stats;
-    Ally *a = &g->goddess;
-    for (int i = 0; i < b->enemy_count && s->hp > 0; i++) {
-        Combatant *e = &b->enemies[i];
-        if (e->hp <= 0) continue;
-        const SpeciesInfo *info = species_info(e->species);
-        bool at_ally = b->ally_in && a->hp > 0 && chance(g, ALLY_HIT_CHANCE);
-        float mult = 1.0f;
-        MsgType type = MSG_ENEMY_ATTACK;
-        if (e->species == SPECIES_WOLF && chance(g, 30)) {
-            mult = 1.4f;  // fierce bite
-            type = MSG_ENEMY_SPECIAL;
-        } else if (e->species == SPECIES_ELDER_STUMP && b->turn % 3 == 2) {
-            mult = 1.7f;  // grasping roots, every third turn
-            type = MSG_ENEMY_SPECIAL;
-        }
-        int dmg = roll_damage(g, info->atk, at_ally ? a->def : s->def, mult, NULL);
-        if (at_ally ? b->ally_defending : b->defending) dmg = (dmg + 1) / 2;
-        if (at_ally) {
-            a->hp = a->hp > dmg ? a->hp - dmg : 0;
-            push_msg_ex(g, type, i, -1, dmg, false, true);
-            if (a->hp == 0) push_msg(g, MSG_ALLY_DOWN, -1, -1, 0, false);
-        } else {
-            s->hp = s->hp > dmg ? s->hp - dmg : 0;
-            push_msg(g, type, i, -1, dmg, false);
-        }
-    }
-    if (s->hp == 0) {
-        push_msg(g, MSG_PLAYER_DOWN, -1, -1, 0, false);
-        b->outcome = OUTCOME_LOST;
+    return species_info(e->species)->atk * (e->atk_up > 0 ? HOWL_BOOST : 1.0f);
+}
+
+// About how much a move would take from one of them.
+static float expected_hit(const Game *g, const Combatant *e, int t, float mult, bool pierce)
+{
+    float dmg = enemy_atk(e) * mult - (pierce ? 0 : party_def(g, t));
+    if (dmg < 1) dmg = 1;
+    if (party_guarding(g, t)) dmg = ceilf(dmg / 2);
+    return dmg;
+}
+
+static float target_value(const Game *g, const Combatant *e, int t, float dmg)
+{
+    int hp = party_hp(g, t);
+    if (hp <= 0) return -1000;
+    float v = 60.0f * fminf(1.0f, dmg / hp) + 25.0f * dmg / party_max_hp(g, t);
+    if (dmg >= hp) v += t == 0 ? 90 : 45;  // knock one out: him above all
+    if (t == 1 && g->goddess.mp >= SPELL_LIGHT_COST) v += 10;  // the healer
+    if (e->species == SPECIES_WOLF && g->battle.focus == t) v += 18;  // the pack hunts together
+    return v;
+}
+
+static void consider(EnemyPlan *best, int move, int target, float score, Game *g, int wits, int last)
+{
+    if (move == last && move != MOVE_ATTACK) score -= wits * 0.3f;  // clever ones mix it up
+    score += (random_unit(g) - 0.5f) * (100 - wits) * 0.9f;
+    if (score > best->score) {
+        best->move = move;
+        best->target = target;
+        best->score = score;
     }
 }
 
-// Plays one whole round with the choices made: the lumberjack's action, the
-// goddess's spell, then the monsters'.
+static EnemyPlan enemy_think(Game *g, int i)
+{
+    Battle *b = &g->battle;
+    Combatant *e = &b->enemies[i];
+    const SpeciesInfo *info = species_info(e->species);
+    int wits = info->wits;
+    float hp_frac = (float)e->hp / info->max_hp;
+    EnemyPlan best = { MOVE_ATTACK, 0, -1e9f };
+    int allies = alive_enemies(b) - 1;
+
+    for (int t = 0; t < 2; t++) {
+        if (!party_alive(g, t)) continue;
+        consider(&best, MOVE_ATTACK, t, target_value(g, e, t, expected_hit(g, e, t, 1.0f, false)), g, wits, e->last_special);
+        switch (e->species) {
+        case SPECIES_EMBER:
+            if (e->cooldown == 0)
+                consider(&best, MOVE_FLAME, t, target_value(g, e, t, expected_hit(g, e, t, FLAME_MULT, true)) + (t == 1 ? 8 : 0), g, wits, e->last_special);
+            break;
+        case SPECIES_BEETLE:
+            if (e->cooldown == 0)
+                consider(&best, MOVE_HORN, t, 0.75f * target_value(g, e, t, expected_hit(g, e, t, HORN_MULT, false)), g, wits, e->last_special);
+            break;
+        case SPECIES_WOLF:
+            if (e->cooldown == 0)
+                consider(&best, MOVE_BITE, t, target_value(g, e, t, expected_hit(g, e, t, BITE_MULT, false)), g, wits, e->last_special);
+            break;
+        case SPECIES_ELDER_STUMP:
+            if (e->cooldown == 0)
+                consider(&best, MOVE_SLAM, t, target_value(g, e, t, expected_hit(g, e, t, SLAM_MULT, false)), g, wits, e->last_special);
+            break;
+        default:
+            break;
+        }
+    }
+    // Moves for the moment.
+    switch (e->species) {
+    case SPECIES_BEETLE:
+        if (e->def_up == 0) consider(&best, MOVE_SHELL, 0, 22 + (hp_frac < 0.7f ? 25 : 0) + g->stats.atk * 0.8f, g, wits, e->last_special);
+        break;
+    case SPECIES_WOLF: {
+        bool howled = false;
+        for (int k = 0; k < b->enemy_count; k++) howled |= b->enemies[k].hp > 0 && b->enemies[k].atk_up > 0;
+        if (!howled) consider(&best, MOVE_HOWL, 0, allies > 0 ? 38 + 12 * allies : (b->turn <= 1 ? 25 : 0), g, wits, e->last_special);
+        break;
+    }
+    case SPECIES_ELDER_STUMP:
+        if (e->cooldown == 0 && party_alive(g, 0) && party_alive(g, 1)) {
+            float v = 0.85f * (target_value(g, e, 0, expected_hit(g, e, 0, ROOTS_MULT, false)) +
+                               target_value(g, e, 1, expected_hit(g, e, 1, ROOTS_MULT, false))) + 15;
+            consider(&best, MOVE_ROOTS, 0, v, g, wits, e->last_special);
+        } else if (e->cooldown == 0 && party_alive(g, 0)) {
+            consider(&best, MOVE_ROOTS, 0, target_value(g, e, 0, expected_hit(g, e, 0, ROOTS_MULT, false)) + 15, g, wits, e->last_special);
+        }
+        if (hp_frac < 0.4f && e->saps < SAP_HEALS)
+            consider(&best, MOVE_SAP, 0, 80 + (0.4f - hp_frac) * 150, g, wits, e->last_special);
+        break;
+    default:
+        break;
+    }
+    // Guard when badly hurt, if someone else can carry on meanwhile.
+    if (hp_frac < 0.3f && allies > 0 && e->species != SPECIES_ELDER_STUMP)
+        consider(&best, MOVE_DEFEND, 0, 10 + (0.3f - hp_frac) * 120, g, wits, e->last_special);
+    return best;
+}
+
+// Damage from a monster to one of the two, with their guard.
+static void hurt_party(Game *g, int i, int t, float mult, bool pierce, int move)
+{
+    Battle *b = &g->battle;
+    Combatant *e = &b->enemies[i];
+    int dmg = roll_damage(g, enemy_atk(e), pierce ? 0 : party_def(g, t), mult, NULL);
+    if (party_guarding(g, t)) dmg = (dmg + 1) / 2;
+    if (t == 1) g->goddess.hp = g->goddess.hp > dmg ? g->goddess.hp - dmg : 0;
+    else g->stats.hp = g->stats.hp > dmg ? g->stats.hp - dmg : 0;
+    BattleMsg *m = push(g, MSG_ENEMY_ATTACK, i, -1, dmg);
+    m->on_ally = t == 1;
+    m->move = move;
+    if (t == 1 && g->goddess.hp == 0) push(g, MSG_ALLY_DOWN, i, -1, 0);
+}
+
+static void enemy_turn(Game *g, int i)
+{
+    Battle *b = &g->battle;
+    Combatant *e = &b->enemies[i];
+    e->guarding = false;  // a guard lasts until its next turn
+    EnemyPlan p = enemy_think(g, i);
+    BattleMsg *m;
+    switch (p.move) {
+    case MOVE_DEFEND:
+        e->guarding = true;
+        push(g, MSG_ENEMY_DEFEND, i, -1, 0);
+        break;
+    case MOVE_SHELL:
+        e->def_up = BUFF_ROUNDS;
+        m = push(g, MSG_ENEMY_BUFF, i, -1, 0);
+        m->move = MOVE_SHELL;
+        break;
+    case MOVE_HOWL:
+        for (int k = 0; k < b->enemy_count; k++)
+            if (b->enemies[k].hp > 0 && b->enemies[k].species == SPECIES_WOLF) b->enemies[k].atk_up = BUFF_ROUNDS;
+        m = push(g, MSG_ENEMY_BUFF, i, -1, 0);
+        m->move = MOVE_HOWL;
+        break;
+    case MOVE_SAP: {
+        int heal = species_info(e->species)->max_hp * SAP_PERCENT / 100;
+        e->hp = min_int(species_info(e->species)->max_hp, e->hp + heal);
+        e->saps++;
+        push(g, MSG_ENEMY_HEAL, i, i, heal)->move = MOVE_SAP;
+        break;
+    }
+    case MOVE_HORN:
+        e->cooldown = SPECIAL_COOLDOWN;
+        if (!chance(g, 75)) {
+            m = push(g, MSG_ENEMY_MISS, i, -1, 0);
+            m->move = MOVE_HORN;
+            m->on_ally = p.target == 1;
+            break;
+        }
+        hurt_party(g, i, p.target, HORN_MULT, false, MOVE_HORN);
+        break;
+    case MOVE_BITE:
+        e->cooldown = SPECIAL_COOLDOWN;
+        hurt_party(g, i, p.target, BITE_MULT, false, MOVE_BITE);
+        break;
+    case MOVE_FLAME:
+        e->cooldown = SPECIAL_COOLDOWN;
+        hurt_party(g, i, p.target, FLAME_MULT, true, MOVE_FLAME);
+        break;
+    case MOVE_SLAM:
+        e->cooldown = SPECIAL_COOLDOWN;
+        hurt_party(g, i, p.target, SLAM_MULT, false, MOVE_SLAM);
+        break;
+    case MOVE_ROOTS: {
+        e->cooldown = SPECIAL_COOLDOWN;
+        int held = -1;
+        for (int t = 0; t < 2; t++) {
+            if (!party_alive(g, t)) continue;
+            hurt_party(g, i, t, ROOTS_MULT, false, MOVE_ROOTS);
+            if (held < 0 && party_alive(g, t) && chance(g, HOLD_CHANCE)) held = t;
+        }
+        if (held >= 0 && g->stats.hp > 0) {
+            b->held[held] = 1;
+            push(g, MSG_HELD, i, -1, 0)->on_ally = held == 1;
+        }
+        break;
+    }
+    default:
+        hurt_party(g, i, p.target, 1.0f, false, MOVE_ATTACK);
+        break;
+    }
+    if (p.move != MOVE_ATTACK) e->last_special = p.move;
+    if (p.target >= 0 && p.target < 2) b->focus = p.target;
+}
+
+// --- Battle: rounds --------------------------------------------------------------------
+
+// Rolls the turn order for the next round: speed, give or take a fifth.
+static void roll_order(Game *g)
+{
+    Battle *b = &g->battle;
+    int ids[MAX_ACTORS];
+    float init[MAX_ACTORS];
+    int n = 0;
+    ids[n] = ACTOR_HERO;
+    init[n++] = hero_speed(g->stats.level) * (0.8f + 0.4f * random_unit(g));
+    if (goddess_fights(g)) {
+        ids[n] = ACTOR_GODDESS;
+        init[n++] = goddess_speed(g->stats.level) * (0.8f + 0.4f * random_unit(g));
+    }
+    for (int i = 0; i < b->enemy_count; i++) {
+        if (b->enemies[i].hp <= 0) continue;
+        ids[n] = i;
+        init[n++] = species_info(b->enemies[i].species)->spd * (0.8f + 0.4f * random_unit(g));
+    }
+    for (int a = 1; a < n; a++)  // fastest first
+        for (int k = a; k > 0 && init[k] > init[k - 1]; k--) {
+            float tf = init[k]; init[k] = init[k - 1]; init[k - 1] = tf;
+            int ti = ids[k]; ids[k] = ids[k - 1]; ids[k - 1] = ti;
+        }
+    memcpy(b->order, ids, sizeof ids);
+    b->order_count = n;
+}
+
+// The first of the two who can choose, or -1.
+static int next_chooser(const Game *g, int from)
+{
+    const Battle *b = &g->battle;
+    for (int who = from; who < 2; who++) {
+        if (who == 1 && !goddess_fights(g)) continue;
+        if (b->held[who] > 0) continue;
+        return who;
+    }
+    return -1;
+}
+
+static void resolve_round(Game *g);
+
+static void start_choosing(Game *g, int who)
+{
+    Battle *b = &g->battle;
+    b->choosing = who;
+    b->phase = PHASE_COMMAND;
+    b->cursor = b->plan[who].command >= 0 && b->plan[who].command < CMD_COUNT ? b->plan[who].command : CMD_ATTACK;
+    if (!battle_command_enabled(g, (Command)b->cursor)) b->cursor = CMD_ATTACK;
+}
+
+static void new_round(Game *g)
+{
+    Battle *b = &g->battle;
+    roll_order(g);
+    for (int who = 0; who < 2; who++)
+        if (b->held[who] > 0) b->plan[who].command = CMD_BOUND;
+    int who = next_chooser(g, 0);
+    if (who < 0) resolve_round(g);
+    else start_choosing(g, who);
+}
+
+// Plays the round: everyone in the turn order.
 static void resolve_round(Game *g)
 {
     Battle *b = &g->battle;
     Stats *s = &g->stats;
     Ally *a = &g->goddess;
     b->msg_count = b->msg_index = 0;
-    b->defending = b->ally_defending = false;
-    b->choosing = 0;
-    bool enemies_act = true;
-    int target = b->hero_target;
-
-    switch (b->hero_action) {
-    case MENU_ATTACK:
-        axe_hit(g, MSG_ATTACK, target, 1.0f);
-        break;
-    case MENU_SKILLS:
-        s->sp -= skill_cost((SkillItem)b->hero_skill);
-        if (b->hero_skill == SKILL_SPLIT) {
-            axe_hit(g, MSG_SPLIT, target, 1.5f);
-        } else {
-            push_msg(g, MSG_SPIN, -1, -1, 0, false);
-            for (int i = 0; i < b->enemy_count; i++)
-                if (b->enemies[i].hp > 0) axe_hit(g, MSG_SPIN_HIT, i, 0.7f);
+    b->defending = b->plan[0].command == CMD_DEFEND;  // a guard holds from the start of the round
+    b->ally_defending = goddess_fights(g) && b->plan[1].command == CMD_DEFEND;
+    b->focus = -1;
+    for (int slot = 0; slot < b->order_count && b->outcome == OUTCOME_NONE; slot++) {
+        int who = b->order[slot];
+        b->acting = slot;
+        if (who == ACTOR_HERO) party_act(g, 0);
+        else if (who == ACTOR_GODDESS) { if (goddess_fights(g)) party_act(g, 1); }
+        else if (b->enemies[who].hp > 0) enemy_turn(g, who);
+        if (alive_enemies(b) == 0) finish_victory(g);
+        else if (s->hp == 0) {
+            b->acting = -1;
+            push(g, MSG_PLAYER_DOWN, ACTOR_HERO, -1, 0);
+            b->outcome = OUTCOME_LOST;
         }
-        break;
-    case MENU_HERB: {
-        s->herbs--;
-        int heal = min_int(s->max_hp - s->hp, HERB_HEAL);
-        s->hp += heal;
-        push_msg(g, MSG_HERB, -1, -1, heal, false);
-        break;
     }
-    case MENU_DEFEND:
-        b->defending = true;
-        s->sp = min_int(s->max_sp, s->sp + 2);
-        push_msg(g, MSG_DEFEND, -1, -1, 0, false);
-        break;
-    case MENU_FLEE:
-        if (g->foes[b->foe].kind == ENCOUNTER_BOSS || g->foes[b->foe].kind == ENCOUNTER_EMBERS) {
-            push_msg(g, MSG_CANT_FLEE, -1, -1, 0, false);
-        } else if (chance(g, FLEE_CHANCE)) {
-            push_msg(g, MSG_FLEE_OK, -1, -1, 0, false);
-            b->outcome = OUTCOME_FLED;
-            enemies_act = false;
-        } else {
-            push_msg(g, MSG_FLEE_FAIL, -1, -1, 0, false);
+    b->acting = -1;
+    if (b->outcome == OUTCOME_NONE) {
+        // Between rounds: breath and magic come back a little; spells and
+        // shells wear off.
+        if (s->sp < s->max_sp) s->sp++;
+        if (goddess_fights(g) && a->mp < a->max_mp) a->mp++;
+        for (int i = 0; i < b->enemy_count; i++) {
+            Combatant *e = &b->enemies[i];
+            if (e->def_up > 0) e->def_up--;
+            if (e->atk_up > 0) e->atk_up--;
+            if (e->cooldown > 0) e->cooldown--;
         }
-        break;
-    }
-
-    if (enemies_act && alive_enemies(b) > 0 && b->ally_in && a->hp > 0) ally_act(g);
-
-    if (alive_enemies(b) == 0) {
-        finish_victory(g);
-    } else if (enemies_act) {
-        enemies_turn(g);
-        if (s->sp < s->max_sp) s->sp++;  // catches his breath between rounds
-        if (b->ally_in && a->hp > 0 && a->mp < a->max_mp) a->mp++;
     }
     b->turn++;
     b->phase = PHASE_MESSAGES;
     b->msg_timer = 0;
 }
 
-// --- Battle: menus and messages ---------------------------------------------------
+// --- Battle: menus -----------------------------------------------------------------------
 
-bool battle_menu_enabled(const Game *g, MenuItem item)
+int battle_herbs_left(const Game *g)
 {
-    if (item == MENU_HERB) return g->stats.herbs > 0 && g->stats.hp < g->stats.max_hp;
-    if (item == MENU_SKILLS) return g->stats.sp >= SKILL_SPLIT_COST;
-    return true;
+    const Battle *b = &g->battle;
+    int n = g->stats.herbs;
+    if (b->choosing == 1 && b->plan[0].command == CMD_ITEMS) n--;  // he already promised one
+    return n;
 }
 
-bool battle_skill_enabled(const Game *g, SkillItem item)
+static bool someone_hurt(const Game *g)
 {
-    return item == SKILL_BACK || g->stats.sp >= skill_cost(item);
+    return g->stats.hp < g->stats.max_hp || (goddess_fights(g) && g->goddess.hp < g->goddess.max_hp);
 }
 
-bool battle_spell_enabled(const Game *g, SpellItem item)
+bool battle_command_enabled(const Game *g, Command c)
 {
-    return g->goddess.mp >= spell_cost(item);
+    const Battle *b = &g->battle;
+    switch (c) {
+    case CMD_SPECIAL:
+        return b->choosing == 0 ? g->stats.sp >= SKILL_SPLIT_COST : g->goddess.mp >= SPELL_BEAM_COST;
+    case CMD_ITEMS: return battle_herbs_left(g) > 0 && someone_hurt(g);
+    case CMD_FLEE: return can_flee(g);
+    default: return c >= 0 && c < CMD_COUNT;
+    }
+}
+
+int battle_special_count(const Game *g)
+{
+    return g->battle.choosing == 0 ? SKILL_MENU_COUNT : SPELL_MENU_COUNT;
+}
+
+bool battle_special_enabled(const Game *g, int entry)
+{
+    if (g->battle.choosing == 0) return entry == SKILL_BACK || g->stats.sp >= skill_cost((SkillItem)entry);
+    return entry == SPELL_BACK || g->goddess.mp >= spell_cost((SpellItem)entry);
+}
+
+bool battle_item_enabled(const Game *g, ItemEntry e)
+{
+    return e == ITEM_BACK || (battle_herbs_left(g) > 0 && someone_hurt(g));
 }
 
 const BattleMsg *battle_current_msg(const Game *g)
@@ -735,6 +1092,8 @@ void game_start_battle(Game *g, int foe)
     Battle *b = &g->battle;
     memset(b, 0, sizeof *b);
     b->foe = foe;
+    b->acting = -1;
+    b->focus = -1;
     Species party[MAX_BATTLE_ENEMIES];
     b->enemy_count = encounter_party(g->foes[foe].kind, party);
     for (int i = 0; i < b->enemy_count; i++) {
@@ -743,12 +1102,11 @@ void game_start_battle(Game *g, int foe)
         b->enemies[i].shown_alive = true;
     }
     b->ally_in = g->goddess.joined && g->goddess.hp > 0;
-    b->ally_spell = -1;
     b->shown_hp = g->stats.hp;
     b->shown_sp = g->stats.sp;
     b->ally_shown_hp = g->goddess.hp;
     b->ally_shown_mp = g->goddess.mp;
-    push_msg(g, MSG_START, -1, -1, g->foes[foe].kind, false);
+    push(g, MSG_START, -1, -1, g->foes[foe].kind);
     b->phase = PHASE_MESSAGES;
     g->state = STATE_BATTLE;
     g->events |= EVENT_ENCOUNTER;
@@ -770,13 +1128,16 @@ static void play_msg(Game *g, const BattleMsg *m)
         Combatant *e = &b->enemies[m->target];
         if (m->enemy_hp_after < e->shown_hp) {
             g->events |= EVENT_HIT;
-            if (m->type == MSG_ATTACK || m->type == MSG_SPLIT || m->type == MSG_SPIN_HIT) g->events |= EVENT_AXE;
+            if (m->actor == ACTOR_HERO && (m->type == MSG_ATTACK || m->type == MSG_SPLIT || m->type == MSG_SPIN_HIT))
+                g->events |= EVENT_AXE;
             if (m->type == MSG_BEAM) g->events |= EVENT_MOONBEAM;
             e->flash = 0.4f;
         }
+        if (m->enemy_hp_after > e->shown_hp) g->events |= EVENT_HEAL;
         e->shown_hp = m->enemy_hp_after;
         if (m->type == MSG_ENEMY_DOWN) { e->shown_alive = false; g->events |= EVENT_DEFEATED; }
     }
+    if (m->type == MSG_ENEMY_MISS || m->type == MSG_CANT_FLEE) g->events |= EVENT_DENIED;
     if (m->type == MSG_VICTORY) g->events |= EVENT_VICTORY;
     if (m->type == MSG_LEVEL_UP) g->events |= EVENT_LEVEL_UP;
     if (m->type == MSG_FLEE_OK) g->events |= EVENT_FLEE;
@@ -834,47 +1195,44 @@ static void end_battle(Game *g)
     }
 }
 
-// The lumberjack's choice is made: the goddess chooses next, if she can.
-static void hero_chosen(Game *g, int action, int skill, int target)
+// The one choosing has decided: the other chooses next, or the round plays.
+static void plan_done(Game *g, int command, int sub, int target)
 {
     Battle *b = &g->battle;
-    b->hero_action = action;
-    b->hero_skill = skill;
-    b->hero_target = target;
-    if (action != MENU_FLEE && b->ally_in && g->goddess.hp > 0) {
-        b->phase = PHASE_ALLY;
-        b->choosing = 1;
-    } else {
-        b->ally_spell = -1;
-        resolve_round(g);
-    }
+    int who = b->choosing;
+    b->plan[who] = (Plan){ command, sub, target };
+    g->events |= EVENT_CONFIRM;
+    int next = command == CMD_FLEE ? -1 : next_chooser(g, who + 1);
+    if (command == CMD_FLEE && who == 0 && goddess_fights(g) && b->held[1] == 0)
+        b->plan[1] = (Plan){ CMD_DEFEND, 0, 0 };  // she covers the escape
+    if (next >= 0) start_choosing(g, next);
+    else resolve_round(g);
 }
 
-static void ally_chosen(Game *g, int spell, int target)
-{
-    g->battle.ally_spell = spell;
-    g->battle.ally_target = target;
-    resolve_round(g);
-}
-
-// Asks for a target when there is a choice; `who` is 0 for him, 1 for her.
-static void choose_target(Game *g, int who, int action, int skill)
+// Asks for a monster when there is a choice.
+static void ask_target(Game *g, int command, int sub)
 {
     Battle *b = &g->battle;
+    b->plan[b->choosing].command = command;
+    b->plan[b->choosing].sub = sub;
     if (alive_enemies(b) > 1) {
-        b->choosing = who;
-        b->pending = action;
-        b->skill_cursor = skill;
-        b->target = first_alive(b);
+        b->target = retarget(b, b->target);
         b->phase = PHASE_TARGET;
-    } else if (who == 0) {
-        hero_chosen(g, action, skill, first_alive(b));
+        g->events |= EVENT_CONFIRM;
     } else {
-        ally_chosen(g, SPELL_BEAM, first_alive(b));
+        plan_done(g, command, sub, first_alive(b));
     }
 }
 
 static int wrap(int v, int n) { return ((v % n) + n) % n; }
+
+static bool menu_input(Game *g, const GameInput *in, int *cursor, int count)
+{
+    if (in->nav_y) { *cursor = wrap(*cursor + in->nav_y, count); g->events |= EVENT_CURSOR; }
+    bool choose = in->confirm_pressed;
+    if (in->pick >= 1 && in->pick <= count) { *cursor = in->pick - 1; choose = true; }
+    return choose;
+}
 
 static void update_battle(Game *g, const GameInput *in, float dt)
 {
@@ -888,8 +1246,8 @@ static void update_battle(Game *g, const GameInput *in, float dt)
     case PHASE_MESSAGES: {
         if (b->msg_timer == 0 && b->msg_index < b->msg_count) play_msg(g, &b->msgs[b->msg_index]);
         b->msg_timer += dt;
-        bool skip = (in->confirm_pressed || in->pick || in->target_pick) && b->msg_timer > MSG_MIN_TIME;
-        if (b->msg_timer >= MSG_TIME || skip) {
+        bool skip = (in->confirm_pressed || in->pick || in->target_pick || in->ally_pick) && b->msg_timer > MSG_MIN_TIME;
+        if (b->msg_timer >= MSG_TIME || skip || b->msg_index >= b->msg_count) {
             b->msg_index++;
             b->msg_timer = 0;
             if (b->msg_index >= b->msg_count) {
@@ -898,52 +1256,66 @@ static void update_battle(Game *g, const GameInput *in, float dt)
                 b->ally_shown_hp = g->goddess.hp;
                 b->ally_shown_mp = g->goddess.mp;
                 if (b->outcome != OUTCOME_NONE) end_battle(g);
-                else { b->phase = PHASE_MENU; b->choosing = 0; }
+                else new_round(g);
             }
         }
         break;
     }
 
-    case PHASE_MENU: {
-        if (in->nav_y) { b->cursor = wrap(b->cursor + in->nav_y, MENU_COUNT); g->events |= EVENT_CURSOR; }
-        bool choose = in->confirm_pressed;
-        if (in->pick >= 1 && in->pick <= MENU_COUNT) { b->cursor = in->pick - 1; choose = true; }
-        if (!choose) break;
-        if (!battle_menu_enabled(g, (MenuItem)b->cursor)) { g->events |= EVENT_DENIED; break; }
-        g->events |= EVENT_CONFIRM;
-        if (b->cursor == MENU_ATTACK) choose_target(g, 0, MENU_ATTACK, 0);
-        else if (b->cursor == MENU_SKILLS) { b->phase = PHASE_SKILLS; b->skill_cursor = 0; }
-        else hero_chosen(g, b->cursor, 0, 0);
-        break;
-    }
-
-    case PHASE_SKILLS: {
-        if (in->nav_y) { b->skill_cursor = wrap(b->skill_cursor + in->nav_y, SKILL_MENU_COUNT); g->events |= EVENT_CURSOR; }
-        bool choose = in->confirm_pressed;
-        if (in->pick >= 1 && in->pick <= SKILL_MENU_COUNT) { b->skill_cursor = in->pick - 1; choose = true; }
-        if (in->cancel_pressed || (choose && b->skill_cursor == SKILL_BACK)) { b->phase = PHASE_MENU; break; }
-        if (!choose) break;
-        if (!battle_skill_enabled(g, (SkillItem)b->skill_cursor)) { g->events |= EVENT_DENIED; break; }
-        g->events |= EVENT_CONFIRM;
-        if (b->skill_cursor == SKILL_SPLIT) choose_target(g, 0, MENU_SKILLS, SKILL_SPLIT);
-        else hero_chosen(g, MENU_SKILLS, SKILL_SPIN, 0);
-        break;
-    }
-
-    case PHASE_ALLY: {
-        if (in->nav_y) { b->ally_cursor = wrap(b->ally_cursor + in->nav_y, SPELL_MENU_COUNT); g->events |= EVENT_CURSOR; }
-        bool choose = in->confirm_pressed;
-        if (in->pick >= 1 && in->pick <= SPELL_MENU_COUNT) { b->ally_cursor = in->pick - 1; choose = true; }
-        if (in->cancel_pressed || (choose && b->ally_cursor == SPELL_BACK)) {
-            b->phase = PHASE_MENU;  // the lumberjack chooses again
-            b->choosing = 0;
+    case PHASE_COMMAND: {
+        if (in->cancel_pressed && b->choosing == 1 && next_chooser(g, 0) == 0) {
+            start_choosing(g, 0);  // he changes his mind
+            g->events |= EVENT_CURSOR;
             break;
         }
+        if (!menu_input(g, in, &b->cursor, CMD_COUNT)) break;
+        if (!battle_command_enabled(g, (Command)b->cursor)) { g->events |= EVENT_DENIED; break; }
+        switch (b->cursor) {
+        case CMD_ATTACK: ask_target(g, CMD_ATTACK, 0); break;
+        case CMD_SPECIAL: b->phase = PHASE_SPECIAL; b->sub_cursor = 0; g->events |= EVENT_CONFIRM; break;
+        case CMD_ITEMS: b->phase = PHASE_ITEMS; b->sub_cursor = 0; g->events |= EVENT_CONFIRM; break;
+        default: plan_done(g, b->cursor, 0, 0); break;
+        }
+        break;
+    }
+
+    case PHASE_SPECIAL: {
+        int count = battle_special_count(g), back = count - 1;
+        bool choose = menu_input(g, in, &b->sub_cursor, count);
+        if (in->cancel_pressed || (choose && b->sub_cursor == back)) { b->phase = PHASE_COMMAND; break; }
         if (!choose) break;
-        if (!battle_spell_enabled(g, (SpellItem)b->ally_cursor)) { g->events |= EVENT_DENIED; break; }
-        g->events |= EVENT_CONFIRM;
-        if (b->ally_cursor == SPELL_BEAM) choose_target(g, 1, MENU_ATTACK, 0);
-        else ally_chosen(g, b->ally_cursor, 0);
+        if (!battle_special_enabled(g, b->sub_cursor)) { g->events |= EVENT_DENIED; break; }
+        bool aimed = b->choosing == 0 ? b->sub_cursor == SKILL_SPLIT : b->sub_cursor == SPELL_BEAM;
+        if (aimed) ask_target(g, CMD_SPECIAL, b->sub_cursor);
+        else plan_done(g, CMD_SPECIAL, b->sub_cursor, 0);
+        break;
+    }
+
+    case PHASE_ITEMS: {
+        bool choose = menu_input(g, in, &b->sub_cursor, ITEM_MENU_COUNT);
+        if (in->cancel_pressed || (choose && b->sub_cursor == ITEM_BACK)) { b->phase = PHASE_COMMAND; break; }
+        if (!choose) break;
+        if (!battle_item_enabled(g, (ItemEntry)b->sub_cursor)) { g->events |= EVENT_DENIED; break; }
+        b->plan[b->choosing].command = CMD_ITEMS;
+        b->plan[b->choosing].sub = b->sub_cursor;
+        if (goddess_fights(g)) {
+            // For whom: the one with less health left, to start with.
+            float his = (float)g->stats.hp / g->stats.max_hp, hers = (float)g->goddess.hp / g->goddess.max_hp;
+            b->target = hers < his ? 1 : 0;
+            b->phase = PHASE_ALLY_TARGET;
+            g->events |= EVENT_CONFIRM;
+        } else {
+            plan_done(g, CMD_ITEMS, b->sub_cursor, 0);
+        }
+        break;
+    }
+
+    case PHASE_ALLY_TARGET: {
+        if (in->nav_x || in->nav_y) { b->target = 1 - b->target; g->events |= EVENT_CURSOR; }
+        bool choose = in->confirm_pressed;
+        if (in->ally_pick == 1 || in->ally_pick == 2) { b->target = in->ally_pick - 1; choose = true; }
+        if (in->cancel_pressed) { b->phase = PHASE_ITEMS; break; }
+        if (choose) plan_done(g, CMD_ITEMS, b->plan[b->choosing].sub, b->target);
         break;
     }
 
@@ -961,14 +1333,10 @@ static void update_battle(Game *g, const GameInput *in, float dt)
         int t = in->target_pick - 1;
         if (t >= 0 && t < b->enemy_count && b->enemies[t].hp > 0) { b->target = t; choose = true; }
         if (in->cancel_pressed) {
-            if (b->choosing == 1) b->phase = PHASE_ALLY;
-            else b->phase = b->pending == MENU_SKILLS ? PHASE_SKILLS : PHASE_MENU;
+            b->phase = b->plan[b->choosing].command == CMD_SPECIAL ? PHASE_SPECIAL : PHASE_COMMAND;
             break;
         }
-        if (!choose) break;
-        g->events |= EVENT_CONFIRM;
-        if (b->choosing == 1) ally_chosen(g, SPELL_BEAM, b->target);
-        else hero_chosen(g, b->pending, b->skill_cursor, b->target);
+        if (choose) plan_done(g, b->plan[b->choosing].command, b->plan[b->choosing].sub, b->target);
         break;
     }
     }

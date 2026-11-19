@@ -46,6 +46,10 @@ typedef enum {
     TXT_MENU_ATTACK,
     TXT_MENU_SKILLS,
     TXT_MENU_HERB,      // %d: herbs
+    TXT_MENU_SPELLS,
+    TXT_MENU_ITEMS,
+    TXT_HERO_TURN,
+    TXT_CHOOSE_ALLY,
     TXT_MENU_DEFEND,
     TXT_MENU_FLEE,
     TXT_SKILL_SPLIT,    // %d: cost
@@ -100,6 +104,25 @@ typedef enum {
     TXT_MSG_ENEMY_ATTACK_ALLY, // %s %d
     TXT_MSG_BITE_ALLY,  // %s %d
     TXT_MSG_ROOTS_ALLY, // %d
+    TXT_MSG_ALLY_ATTACK,  // %s %d
+    TXT_MSG_HERB_HER,     // %d: she eats one
+    TXT_MSG_HERB_TO_HER,  // %d: he gives her one
+    TXT_MSG_HERB_TO_HIM,  // %d: she gives him one
+    TXT_MSG_BOUND,
+    TXT_MSG_BOUND_ALLY,
+    TXT_MSG_HELD,
+    TXT_MSG_HELD_ALLY,
+    TXT_MSG_FLAME,        // %s %d
+    TXT_MSG_FLAME_ALLY,
+    TXT_MSG_HORN,         // %s %d
+    TXT_MSG_HORN_ALLY,
+    TXT_MSG_MISS,         // %s
+    TXT_MSG_SLAM,         // %d
+    TXT_MSG_SLAM_ALLY,
+    TXT_MSG_ENEMY_DEFEND, // %s
+    TXT_MSG_SHELL,        // %s
+    TXT_MSG_HOWL,         // %s
+    TXT_MSG_SAP,          // %s %d
     TXT_COUNT,
 } TextId;
 
