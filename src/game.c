@@ -668,22 +668,20 @@ static void party_act(Game *g, int who)
         push(g, MSG_BOUND, actor, -1, 0);
         break;
     case CMD_ATTACK:
-        if (who == 0) axe_hit(g, MSG_ATTACK, retarget(b, p->target), 1.0f);
-        else {
-            int t = retarget(b, p->target);
-            hurt_enemy(g, MSG_ATTACK, ACTOR_GODDESS, t, a->mag * 0.7f, enemy_def(&b->enemies[t]), 1.0f, false);
-        }
-        break;
-    case CMD_SPECIAL:
         if (who == 0) {
             s->sp -= skill_cost((SkillItem)p->sub);
-            if (p->sub == SKILL_SPLIT) {
+            if (p->sub == SKILL_STRIKE) {
+                axe_hit(g, MSG_ATTACK, retarget(b, p->target), 1.0f);
+            } else if (p->sub == SKILL_SPLIT) {
                 axe_hit(g, MSG_SPLIT, retarget(b, p->target), 1.5f);
             } else {
                 push(g, MSG_SPIN, ACTOR_HERO, -1, 0);
                 for (int i = 0; i < b->enemy_count; i++)
                     if (b->enemies[i].hp > 0) axe_hit(g, MSG_SPIN_HIT, i, 0.7f);
             }
+        } else if (p->sub == SPELL_STRIKE) {
+            int t = retarget(b, p->target);
+            hurt_enemy(g, MSG_ATTACK, ACTOR_GODDESS, t, a->mag * 0.7f, enemy_def(&b->enemies[t]), 1.0f, false);
         } else if (p->sub == SPELL_BEAM) {
             a->mp -= SPELL_BEAM_COST;
             int t = retarget(b, p->target);
@@ -1054,10 +1052,7 @@ static bool someone_hurt(const Game *g)
 
 bool battle_command_enabled(const Game *g, Command c)
 {
-    const Battle *b = &g->battle;
     switch (c) {
-    case CMD_SPECIAL:
-        return b->choosing == 0 ? g->stats.sp >= SKILL_SPLIT_COST : g->goddess.mp >= SPELL_BEAM_COST;
     case CMD_ITEMS: return battle_herbs_left(g) > 0 && someone_hurt(g);
     case CMD_FLEE: return can_flee(g);
     default: return c >= 0 && c < CMD_COUNT;
@@ -1271,8 +1266,7 @@ static void update_battle(Game *g, const GameInput *in, float dt)
         if (!menu_input(g, in, &b->cursor, CMD_COUNT)) break;
         if (!battle_command_enabled(g, (Command)b->cursor)) { g->events |= EVENT_DENIED; break; }
         switch (b->cursor) {
-        case CMD_ATTACK: ask_target(g, CMD_ATTACK, 0); break;
-        case CMD_SPECIAL: b->phase = PHASE_SPECIAL; b->sub_cursor = 0; g->events |= EVENT_CONFIRM; break;
+        case CMD_ATTACK: b->phase = PHASE_SPECIAL; b->sub_cursor = 0; g->events |= EVENT_CONFIRM; break;
         case CMD_ITEMS: b->phase = PHASE_ITEMS; b->sub_cursor = 0; g->events |= EVENT_CONFIRM; break;
         default: plan_done(g, b->cursor, 0, 0); break;
         }
@@ -1285,9 +1279,9 @@ static void update_battle(Game *g, const GameInput *in, float dt)
         if (in->cancel_pressed || (choose && b->sub_cursor == back)) { b->phase = PHASE_COMMAND; break; }
         if (!choose) break;
         if (!battle_special_enabled(g, b->sub_cursor)) { g->events |= EVENT_DENIED; break; }
-        bool aimed = b->choosing == 0 ? b->sub_cursor == SKILL_SPLIT : b->sub_cursor == SPELL_BEAM;
-        if (aimed) ask_target(g, CMD_SPECIAL, b->sub_cursor);
-        else plan_done(g, CMD_SPECIAL, b->sub_cursor, 0);
+        bool aimed = b->choosing == 0 ? b->sub_cursor != SKILL_SPIN : b->sub_cursor != SPELL_LIGHT;
+        if (aimed) ask_target(g, CMD_ATTACK, b->sub_cursor);
+        else plan_done(g, CMD_ATTACK, b->sub_cursor, 0);
         break;
     }
 
@@ -1333,7 +1327,7 @@ static void update_battle(Game *g, const GameInput *in, float dt)
         int t = in->target_pick - 1;
         if (t >= 0 && t < b->enemy_count && b->enemies[t].hp > 0) { b->target = t; choose = true; }
         if (in->cancel_pressed) {
-            b->phase = b->plan[b->choosing].command == CMD_SPECIAL ? PHASE_SPECIAL : PHASE_COMMAND;
+            b->phase = PHASE_SPECIAL;  // back to the attacks
             break;
         }
         if (choose) plan_done(g, b->plan[b->choosing].command, b->plan[b->choosing].sub, b->target);

@@ -50,9 +50,10 @@ seres querem roubar o que resta. A história está em
   monstros, com um pouco de sorte) decide a **ordem dos turnos**, mostrada
   em fichas no alto da tela. Você escolhe o comando do lenhador e o da
   deusa, e todos agem nessa ordem. Os dois têm os mesmos comandos:
-  - **Atacar:** o machado dele (às vezes crítico) ou um golpe de luz dela.
-  - **Técnicas** (dele, gastam fôlego): **Golpe Rachador**, forte num alvo;
-    **Corte Giratório**, em todos. **Magias** (dela, gastam PM).
+  - **Atacar:** abre os ataques de cada um. Dele: **Machadada** (às vezes
+    crítica, de graça), **Golpe Rachador** (forte num alvo) e **Corte
+    Giratório** (em todos), que gastam fôlego. Dela: **Golpe de Luz** (de
+    graça), **Raio Lunar** e **Luz da Lua**, que gastam PM.
   - **Defender:** metade do dano a rodada inteira, e recupera fôlego ou PM.
   - **Itens:** uma **erva** cura 30 de vida, em quem você escolher.
   - **Fugir:** mais fácil quando vocês são mais rápidos que os monstros; do

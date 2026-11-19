@@ -159,11 +159,10 @@ typedef struct {
 // command each, and everyone acts in that order: the monsters choose when
 // their turn comes (see enemy_think in game.c).
 
-// The commands, the same for both of them. The second opens his techniques
-// or her spells.
+// The commands, the same for both of them. Attack opens a submenu, like
+// Items: his plain axe strike and techniques, or her light strike and spells.
 typedef enum {
     CMD_ATTACK,
-    CMD_SPECIAL,
     CMD_DEFEND,
     CMD_ITEMS,
     CMD_FLEE,
@@ -171,16 +170,18 @@ typedef enum {
     CMD_BOUND,  // not a menu entry: held by roots, he or she loses the turn
 } Command;
 
-// The lumberjack's techniques.
+// The lumberjack's attacks.
 typedef enum {
+    SKILL_STRIKE,  // the plain axe strike, free
     SKILL_SPLIT,
     SKILL_SPIN,
     SKILL_BACK,  // the last entry of a submenu goes back
     SKILL_MENU_COUNT,
 } SkillItem;
 
-// The goddess's spells.
+// The goddess's attacks and spells.
 typedef enum {
+    SPELL_STRIKE,  // a plain strike of light, free
     SPELL_BEAM,
     SPELL_LIGHT,
     SPELL_BACK,
@@ -199,7 +200,7 @@ typedef enum {
 
 typedef enum {
     PHASE_COMMAND,      // the one choosing (b->choosing) picks a command
-    PHASE_SPECIAL,      // ... a technique or a spell
+    PHASE_SPECIAL,      // ... an attack: a technique or a spell
     PHASE_ITEMS,        // ... an item
     PHASE_TARGET,       // ... which monster
     PHASE_ALLY_TARGET,  // ... which of the two (for a herb)
@@ -474,7 +475,7 @@ int skill_cost(SkillItem s);
 int spell_cost(SpellItem s);
 // Whether an entry can be chosen now by the one choosing.
 bool battle_command_enabled(const Game *g, Command c);
-bool battle_special_enabled(const Game *g, int entry);  // a technique or a spell
+bool battle_special_enabled(const Game *g, int entry);  // in the Attack submenu
 bool battle_item_enabled(const Game *g, ItemEntry e);
 int battle_special_count(const Game *g);                // entries in that submenu
 int battle_herbs_left(const Game *g);                   // not yet promised this round

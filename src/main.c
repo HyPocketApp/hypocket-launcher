@@ -1632,7 +1632,7 @@ static void draw_battle_menu(const Game *g, bool touch)
     BattlePhase ph = b->phase;
     bool her = b->choosing == 1 && ph != PHASE_MESSAGES;
     // Which list: a submenu while choosing in it (or aiming from it).
-    bool special = ph == PHASE_SPECIAL || (ph == PHASE_TARGET && b->plan[b->choosing].command == CMD_SPECIAL);
+    bool special = ph == PHASE_SPECIAL || ph == PHASE_TARGET;  // the Attack submenu
     bool items = ph == PHASE_ITEMS || ph == PHASE_ALLY_TARGET;
     bool live = ph == PHASE_COMMAND || ph == PHASE_SPECIAL || ph == PHASE_ITEMS;
     Color dim = Fade(RAYWHITE, 0.5f);
@@ -1642,6 +1642,7 @@ static void draw_battle_menu(const Game *g, bool touch)
             const char *label;
             Color dot = { 0 };
             if (i == n - 1) label = text_get(TXT_BACK);
+            else if (i == 0) label = text_get(her ? TXT_SPELL_STRIKE : TXT_SKILL_STRIKE);  // free
             else if (!her) {
                 label = TextFormat(text_get(i == SKILL_SPLIT ? TXT_SKILL_SPLIT : TXT_SKILL_SPIN), skill_cost((SkillItem)i));
                 dot = SP_COLOR;
@@ -1659,9 +1660,9 @@ static void draw_battle_menu(const Game *g, bool touch)
             draw_menu_entry(i, label, b->sub_cursor == i, c, i == ITEM_HERB ? SLIME_C : (Color){ 0 }, touch);
         }
     } else {
-        static const TextId labels[CMD_COUNT] = { TXT_MENU_ATTACK, TXT_MENU_SKILLS, TXT_MENU_DEFEND, TXT_MENU_ITEMS, TXT_MENU_FLEE };
+        static const TextId labels[CMD_COUNT] = { TXT_MENU_ATTACK, TXT_MENU_DEFEND, TXT_MENU_ITEMS, TXT_MENU_FLEE };
         for (int i = 0; i < CMD_COUNT; i++) {
-            const char *label = text_get(i == CMD_SPECIAL && her ? TXT_MENU_SPELLS : labels[i]);
+            const char *label = text_get(labels[i]);
             Color c = !live ? dim : battle_command_enabled(g, (Command)i) ? RAYWHITE : DISABLED;
             draw_menu_entry(i, label, b->cursor == i && live, c, (Color){ 0 }, touch);
         }

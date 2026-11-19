@@ -454,6 +454,13 @@ static int count_msgs(MsgType type)
     return n;
 }
 
+// Attack, then the first entry of its submenu: the plain strike.
+static int attack(void)
+{
+    pick(CMD_ATTACK);
+    return pick(0);
+}
+
 static const BattleMsg *find_msg(MsgType type)
 {
     for (int i = 0; i < g.battle.msg_count; i++)
@@ -479,7 +486,7 @@ static void test_attack_hurts_and_monsters_answer(void)
     game_start_battle(&g, 0);
     play_messages();
     int hp = g.stats.hp;
-    pick(CMD_ATTACK);  // only one monster: no need to choose
+    attack();  // only one monster: no need to choose
     CHECK(g.battle.phase == PHASE_MESSAGES);
     CHECK(has_msg(MSG_ATTACK));
     CHECK(g.battle.enemies[0].hp < species_info(SPECIES_SLIME)->max_hp);
@@ -494,14 +501,18 @@ static void test_choosing_a_target(void)
     game_start_battle(&g, 0);
     play_messages();
     pick(CMD_ATTACK);
+    CHECK(g.battle.phase == PHASE_SPECIAL);  // Attack opens his attacks
+    pick(SKILL_STRIKE);
     CHECK(g.battle.phase == PHASE_TARGET);
     CHECK(g.battle.target == 0);
     GameInput next = { .nav_x = 1 };
     run(&next, 1);
     CHECK(g.battle.target == 1);
     run(&CANCEL, 1);
+    CHECK(g.battle.phase == PHASE_SPECIAL);
+    run(&CANCEL, 1);
     CHECK(g.battle.phase == PHASE_COMMAND);
-    pick(CMD_ATTACK);
+    attack();
     GameInput tap = { .target_pick = 2 };
     run(&tap, 1);
     CHECK(g.battle.phase == PHASE_MESSAGES);
@@ -515,7 +526,7 @@ static void test_skills_cost_stamina(void)
     game_start_battle(&g, 0);
     play_messages();
     g.stats.sp = SKILL_SPIN_COST;
-    pick(CMD_SPECIAL);
+    pick(CMD_ATTACK);
     CHECK(g.battle.phase == PHASE_SPECIAL);
     pick(SKILL_SPIN);
     CHECK(has_msg(MSG_SPIN));
@@ -524,9 +535,10 @@ static void test_skills_cost_stamina(void)
     play_messages();
     if (g.state == STATE_BATTLE) {
         g.stats.sp = 0;
-        CHECK(!battle_command_enabled(&g, CMD_SPECIAL));
-        CHECK(pick(CMD_SPECIAL) & EVENT_DENIED);
-        CHECK(g.battle.phase == PHASE_COMMAND);
+        CHECK(!battle_special_enabled(&g, SKILL_SPLIT) && battle_special_enabled(&g, SKILL_STRIKE));
+        pick(CMD_ATTACK);
+        CHECK(pick(SKILL_SPLIT) & EVENT_DENIED);
+        CHECK(g.battle.phase == PHASE_SPECIAL);
     }
 }
 
@@ -535,10 +547,10 @@ static void test_skills_menu_back(void)
     load(one_slime, COUNT(one_slime));
     game_start_battle(&g, 0);
     play_messages();
-    pick(CMD_SPECIAL);
+    pick(CMD_ATTACK);
     pick(SKILL_BACK);
     CHECK(g.battle.phase == PHASE_COMMAND);
-    pick(CMD_SPECIAL);
+    pick(CMD_ATTACK);
     run(&CANCEL, 1);
     CHECK(g.battle.phase == PHASE_COMMAND);
 }
@@ -579,7 +591,7 @@ static void test_moving_the_cursor(void)
     game_start_battle(&g, 0);
     play_messages();
     CHECK(run(&DOWN, 1) & EVENT_CURSOR);
-    CHECK(g.battle.cursor == CMD_SPECIAL);
+    CHECK(g.battle.cursor == CMD_DEFEND);
     GameInput up = { .nav_y = -1 };
     run(&up, 2);
     CHECK(g.battle.cursor == CMD_FLEE);  // wraps around
@@ -591,7 +603,7 @@ static void test_winning_a_battle(void)
     g.stats.atk = 99;
     game_start_battle(&g, 0);
     play_messages();
-    pick(CMD_ATTACK);
+    attack();
     CHECK(has_msg(MSG_ENEMY_DOWN));
     CHECK(has_msg(MSG_VICTORY));
     CHECK(g.stats.xp == species_info(SPECIES_SLIME)->xp);
@@ -610,7 +622,7 @@ static void test_level_up(void)
     g.stats.hp = 30;
     game_start_battle(&g, 0);
     play_messages();
-    pick(CMD_ATTACK);
+    attack();
     CHECK(has_msg(MSG_LEVEL_UP));
     CHECK(g.stats.level == 2);
     CHECK(g.stats.max_hp > max_hp && g.stats.hp == g.stats.max_hp);
@@ -674,7 +686,7 @@ static void test_beating_the_boss_wins(void)
     g.stats.atk = 500;
     game_start_battle(&g, 0);
     play_messages();
-    pick(CMD_ATTACK);
+    attack();
     play_messages();
     CHECK(g.state == STATE_WON);
 }
@@ -922,7 +934,7 @@ static void test_saving_the_goddess(void)
     g.stats.atk = 99;
     g.stats.hp = g.stats.max_hp;
     while (g.state == STATE_BATTLE) {
-        pick(CMD_ATTACK);
+        attack();
         if (g.battle.phase == PHASE_TARGET) run(&CONFIRM, 1);
         play_messages();
     }
@@ -995,8 +1007,8 @@ static void test_battle_sound_events(void)
     for (int i = 0; i < 400 && g.state == STATE_BATTLE; i++) {
         seen |= play_messages();
         if (g.state != STATE_BATTLE) break;
-        if (g.battle.choosing == 1) { seen |= pick(CMD_SPECIAL); seen |= pick(SPELL_BEAM); }
-        else seen |= pick(CMD_ATTACK);
+        if (g.battle.choosing == 1) { seen |= pick(CMD_ATTACK); seen |= pick(SPELL_BEAM); }
+        else seen |= attack();
         if (g.battle.phase == PHASE_TARGET) seen |= run(&CONFIRM, 1);
     }
     CHECK(seen & EVENT_AXE);
@@ -1043,7 +1055,7 @@ static void test_goddess_has_her_own_menu(void)
     run(&CANCEL, 1);
     CHECK(g.battle.choosing == 0);  // he can change his mind
     pick(CMD_DEFEND);
-    pick(CMD_SPECIAL);
+    pick(CMD_ATTACK);
     CHECK(g.battle.phase == PHASE_SPECIAL);
     pick(SPELL_BEAM);
     CHECK(has_msg(MSG_BEAM));
@@ -1054,7 +1066,7 @@ static void test_goddess_has_her_own_menu(void)
     // Her plain attack costs nothing.
     int mp = g.goddess.mp;
     pick(CMD_DEFEND);
-    pick(CMD_ATTACK);
+    attack();
     const BattleMsg *hit = find_msg(MSG_ATTACK);
     CHECK(hit && hit->actor == ACTOR_GODDESS);
     CHECK(g.goddess.mp >= mp);
@@ -1079,7 +1091,7 @@ static void test_goddess_has_her_own_menu(void)
     g.stats.hp = 5;
     g.goddess.hp = 5;
     pick(CMD_DEFEND);
-    pick(CMD_SPECIAL);
+    pick(CMD_ATTACK);
     pick(SPELL_LIGHT);
     CHECK(has_msg(MSG_LIGHT));
     play_messages();
@@ -1088,7 +1100,10 @@ static void test_goddess_has_her_own_menu(void)
     // Without magic left, the spells are closed.
     g.goddess.mp = 0;
     pick(CMD_DEFEND);
-    CHECK(pick(CMD_SPECIAL) & EVENT_DENIED);
+    pick(CMD_ATTACK);
+    CHECK(pick(SPELL_BEAM) & EVENT_DENIED);
+    CHECK(g.battle.phase == PHASE_SPECIAL);
+    pick(SPELL_BACK);
     CHECK(g.battle.phase == PHASE_COMMAND);
     pick(CMD_DEFEND);
     const BattleMsg *d = find_msg(MSG_DEFEND);
@@ -1116,13 +1131,13 @@ static void test_monsters_attack_the_goddess_too(void)
 
     // When she falls, she sits out and gets back up after the battle.
     g.goddess.hp = 0;
-    pick(CMD_ATTACK);
+    attack();
     CHECK(g.battle.choosing == 0);
     g.battle.enemies[0].hp = 0;
     g.stats.atk = 99;
     play_messages();
     while (g.state == STATE_BATTLE) {
-        pick(CMD_ATTACK);
+        attack();
         play_messages();
     }
     CHECK(g.goddess.hp == 1);
@@ -1216,7 +1231,7 @@ static void test_monsters_go_for_the_kill(void)
         g.stats.hp = 4;                 // one bite and he is out
         g.goddess.hp = g.goddess.max_hp = 30;
         play_messages();
-        while (g.state == STATE_BATTLE && g.battle.phase != PHASE_MESSAGES) pick(CMD_ATTACK);
+        while (g.state == STATE_BATTLE && g.battle.phase != PHASE_MESSAGES) attack();
         const BattleMsg *m = find_msg(MSG_ENEMY_ATTACK);
         if (!m) continue;
         total++;
@@ -1252,7 +1267,7 @@ static void test_monsters_defend(void)
     g.battle.order[1] = 0;
     g.battle.order[2] = 1;
     g.battle.order_count = 3;
-    pick(CMD_ATTACK);
+    attack();
     run(&CONFIRM, 1);
     const BattleMsg *m = find_msg(MSG_ATTACK);
     CHECK(m && m->target == 0 && m->amount <= (int)(40 * 1.15f * 1.6f) / 2 + 1);
@@ -1296,24 +1311,24 @@ static bool auto_battle_with(Encounter kind, int level, int herbs, unsigned seed
                 pick(ITEM_HERB);
                 if (g.battle.phase == PHASE_ALLY_TARGET) { GameInput me = { .ally_pick = 1 }; run(&me, 1); }
             } else if (alive > 1 && s->sp >= SKILL_SPIN_COST) {
-                pick(CMD_SPECIAL);
+                pick(CMD_ATTACK);
                 pick(SKILL_SPIN);
             } else if (s->sp >= SKILL_SPLIT_COST) {
-                pick(CMD_SPECIAL);
+                pick(CMD_ATTACK);
                 pick(SKILL_SPLIT);
             } else {
-                pick(CMD_ATTACK);
+                attack();
             }
         } else {
             // She heals when he is hurt, else casts her beam, else strikes.
             if (s->hp * 2 < s->max_hp && battle_special_enabled(&g, SPELL_LIGHT)) {
-                pick(CMD_SPECIAL);
+                pick(CMD_ATTACK);
                 pick(SPELL_LIGHT);
-            } else if (battle_command_enabled(&g, CMD_SPECIAL)) {
-                pick(CMD_SPECIAL);
+            } else if (battle_special_enabled(&g, SPELL_BEAM)) {
+                pick(CMD_ATTACK);
                 pick(SPELL_BEAM);
             } else {
-                pick(CMD_ATTACK);
+                attack();
             }
         }
         if (g.battle.phase == PHASE_TARGET) run(&CONFIRM, 1);

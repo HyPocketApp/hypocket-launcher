@@ -44,14 +44,14 @@ typedef enum {
     TXT_TOAST_SAVE_FAILED,
     // Battle menus and status
     TXT_MENU_ATTACK,
-    TXT_MENU_SKILLS,
     TXT_MENU_HERB,      // %d: herbs
-    TXT_MENU_SPELLS,
     TXT_MENU_ITEMS,
     TXT_HERO_TURN,
     TXT_CHOOSE_ALLY,
     TXT_MENU_DEFEND,
     TXT_MENU_FLEE,
+    TXT_SKILL_STRIKE,
+    TXT_SPELL_STRIKE,
     TXT_SKILL_SPLIT,    // %d: cost
     TXT_SKILL_SPIN,     // %d: cost
     TXT_BACK,
