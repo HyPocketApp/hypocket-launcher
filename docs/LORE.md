@@ -26,6 +26,15 @@ por fala, em português e inglês. Resumo:
 
 Depois disso, a deusa **acompanha o lenhador** e **luta usando magia**.
 
+### O Toco Ancião
+
+Quando os dois chegam ao Toco Ancião, ele está **adormecido**, e as
+criaturas de fogo que fugiram estão **em volta dele, atacando-o**. Ele
+**acorda com raiva** e elas **fogem**. Depois vem a batalha contra ele.
+
+No jogo isso é a cena 05 em `src/story.c`. O texto dela é um rascunho só com
+narração, para o autor reescrever.
+
 ### Personagens
 
 | Personagem | O que sabemos |
@@ -62,6 +71,6 @@ couber na caixa.
   `src/text.c` (o nome na batalha).
 - Os nomes do lenhador, da deusa e da vila.
 - Como a deusa perdeu os poderes e para que as criaturas querem esse poder.
-- O que acontece depois da introdução. Hoje os mapas 2 e 3 ainda são os da
-  versão anterior (lobos, besouros e o chefe **Toco Ancião**), e a tela de
+- O que acontece entre a introdução e o Toco Ancião (o vale e a clareira
+  ainda têm lobos e besouros da versão anterior), e depois dele. A tela de
   título ainda fala em "acalmar o Toco Ancião".

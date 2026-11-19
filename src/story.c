@@ -152,6 +152,22 @@ static const StoryPage after[] = {
          "Já me disseram isso." },
 };
 
+// Scene 05: at the Elder Stump. The author set what happens (he sleeps, the
+// fire creatures that fled are attacking him, he wakes in a rage and they
+// run); the wording is a first draft for the author to replace.
+static const StoryPage elder[] = {
+    { N, "In the middle of the clearing, a huge ancient stump sleeps.",
+         "No meio da clareira, um enorme toco ancião dorme." },
+    { N, "The fire creatures that fled are all around it, attacking it.",
+         "As criaturas de fogo que fugiram estão em volta dele, atacando-o." },
+    { N, "The Elder Stump wakes up, furious.",
+         "O Toco Ancião acorda, furioso." },
+    { N, "Frightened, the fire creatures run away into the forest.",
+         "Assustadas, as criaturas de fogo fogem para a floresta." },
+    { N, "Still in a rage, the Elder Stump turns to the lumberjack and the goddess.",
+         "Ainda com raiva, o Toco Ancião se volta para o lenhador e a deusa." },
+};
+
 #define COUNT(a) (int)(sizeof(a) / sizeof((a)[0]))
 
 static const struct {
@@ -162,6 +178,7 @@ static const struct {
     [SCENE_WOODS] = { cry, COUNT(cry) },
     [SCENE_CREATURES] = { creatures, COUNT(creatures) },
     [SCENE_GODDESS] = { after, COUNT(after) },
+    [SCENE_ELDER] = { elder, COUNT(elder) },
 };
 
 int story_page_count(Scene scene)

@@ -8,7 +8,7 @@ option(TIMBERHEART_GAME "Build the game (needs raylib, downloaded automatically)
 option(TIMBERHEART_TESTS "Build the tests of the game rules" ON)
 
 # The game rules: plain C, no raylib, so they can be tested anywhere.
-add_library(timberheart_rules STATIC src/game.c src/levels.c src/story.c)
+add_library(timberheart_rules STATIC src/game.c src/levels.c src/story.c src/save.c)
 target_include_directories(timberheart_rules PUBLIC src)
 if(NOT MSVC)
   target_compile_options(timberheart_rules PRIVATE -Wall -Wextra)
@@ -30,7 +30,16 @@ if(TIMBERHEART_GAME)
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
   FetchContent_MakeAvailable(raylib)
 
-  set(GAME_SOURCES src/main.c src/text.c)
+  # The images in assets/ are compiled into the game.
+  file(GLOB_RECURSE ASSET_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/*.png ${CMAKE_CURRENT_SOURCE_DIR}/assets/*.ogg)
+  set(ASSETS_C ${CMAKE_CURRENT_BINARY_DIR}/assets_data.c)
+  add_custom_command(OUTPUT ${ASSETS_C}
+    COMMAND ${CMAKE_COMMAND} -DASSET_DIR=${CMAKE_CURRENT_SOURCE_DIR}/assets -DOUTPUT=${ASSETS_C}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_assets.cmake
+    DEPENDS ${ASSET_FILES} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_assets.cmake
+    COMMENT "Embedding the images from assets/")
+
+  set(GAME_SOURCES src/main.c src/text.c ${ASSETS_C})
   if(ANDROID)
     # Loaded by Android's NativeActivity; raylib's glue calls our main().
     add_library(timberheart SHARED ${GAME_SOURCES})

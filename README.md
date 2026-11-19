@@ -13,26 +13,65 @@ seres querem roubar o que resta. A história está em
 - **Um mundo ligado:** o jogo começa na **casa do lenhador**, um lugar
   tranquilo, sem monstros. Uma trilha leva ao bosque, o bosque ao vale e o
   vale à clareira. Não há fases: você vai e volta entre as áreas como num RPG
-  tradicional, e cada área lembra o que mudou (árvores cortadas, baús
-  abertos, monstros derrotados).
+  tradicional, e cada área lembra o que mudou (baús abertos, monstros
+  derrotados).
 - **A Deusa da Lua:** depois de salva, ela **segue o lenhador** pelo mapa e
-  **luta ao lado dele**. Em cada turno você escolhe a ação dele e depois a
-  dela: **Raio Lunar** (magia num monstro, atravessa metade da armadura),
-  **Luz da Lua** (cura os dois) ou **Defender**. Magias gastam PM. Os
-  monstros atacam os dois; se ela cair, volta a levantar depois da luta.
-- **Explorando o mapa:** ande um quadrado por vez (para cima, para baixo e para os lados), como nos RPGs clássicos, **derrube árvores** com o machado
-  para abrir caminhos, abra **baús** (ervas ou uma lâmina mais afiada) e
-  **descanse nas fogueiras** (ou na porta de casa) para recuperar tudo. Se
-  você cair numa batalha, acorda no último lugar em que descansou, sem perder
-  nada.
-- **Batalhas por turno:** ao tocar num monstro, começa uma batalha. Você
-  escolhe uma ação e depois cada monstro age:
-  - **Machadada:** um golpe simples (às vezes crítico).
-  - **Técnicas:** gastam fôlego (FÔ). **Golpe Rachador** é um golpe forte
-    num alvo; **Corte Giratório** atinge todos os monstros.
-  - **Erva:** recupera 30 de vida.
-  - **Defender:** reduz o dano pela metade e recupera fôlego.
-  - **Fugir:** nem sempre funciona, e do chefe não dá para fugir.
+  **luta ao lado dele**, com os mesmos comandos que ele (veja Batalhas). As
+  magias dela são **Raio Lunar** (num monstro, atravessa metade da
+  armadura) e **Luz da Lua** (cura os dois); gastam PM. Se ela cair, volta a
+  levantar depois da luta.
+- **Explorando o mapa:** ande um quadrado por vez (para cima, para baixo e para os lados), como nos RPGs clássicos, abra **baús** (ervas ou uma lâmina mais afiada) e
+  **descanse na fogueira** (só há uma, na Clareira, perto do chefe) ou na
+  porta de casa para recuperar tudo e **salvar o jogo**. Árvores, arbustos
+  e pedras ficam no lugar: o machado é para as batalhas. Ervas são raras:
+  um baú por área, com uma erva, e às vezes um monstro deixa uma. De frente
+  para uma fogueira, um baú ou a porta, aparece uma placa dizendo o que o
+  botão de ação faz ali, até você fazer aquilo pela primeira vez. Se você cair numa batalha, acorda no último lugar em
+  que descansou, sem perder nada.
+- **Música:** o tema de flauta toca no menu e explorando; "Conflito na
+  Névoa" toca nas batalhas e nas cenas de tensão (a deusa sendo atacada e o
+  Toco Ancião acordando). Uma passa para a outra aos poucos. As duas são do
+  autor do jogo, em `assets/music/` (OGG, convertidas dos originais em M4A),
+  e vão embutidas no programa como as imagens.
+- **Efeitos sonoros:** baú abrindo, machadada (golpes do lenhador), Raio Lunar e vitória são gravações do autor do jogo, em
+  `assets/sfx/`. Os outros sons ainda são bipes gerados pelo código.
+- **Jogos salvos:** cada "Novo jogo" cria um jogo salvo novo, sem limite.
+  Depois disso, só você salva: descansando na fogueira ou na porta de casa.
+  O jogo salvo guarda nível, experiência, vida, energia, ervas, força, a
+  deusa e a vida e magia dela, a história até ali, onde você está, onde
+  acorda se cair, e em cada área os baús abertos e os monstros vencidos.
+  "Carregar jogo" lista todos, do mais recente para o mais antigo, com
+  nível, área e data. Os arquivos ficam em `~/.local/share/timberheart` no
+  Linux, `%APPDATA%\Timberheart` no Windows e na memória interna do app no
+  Android (`src/save.c`). Os arquivos são texto (`chave=valor`), então
+  continuam abrindo depois que o jogo é atualizado.
+- **Batalhas por turno, com velocidade:** ao tocar num monstro, começa uma
+  batalha. A cada rodada, a velocidade de cada um (lenhador, deusa e
+  monstros, com um pouco de sorte) decide a **ordem dos turnos**, mostrada
+  em fichas no alto da tela. Você escolhe o comando do lenhador e o da
+  deusa, e todos agem nessa ordem. Os dois têm os mesmos comandos:
+  - **Atacar:** abre os ataques de cada um. Dele: **Machadada** (às vezes
+    crítica, de graça), **Golpe Rachador** (forte num alvo) e **Corte
+    Giratório** (em todos), que gastam fôlego. Dela: **Golpe de Luz** (de
+    graça), **Raio Lunar** e **Luz da Lua**, que gastam PM.
+  - **Defender:** metade do dano a rodada inteira, e recupera fôlego ou PM.
+  - **Itens:** uma **erva** cura 30 de vida, em quem você escolher.
+  - **Fugir:** mais fácil quando vocês são mais rápidos que os monstros; do
+    chefe e das fagulhas não dá para fugir.
+- **Monstros que pensam:** cada monstro escolhe o que fazer na vez dele. Eles
+  avaliam o quanto cada golpe tiraria de vocês, vão em quem podem derrubar
+  (o lenhador acima de tudo), miram a deusa quando ela pode curar, e se
+  defendem quando estão quase caindo e ainda têm companhia. Os mais
+  espertos variam os golpes; uma gosma age quase ao acaso, o Toco Ancião
+  quase sempre faz a melhor jogada. Golpes especiais:
+  - **Fagulha:** cospe fogo, que ignora a armadura.
+  - **Besouro:** endurece a carapaça (mais defesa por 3 rodadas) e investe
+    com o chifre (forte, mas erra às vezes).
+  - **Lobo:** mordida forte; o uivo deixa a matilha mais feroz por 3
+    rodadas; os lobos atacam juntos o mesmo alvo.
+  - **Toco Ancião:** raízes que acertam os dois e podem prender um (perde a
+    próxima vez), esmagar um só com força, e beber seiva para se curar
+    (duas vezes, quando está fraco).
 - **Evolução:** cada vitória dá experiência. Ao subir de nível, vida,
   fôlego, ataque e defesa aumentam. O machado corta mais forte em coisas de
   madeira.
@@ -104,7 +143,7 @@ cmake --build build-tests
 ctest --test-dir build-tests --output-on-failure
 ```
 
-Eles conferem a exploração (cortar árvores, pedras, baús, fogueiras, saída),
+Eles conferem a exploração (árvores e pedras no caminho, baús, fogueira, saída),
 as batalhas (menus, alvos, técnicas, ervas, defesa, fuga, vitória, derrota,
 subida de nível, chefe) e se todo mapa pode ser completado. Também simulam
 centenas de batalhas para checar o equilíbrio: um lenhador novo vence as
@@ -119,19 +158,25 @@ gosmas, os lobos pedem alguns níveis, e o chefe vence quem chega despreparado.
 | `src/main.c` | Janela, entrada (teclado, controle, toque), desenho e sons, com raylib. |
 | `src/text.c`, `src/text.h` | Os textos do jogo em inglês e português. |
 | `tests/test_game.c` | Testes das regras. |
+| `assets/` | Os sprites do autor (PNG). Entram dentro do jogo na compilação; o que ainda não tem imagem é desenhado pelo código. |
 | `docs/LORE.md` | A história do jogo: o que já está decidido e o que falta decidir. |
 | `android/` | Projeto Gradle que empacota o jogo como APK. |
 | `CMakeLists.txt` | Compila o jogo para PC e Android, e os testes. |
 
 ### Criar ou mudar mapas
 
-Edite `src/levels.c`. Cada caractere é um quadrado de 16x16 pixels:
-`#` penhasco, `T` árvore (dá para cortar), `R` pedra, `~` água, `=` ponte,
-`c` baú com ervas, `A` baú com lâmina afiada, `f` fogueira, `H` casa,
+Edite `src/levels.c`. Cada caractere é um quadrado do mapa (16x16 na tela virtual, 32x32 na arte):
+`#` mata fechada (a borda do mundo; use manchas irregulares, não linhas
+retas), `T` árvore, `o` arbusto, `,` flores,
+`R` pedra, `~` água, `=` ponte, `c` baú com ervas, `A` baú com lâmina
+afiada, `f` fogueira, `H` casa (um bloco de 4x3 com a porta em baixo, na
+segunda coluna),
 `D` porta (descansar), `W` lenha, `:` trilha, `P` início (só na casa),
 `M` a Deusa da Lua. Os dígitos `1` a `9` são caminhos entre áreas: andar
 sobre um leva à outra área que tem o mesmo dígito, e cada dígito aparece em
-exatamente duas áreas. Monstros: `s` gosma, `g` duas gosmas,
+exatamente duas áreas. Até a deusa entrar no grupo, do bosque em diante só
+se volta para trás. As trilhas precisam chegar às saídas lado a lado (não só
+na diagonal) e as pontes precisam ter terra nas duas pontas. Monstros: `s` gosma, `g` duas gosmas,
 `b` besouro e gosma, `v` lobo, `w` dois lobos, `e` seres de fogo (ficam
 parados; não dá para fugir), `B` o chefe. Rode os testes depois: eles avisam se
 algo ficou inalcançável ou se um caminho não tem par.
@@ -144,9 +189,10 @@ uma mudança deixar o jogo fácil ou difícil demais.
 
 ## Pensado para celulares fracos
 
-O jogo desenha numa tela virtual de 320x180 e amplia a imagem para a tela
-real, só desenha o que está visível, não carrega imagens nem áudio de
-arquivos e usa OpenGL ES 2. O APK tem cerca de 4 MB.
+O jogo monta a tela em 320x180, desenha em 640x360 (a arte tem 32x32 pixels
+por quadrado do mapa) e amplia a imagem para a tela real. Só desenha o que
+está visível, não carrega imagens nem áudio de arquivos e usa OpenGL ES 2.
+O APK tem cerca de 6 MB.
 
 ## Licença
 
